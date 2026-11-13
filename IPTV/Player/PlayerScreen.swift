@@ -22,6 +22,8 @@ struct PlayerScreen: View {
     @State private var hideTask: Task<Void, Never>?
     @State private var isScrubbing = false
     @State private var findings: [StreamDiagnostics.Finding] = []
+    /// Fehler aller Versuche, z. B. „Apple-Player: Öffnen fehlgeschlagen“.
+    @State private var attemptErrors: [String] = []
     @State private var isDiagnosing = false
     @State private var isZoomed = false
 
@@ -217,6 +219,7 @@ struct PlayerScreen: View {
 
     private func runPlayback() async {
         errorMessage = nil
+        attemptErrors = []
         if attempt == 0 { userData.recordPlayback(of: channel) }
         candidates = engineSetting.candidates(for: channel)
         candidateIndex = 0
@@ -238,6 +241,7 @@ struct PlayerScreen: View {
 
                 if let failure = engine.failureMessage ?? (timedOut ? "Zeitüberschreitung" : nil) {
                     print("Wiedergabe mit \(candidates[candidateIndex].playerName) fehlgeschlagen: \(failure)")
+                    attemptErrors.append("\(candidates[candidateIndex].playerName): \(failure)")
                     engine.stop()
                     if hasAlternative {
                         self.engine = nil
@@ -250,7 +254,8 @@ struct PlayerScreen: View {
                         candidateStart = .now
                     } else {
                         self.engine = nil
-                        errorMessage = failure
+                        let ext = channel.url.pathExtension.isEmpty ? "ohne Endung" : ".\(channel.url.pathExtension)"
+                        errorMessage = (attemptErrors + ["Dateityp: \(ext)"]).joined(separator: "\n")
                         return
                     }
                 }
