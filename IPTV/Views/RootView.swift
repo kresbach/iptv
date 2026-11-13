@@ -16,30 +16,33 @@ struct RootView: View {
     }
 }
 
+enum AppTab: Hashable {
+    case home
+    case section(ContentKind)
+    case search
+}
+
 struct MainTabView: View {
+    @State private var selection: AppTab = .home
     @State private var playingChannel: Channel?
 
     var body: some View {
-        TabView {
-            Tab("Kategorien", systemImage: "square.grid.2x2.fill") {
+        TabView(selection: $selection) {
+            Tab("Start", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack {
-                    CategoriesView()
+                    HomeView(selection: $selection)
                 }
             }
 
-            Tab("Alle Sender", systemImage: "play.tv.fill") {
-                NavigationStack {
-                    AllChannelsView()
+            ForEach(ContentKind.allCases) { kind in
+                Tab(kind.title, systemImage: kind.symbol, value: AppTab.section(kind)) {
+                    NavigationStack {
+                        SectionView(kind: kind)
+                    }
                 }
             }
 
-            Tab("Einstellungen", systemImage: "gearshape.fill") {
-                NavigationStack {
-                    SettingsView()
-                }
-            }
-
-            Tab(role: .search) {
+            Tab(value: AppTab.search, role: .search) {
                 NavigationStack {
                     SearchView()
                 }
@@ -53,7 +56,7 @@ struct MainTabView: View {
     }
 }
 
-/// Erlaubt jeder Liste, einen Sender abzuspielen, ohne selbst einen Player zu verwalten.
+/// Erlaubt jeder Liste, einen Eintrag abzuspielen, ohne selbst einen Player zu verwalten.
 struct PlayChannelAction {
     let handler: @MainActor (Channel) -> Void
 

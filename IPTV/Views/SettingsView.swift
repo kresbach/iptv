@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(PlaylistStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showsSetup = false
     @State private var confirmsRemoval = false
@@ -17,8 +18,9 @@ struct SettingsView: View {
                             .textSelection(.enabled)
                     }
                 }
-                LabeledContent("Sender", value: store.channels.count, format: .number)
-                LabeledContent("Kategorien", value: store.categories.count, format: .number)
+                ForEach(ContentKind.allCases) { kind in
+                    LabeledContent(kind.title, value: store.section(kind).items.count, format: .number)
+                }
                 if let lastUpdated = store.lastUpdated {
                     LabeledContent("Aktualisiert") {
                         Text(lastUpdated, format: .relative(presentation: .named))
@@ -56,6 +58,11 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Einstellungen")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Fertig", systemImage: "checkmark") { dismiss() }
+            }
+        }
         .sheet(isPresented: $showsSetup) {
             NavigationStack {
                 PlaylistSetupView(isSheet: true)
@@ -66,7 +73,10 @@ struct SettingsView: View {
             isPresented: $confirmsRemoval,
             titleVisibility: .visible
         ) {
-            Button("Entfernen", role: .destructive) { store.removePlaylist() }
+            Button("Entfernen", role: .destructive) {
+                dismiss()
+                store.removePlaylist()
+            }
         } message: {
             Text("Die gespeicherte Senderliste wird von diesem Gerät gelöscht.")
         }

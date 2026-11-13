@@ -37,14 +37,6 @@ struct ChannelListView: View {
     }
 }
 
-struct AllChannelsView: View {
-    @Environment(PlaylistStore.self) private var store
-
-    var body: some View {
-        ChannelListView(title: "Alle Sender", channels: store.channels)
-    }
-}
-
 struct ChannelRow: View {
     let channel: Channel
     var showsCategory = true

@@ -31,6 +31,11 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
     /// Kategorie für die Anzeige. Sender ohne Gruppe landen in „Ohne Kategorie“.
     var category: String { group ?? Self.ungroupedTitle }
 
+    /// Live TV, Film oder Serie, abgeleitet aus URL, Gruppe und Name.
+    var kind: ContentKind {
+        ContentClassifier.kind(url: url, group: group, name: name)
+    }
+
     /// Kürzel für den runden Platzhalter in der Liste, z. B. „DA“ für „Das Erste HD“.
     var initials: String {
         let words = name

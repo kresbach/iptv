@@ -60,15 +60,21 @@ struct PlayerScreen: View {
 
             Spacer()
 
-            Label("LIVE", systemImage: "dot.radiowaves.left.and.right")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Theme.gradient, in: .capsule)
+            if channel.kind == .live {
+                liveBadge
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+
+    private var liveBadge: some View {
+        Label("LIVE", systemImage: "dot.radiowaves.left.and.right")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Theme.gradient, in: .capsule)
     }
 
     private func errorOverlay(_ message: String) -> some View {
@@ -100,6 +106,9 @@ struct PlayerScreen: View {
         for await status in item.publisher(for: \.status).values where status == .failed {
             errorMessage = item.error?.localizedDescription
                 ?? "Das Format wird möglicherweise nicht unterstützt."
+            if channel.url.pathExtension.lowercased() == "mkv" {
+                errorMessage = "MKV-Dateien kann der iOS-Player nicht abspielen."
+            }
         }
     }
 }

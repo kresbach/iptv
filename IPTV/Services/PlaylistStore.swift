@@ -16,17 +16,16 @@ final class PlaylistStore {
     private(set) var phase: Phase = .restoring
     private(set) var sourceURL: URL?
     private(set) var lastUpdated: Date?
-    private(set) var channels: [Channel] = []
-    private(set) var categories: [ChannelCategory] = []
+    private(set) var content = PlaylistContent.empty
     private(set) var isLoading = false
     var errorMessage: String?
 
-    @ObservationIgnored private var channelsByCategory: [String: [Channel]] = [:]
-
     // MARK: - Abfragen
 
-    func channels(in category: String) -> [Channel] {
-        channelsByCategory[category] ?? []
+    var channels: [Channel] { content.channels }
+
+    func section(_ kind: ContentKind) -> ContentSection {
+        content.section(kind)
     }
 
     func search(_ query: String, in source: [Channel]? = nil) -> [Channel] {
@@ -45,12 +44,15 @@ final class PlaylistStore {
     func restore() async {
         guard phase == .restoring else { return }
         let fileURL = Self.storageURL
-        let snapshot = await Task.detached(priority: .userInitiated) {
-            try? JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: fileURL))
+        let restored = await Task.detached(priority: .userInitiated) { () -> (Snapshot, PlaylistContent)? in
+            guard let snapshot = try? JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: fileURL)) else {
+                return nil
+            }
+            return (snapshot, PlaylistContent(channels: snapshot.channels))
         }.value
 
-        if let snapshot, !snapshot.channels.isEmpty {
-            apply(channels: snapshot.channels)
+        if case let (snapshot, restoredContent)? = restored, !restoredContent.channels.isEmpty {
+            content = restoredContent
             sourceURL = snapshot.sourceURL
             lastUpdated = snapshot.lastUpdated
             phase = .ready
@@ -83,7 +85,7 @@ final class PlaylistStore {
     func removePlaylist() {
         sourceURL = nil
         lastUpdated = nil
-        apply(channels: [])
+        content = .empty
         phase = .empty
         try? FileManager.default.removeItem(at: Self.storageURL)
     }
@@ -102,13 +104,13 @@ final class PlaylistStore {
                 throw LoadError.httpStatus(http.statusCode)
             }
 
-            // Parsen kann bei großen Listen (> 50.000 Einträge) etwas dauern,
-            // daher im Hintergrund statt auf dem Main Thread.
-            let parsed = try await Task.detached(priority: .userInitiated) {
-                try M3UParser.parse(String(decoding: data, as: UTF8.self))
+            // Parsen und Einsortieren kann bei großen Listen (> 50.000 Einträge)
+            // etwas dauern, daher im Hintergrund statt auf dem Main Thread.
+            content = try await Task.detached(priority: .userInitiated) {
+                let channels = try M3UParser.parse(String(decoding: data, as: UTF8.self))
+                return PlaylistContent(channels: channels)
             }.value
 
-            apply(channels: parsed)
             sourceURL = url
             lastUpdated = .now
             phase = .ready
@@ -121,24 +123,6 @@ final class PlaylistStore {
     }
 
     // MARK: - Intern
-
-    private func apply(channels newChannels: [Channel]) {
-        var grouped: [String: [Channel]] = [:]
-        var order: [String] = []
-        for channel in newChannels {
-            let key = channel.category
-            if grouped[key] == nil { order.append(key) }
-            grouped[key, default: []].append(channel)
-        }
-        // Reihenfolge wie in der Playlist, „Ohne Kategorie“ ans Ende.
-        if let index = order.firstIndex(of: Channel.ungroupedTitle) {
-            order.append(order.remove(at: index))
-        }
-
-        channels = newChannels
-        channelsByCategory = grouped
-        categories = order.map { ChannelCategory(name: $0, count: grouped[$0]?.count ?? 0) }
-    }
 
     private func persist() async {
         let snapshot = Snapshot(sourceURL: sourceURL, lastUpdated: lastUpdated, channels: channels)
