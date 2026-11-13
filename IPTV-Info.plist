@@ -2,14 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Viele IPTV-Anbieter liefern Playlists und Streams nur per http aus. -->
+	<!--
+		Viele IPTV-Anbieter liefern Playlists, EPG und Streams nur per http aus.
+		Wichtig: KEINE weiteren NSAllows…-Schlüssel (z. B. NSAllowsArbitraryLoadsForMedia)
+		ergänzen, sonst ignoriert iOS NSAllowsArbitraryLoads und http-Downloads scheitern.
+	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
-		<key>NSAllowsArbitraryLoadsForMedia</key>
-		<true/>
 	</dict>
+	<!-- Für Server im Heimnetz (z. B. 192.168.x.x) -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Damit Playlists und Streams von Servern in deinem Heimnetz geladen werden können.</string>
 	<!-- Ton im Hintergrund und Bild-in-Bild -->
 	<key>UIBackgroundModes</key>
 	<array>

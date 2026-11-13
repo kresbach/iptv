@@ -21,8 +21,15 @@ enum M3UParser {
         }
     }
 
-    static func parse(_ text: String) throws -> [Channel] {
+    struct Result: Sendable {
+        let channels: [Channel]
+        /// EPG-Adresse aus dem Kopf (`#EXTM3U url-tvg="…"` bzw. `x-tvg-url`).
+        let epgURL: URL?
+    }
+
+    static func parse(_ text: String) throws -> Result {
         var channels: [Channel] = []
+        var epgURL: URL?
         channels.reserveCapacity(1024)
 
         var pendingName: String?
@@ -33,7 +40,14 @@ enum M3UParser {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
 
-            if line.hasPrefix("#EXTINF") {
+            if line.hasPrefix("#EXTM3U") {
+                let attributes = parseAttributes(Substring(line.dropFirst("#EXTM3U".count)))
+                let value = attributes["url-tvg"] ?? attributes["x-tvg-url"] ?? attributes["tvg-url"]
+                epgURL = value?
+                    .split(separator: ",").first
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .flatMap(URL.init(string:))
+            } else if line.hasPrefix("#EXTINF") {
                 let info = parseExtInf(line)
                 pendingName = info.name
                 pendingAttributes = info.attributes
@@ -65,7 +79,7 @@ enum M3UParser {
         }
 
         guard !channels.isEmpty else { throw ParseError.noChannels }
-        return channels
+        return Result(channels: channels, epgURL: epgURL)
     }
 
     // MARK: - Hilfsfunktionen

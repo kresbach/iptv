@@ -1,7 +1,7 @@
 import Foundation
 
 /// Die drei Bereiche der App, wie man sie von IPTV-Playern kennt.
-enum ContentKind: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum ContentKind: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
     case live
     case movie
     case series
@@ -29,7 +29,7 @@ enum ContentKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .live: "Sender"
         case .movie: "Filme"
-        case .series: "Episoden"
+        case .series: "Serien"
         }
     }
 }

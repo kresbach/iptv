@@ -1,22 +1,22 @@
 # IPTV für iOS
 
-Eine schlanke IPTV-App für iPhone und iPad in SwiftUI. Bedienkonzept und Funktionsumfang orientieren sich an bekannten IPTV-Playern wie Hot Player: ein Startbildschirm mit **Live TV, Filmen und Serien**, Kategorien, Suche und ein nativer Player. Die App enthält keine eigenen Inhalte, sondern spielt deine M3U-Playlist ab.
+Eine schlanke IPTV-App für iPhone und iPad in SwiftUI. Bedienkonzept und Funktionsumfang orientieren sich an bekannten IPTV-Playern wie Hot Player: ein Startbildschirm mit **Live TV, Filmen und Serien**, Kategorien, Suche, TV-Guide und ein nativer Player. Die App enthält keine eigenen Inhalte, sondern spielt deine Playlist ab.
 
 ## Funktionen
 
-- **Playlist per URL laden**: Link vom IPTV-Anbieter einfügen (auch über den Einfügen-Button). Die Liste wird lokal gespeichert und steht beim nächsten Start sofort bereit, auch offline.
-- **Startbildschirm** mit großen Kacheln für Live TV, Filme und Serien, dazu Playlist-Status und Aktualisieren.
-- **Automatische Aufteilung** der Playlist in die drei Bereiche:
-  - über das Pfadschema der Stream-URLs (`/movie/…`, `/series/…`, typisch für Xtream-Codes-Anbieter),
-  - über Dateiendungen (`.mp4`, `.mkv` …),
-  - über Gruppennamen, die mit „VOD“ oder „Serie“ beginnen,
-  - über Episodenkennungen wie `S01 E02`.
-- **Kategorien** aus `group-title` bzw. `#EXTGRP` als Kacheln mit passenden Symbolen, in jedem Bereich mit einer Kachel „Alle“.
-- **Live TV** als Senderliste, **Filme** als Poster-Raster (Cover aus `tvg-logo`), **Serien** zu Staffeln und Episoden zusammengefasst.
-- **Suche** als eigener Such-Tab (iOS 26) über alle Bereiche, Treffer nach Live TV, Filmen und Serien gruppiert.
-- **Player** auf Basis von AVKit mit Bild-in-Bild, AirPlay und Ton im Hintergrund.
-- **Einstellungen**: aktualisieren, Playlist wechseln oder entfernen.
-- **Design**: Orange, Liquid Glass (`glassEffect`, `.glass`-Buttons), Tab-Leiste, die beim Scrollen kleiner wird; Hell- und Dunkelmodus.
+- **Mehrere Playlists**, jeweils als
+  - **M3U-Link** (http oder https; fehlt `http://`, wird es ergänzt),
+  - **Xtream-Codes-Login** (Server, Benutzername, Passwort) mit Covern, Serien inkl. Staffeln und automatischem TV-Guide,
+  - **M3U-Datei** aus der Dateien-App, iCloud Drive usw.
+  
+  Wechseln geht über das Titelmenü auf dem Startbildschirm oder unter *Einstellungen → Playlists verwalten*.
+- **Startbildschirm** mit Kacheln für Live TV, Filme und Serien sowie den Leisten *Weiterschauen*, *Zuletzt gesehen* und *Favoriten*.
+- **Automatische Aufteilung** von M3U-Listen in Live TV, Filme und Serien (über URL-Pfad wie `/movie/` oder `/series/`, Dateiendung, Gruppenname, `S01 E02`).
+- **Favoriten**: Wischen nach links oder langes Drücken in Listen, Herz im Player und in der Serienansicht. In jedem Bereich gibt es eine Kachel *Favoriten*.
+- **Weiterschauen**: Filme und Episoden starten dort, wo du aufgehört hast. Der Fortschritt erscheint als Balken.
+- **TV-Guide (EPG)**: aktuelle Sendung mit Fortschritt in der Senderliste, *Jetzt/Danach* im Player, Wochenprogramm über langes Drücken → *TV-Programm*. Quellen sind XMLTV (auch `.xml.gz`), `url-tvg` aus der M3U, Xtream `xmltv.php` oder eine eigene Adresse.
+- **Suche** über alle Bereiche.
+- **Player**: Apple-Player (Bild-in-Bild, AirPlay) und optional **VLC** für `.ts`, `.mkv`, `rtmp` usw. In der Einstellung *Automatisch* wird VLC verwendet, wenn das Format es erfordert oder der Apple-Player scheitert.
 
 ## Technik
 
@@ -24,38 +24,47 @@ Eine schlanke IPTV-App für iPhone und iPad in SwiftUI. Bedienkonzept und Funkti
 |---|---|
 | Plattform | iOS / iPadOS 26+ |
 | Sprache | Swift 6 (Strict Concurrency) |
-| UI | SwiftUI, `Tab`-API mit `Tab(role: .search)`, Liquid Glass |
-| Zustand | `@Observable` (`PlaylistStore`), Environment |
-| Netzwerk | `async/await` mit `URLSession` |
-| Parsing | Eigener M3U-Parser, läuft im Hintergrund |
-| Speicherung | JSON-Snapshot in *Application Support* |
-| Wiedergabe | `AVPlayerViewController` |
+| UI | SwiftUI, `Tab`-API mit Such-Tab, Liquid Glass |
+| Zustand | `@Observable` (`PlaylistStore`, `UserDataStore`) |
+| Netzwerk | `async/await`, `URLSession` mit VLC-User-Agent |
+| Speicherung | JSON-Dateien in *Application Support* (Dateischutz aktiv) |
+| Wiedergabe | `AVPlayerViewController`, optional VLCKit |
 
 ## Projektstruktur
 
 ```
-IPTV.xcodeproj         Xcode-Projekt (synchronisierte Ordner: neue Dateien in IPTV/ werden automatisch übernommen)
-IPTV-Info.plist        Zusatzeinträge: ATS für http-Streams, Hintergrund-Audio
+IPTV.xcodeproj         Xcode-Projekt (synchronisierte Ordner)
+IPTV-Info.plist        ATS für http, Heimnetz-Zugriff, Hintergrund-Audio
 IPTV/
-  App/                 App-Einstieg und Farben (Theme)
-  Models/              Channel, ContentKind (Klassifizierung), PlaylistContent, SeriesShow
-  Services/            M3UParser, PlaylistStore
-  Views/               Start, Bereiche/Kategorien, Listen, Poster, Suche, Player, Einstellungen
-  Assets.xcassets      App-Icon und Akzentfarbe
+  App/                 App-Einstieg und Farben
+  Models/              Channel, Playlist, PlaylistContent, SeriesShow, EPG, Klassifizierung
+  Services/            M3UParser, XtreamClient, EPGService, PlaylistStore, UserDataStore, Storage
+  Player/              PlayerScreen, Apple-Player, VLC-Player (optional)
+  Views/               Start, Bereiche, Listen, Poster, Suche, Einstellungen, Playlist hinzufügen
 Samples/beispiel.m3u   Beispiel-Playlist mit öffentlichen Test-Streams
 ```
 
 ## Starten
 
-1. Projekt mit **Xcode 26** oder neuer öffnen: `IPTV.xcodeproj`.
-2. Unter *Signing & Capabilities* dein Team auswählen. Die Bundle-ID ist `com.kresbach.IPTV`.
+1. `IPTV.xcodeproj` mit **Xcode 26** öffnen.
+2. Unter *Signing & Capabilities* dein Team wählen.
 3. Simulator oder iPhone wählen und mit ⌘R starten.
 
-Zum Ausprobieren ohne eigenen Anbieter kannst du den Raw-Link zu `Samples/beispiel.m3u` verwenden, sofern das Repository öffentlich ist. Alternativ lädst du die Datei an einer beliebigen Stelle hoch, z. B. als GitHub Gist (Raw-Link).
+## VLC einbinden (optional, empfohlen für .ts/.mkv)
+
+Der Apple-Player spielt HLS (`.m3u8`) und MP4. Für MPEG-TS (`.ts`), MKV und andere Formate braucht es VLC. Der Code dafür ist schon vorhanden und wird automatisch aktiv, sobald das Paket eingebunden ist:
+
+1. In Xcode **File → Add Package Dependencies …**
+2. Oben rechts die Adresse `https://github.com/tylerjonesio/vlckit-spm` eingeben.
+3. *Dependency Rule*: „Up to Next Major Version“ ab `3.6.0`, dann **Add Package**.
+4. Das Produkt **VLCKitSPM** dem Target **IPTV** zuordnen und **Add Package** bestätigen.
+5. Neu bauen (⌘R). In den Einstellungen erscheint unter *Wiedergabe* jetzt VLC als Option.
+
+Hinweis: `vlckit-spm` ist ein inoffizielles Paket, das die offiziellen VLCKit-Binärdateien von VideoLAN für den Swift Package Manager bereitstellt. Es vergrößert die App um etwa 50–70 MB.
 
 ## Hinweise
 
-- **Filme im MKV-Format** kann AVPlayer nicht abspielen; MP4 und HLS funktionieren.
-- **Stream-Formate**: AVPlayer spielt HLS (`.m3u8`) zuverlässig ab. Reine MPEG-TS-Streams (`.ts`, oft bei Xtream-Codes-Anbietern) laufen damit häufig nicht. Viele Anbieter bieten dieselben Sender auch als HLS an, z. B. mit `output=m3u8` oder `output=hls` im Playlist-Link. Falls nötig, lässt sich später VLCKit als zweiter Player einbauen.
-- **App Transport Security** ist für Medien und Playlists gelockert (`NSAllowsArbitraryLoads`), weil viele Anbieter nur `http` nutzen. Für eine Veröffentlichung im App Store musst du das gegenüber Apple begründen.
+- **http-Playlists**: Die `IPTV-Info.plist` erlaubt http über `NSAllowsArbitraryLoads`. Ergänze dort keine weiteren `NSAllows…`-Schlüssel, sonst ignoriert iOS diese Freigabe und http-Downloads scheitern.
+- **User-Agent**: Viele IPTV-Server lassen nur bekannte Player zu. Die App meldet sich daher als VLC.
+- **App Store**: Die gelockerte App Transport Security musst du gegenüber Apple begründen.
 - Bitte nutze die App nur mit Inhalten, für die du die Rechte hast.

@@ -1,30 +1,44 @@
 import SwiftUI
 
-/// Ziel einer Kategorie-Kachel. `category == nil` steht für „Alle“.
-struct CategoryRoute: Hashable {
-    let kind: ContentKind
-    let category: String?
-}
-
-/// Einstieg in einen Bereich (Live TV, Filme oder Serien): Kategorien als Kacheln.
+/// Einstieg in einen Bereich (Live TV, Filme oder Serien): Kategorien als Kacheln,
+/// davor „Alle“ und – falls vorhanden – „Favoriten“.
 struct SectionView: View {
     @Environment(PlaylistStore.self) private var store
+    @Environment(UserDataStore.self) private var userData
     let kind: ContentKind
 
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 14)]
 
+    private var categories: [ChannelCategory] {
+        kind == .series ? store.content.series.categories : store.section(kind).categories
+    }
+
+    private var favoriteCount: Int {
+        switch kind {
+        case .series: store.content.series.shows.count(where: { userData.isFavorite($0) })
+        default: store.section(kind).items.count(where: { userData.isFavorite($0) })
+        }
+    }
+
     var body: some View {
-        let section = store.section(kind)
+        let total = store.content.count(of: kind)
 
         ScrollView {
             LazyVGrid(columns: columns, spacing: 14) {
-                NavigationLink(value: CategoryRoute(kind: kind, category: nil)) {
-                    CategoryCard(title: "Alle", count: section.items.count, unit: kind.unit, symbol: kind.symbol)
+                NavigationLink(value: CategoryRoute(kind: kind, filter: .all)) {
+                    CategoryCard(title: "Alle", count: total, unit: kind.unit, symbol: kind.symbol)
                 }
                 .buttonStyle(.plain)
 
-                ForEach(section.categories) { category in
-                    NavigationLink(value: CategoryRoute(kind: kind, category: category.name)) {
+                if favoriteCount > 0 {
+                    NavigationLink(value: CategoryRoute(kind: kind, filter: .favorites)) {
+                        CategoryCard(title: "Favoriten", count: favoriteCount, unit: kind.unit, symbol: "heart.fill")
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ForEach(categories) { category in
+                    NavigationLink(value: CategoryRoute(kind: kind, filter: .category(category.name))) {
                         CategoryCard(
                             title: category.name,
                             count: category.count,
@@ -39,37 +53,56 @@ struct SectionView: View {
         }
         .background(Theme.backgroundGlow.ignoresSafeArea())
         .overlay {
-            if section.isEmpty {
+            if total == 0 && !store.isLoading {
                 ContentUnavailableView(
                     "Keine \(kind.title)",
                     systemImage: kind.symbol,
-                    description: Text("Deine Playlist enthält keine Einträge in diesem Bereich.")
+                    description: Text("Die aktive Playlist enthält keine Einträge in diesem Bereich.")
                 )
             }
         }
         .navigationTitle(kind.title)
-        .navigationSubtitle("\(section.items.count.formatted()) \(kind.unit) in \(section.categories.count) Kategorien")
-        .navigationDestination(for: CategoryRoute.self) { route in
-            destination(for: route)
-        }
-        .navigationDestination(for: SeriesShow.self) { show in
-            SeriesDetailView(show: show)
-        }
+        .navigationSubtitle("\(total.formatted()) \(kind.unit) in \(categories.count) Kategorien")
         .refreshable { await store.refresh() }
     }
+}
 
-    @ViewBuilder
-    private func destination(for route: CategoryRoute) -> some View {
-        let items = store.section(route.kind).items(in: route.category)
-        let title = route.category ?? "Alle \(route.kind.title)"
+/// Inhalt einer Kategorie je nach Bereich: Senderliste, Film-Poster oder Serien-Poster.
+struct CategoryDestinationView: View {
+    @Environment(PlaylistStore.self) private var store
+    @Environment(UserDataStore.self) private var userData
+    let route: CategoryRoute
 
+    var body: some View {
         switch route.kind {
         case .live:
-            ChannelListView(title: title, channels: items, showsCategory: route.category == nil)
+            ChannelListView(title: route.title, channels: channels, showsCategory: !isSingleCategory)
         case .movie:
-            MovieGridView(title: title, movies: items)
+            MovieGridView(title: route.title, movies: channels)
         case .series:
-            SeriesGridView(title: title, episodes: items)
+            SeriesGridView(title: route.title, shows: shows)
+        }
+    }
+
+    private var isSingleCategory: Bool {
+        if case .category = route.filter { true } else { false }
+    }
+
+    private var channels: [Channel] {
+        let section = store.section(route.kind)
+        switch route.filter {
+        case .all: return section.items
+        case .favorites: return section.items.filter { userData.isFavorite($0) }
+        case .category(let name): return section.items(in: name)
+        }
+    }
+
+    private var shows: [SeriesShow] {
+        let series = store.content.series
+        switch route.filter {
+        case .all: return series.shows
+        case .favorites: return series.shows.filter { userData.isFavorite($0) }
+        case .category(let name): return series.shows(in: name)
         }
     }
 }

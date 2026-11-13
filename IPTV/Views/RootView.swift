@@ -9,7 +9,9 @@ struct RootView: View {
             ProgressView()
                 .controlSize(.large)
         case .empty:
-            PlaylistSetupView()
+            NavigationStack {
+                AddPlaylistView()
+            }
         case .ready:
             MainTabView()
         }
@@ -31,6 +33,7 @@ struct MainTabView: View {
             Tab("Start", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack {
                     HomeView(selection: $selection)
+                        .withAppDestinations()
                 }
             }
 
@@ -38,6 +41,7 @@ struct MainTabView: View {
                 Tab(kind.title, systemImage: kind.symbol, value: AppTab.section(kind)) {
                     NavigationStack {
                         SectionView(kind: kind)
+                            .withAppDestinations()
                     }
                 }
             }
@@ -45,6 +49,7 @@ struct MainTabView: View {
             Tab(value: AppTab.search, role: .search) {
                 NavigationStack {
                     SearchView()
+                        .withAppDestinations()
                 }
             }
         }
@@ -52,6 +57,32 @@ struct MainTabView: View {
         .environment(\.playChannel, PlayChannelAction { playingChannel = $0 })
         .fullScreenCover(item: $playingChannel) { channel in
             PlayerScreen(channel: channel)
+        }
+    }
+}
+
+/// Ziel einer Kategorie-Kachel.
+struct CategoryRoute: Hashable {
+    let kind: ContentKind
+    let filter: CategoryFilter
+
+    var title: String {
+        switch filter {
+        case .all: "Alle \(kind.title)"
+        case .favorites: "Favoriten"
+        case .category(let name): name
+        }
+    }
+}
+
+extension View {
+    /// Navigationsziele, die in allen Tabs gebraucht werden.
+    func withAppDestinations() -> some View {
+        navigationDestination(for: CategoryRoute.self) { route in
+            CategoryDestinationView(route: route)
+        }
+        .navigationDestination(for: SeriesShow.self) { show in
+            SeriesDetailView(show: show)
         }
     }
 }

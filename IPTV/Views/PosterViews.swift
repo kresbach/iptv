@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Filme als Poster-Raster (Cover aus `tvg-logo`).
+/// Filme als Poster-Raster (Cover aus `tvg-logo` bzw. Xtream).
 struct MovieGridView: View {
     @Environment(PlaylistStore.self) private var store
+    @Environment(UserDataStore.self) private var userData
     @Environment(\.playChannel) private var playChannel
 
     let title: String
@@ -19,9 +20,21 @@ struct MovieGridView: View {
                     Button {
                         playChannel(movie)
                     } label: {
-                        PosterCard(title: movie.name, subtitle: nil, imageURL: movie.logoURL, symbol: "film.fill")
+                        PosterCard(
+                            title: movie.name,
+                            subtitle: nil,
+                            imageURL: movie.logoURL,
+                            symbol: "film.fill",
+                            progress: userData.playbackProgress(for: movie).flatMap { $0.isFinished ? nil : $0.fraction },
+                            isFavorite: userData.isFavorite(movie)
+                        )
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        FavoriteButton(isFavorite: userData.isFavorite(movie)) {
+                            userData.toggleFavorite(movie)
+                        }
+                    }
                 }
             }
             .padding()
@@ -30,23 +43,29 @@ struct MovieGridView: View {
         .navigationSubtitle("\(movies.count.formatted()) Filme")
         .searchable(text: $query, prompt: "Film suchen")
         .overlay {
-            if filtered.isEmpty, !query.isEmpty {
-                ContentUnavailableView.search(text: query)
+            if filtered.isEmpty {
+                if query.isEmpty {
+                    ContentUnavailableView("Keine Filme", systemImage: "film")
+                } else {
+                    ContentUnavailableView.search(text: query)
+                }
             }
         }
     }
 }
 
-/// Serien als Poster-Raster; Episoden werden zu Serien zusammengefasst.
+/// Serien als Poster-Raster.
 struct SeriesGridView: View {
+    @Environment(PlaylistStore.self) private var store
+    @Environment(UserDataStore.self) private var userData
+
     let title: String
-    let episodes: [Channel]
+    let shows: [SeriesShow]
 
     @State private var query = ""
-    @State private var shows: [SeriesShow] = []
 
     var body: some View {
-        let filtered = query.isEmpty ? shows : shows.filter { $0.title.localizedStandardContains(query) }
+        let filtered = store.searchShows(query, in: shows)
 
         ScrollView {
             LazyVGrid(columns: PosterCard.columns, spacing: 18) {
@@ -54,12 +73,18 @@ struct SeriesGridView: View {
                     NavigationLink(value: show) {
                         PosterCard(
                             title: show.title,
-                            subtitle: "\(show.episodes.count) Episoden",
+                            subtitle: show.episodes.isEmpty ? nil : "\(show.episodes.count) Episoden",
                             imageURL: show.posterURL,
-                            symbol: "rectangle.stack.fill"
+                            symbol: "rectangle.stack.fill",
+                            isFavorite: userData.isFavorite(show)
                         )
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        FavoriteButton(isFavorite: userData.isFavorite(show)) {
+                            userData.toggleFavorite(show)
+                        }
+                    }
                 }
             }
             .padding()
@@ -68,76 +93,156 @@ struct SeriesGridView: View {
         .navigationSubtitle("\(shows.count.formatted()) Serien")
         .searchable(text: $query, prompt: "Serie suchen")
         .overlay {
-            if filtered.isEmpty, !query.isEmpty {
-                ContentUnavailableView.search(text: query)
+            if filtered.isEmpty {
+                if query.isEmpty {
+                    ContentUnavailableView("Keine Serien", systemImage: "rectangle.stack")
+                } else {
+                    ContentUnavailableView.search(text: query)
+                }
             }
-        }
-        .task(id: episodes.count) {
-            shows = SeriesShow.shows(from: episodes)
         }
     }
 }
 
-/// Staffeln und Episoden einer Serie.
+/// Staffeln und Episoden einer Serie. Bei Xtream werden sie beim Öffnen geladen.
 struct SeriesDetailView: View {
+    @Environment(PlaylistStore.self) private var store
+    @Environment(UserDataStore.self) private var userData
     @Environment(\.playChannel) private var playChannel
     let show: SeriesShow
+
+    @State private var episodes: [SeriesShow.Episode] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     var body: some View {
         List {
             Section {
-                HStack(alignment: .top, spacing: 16) {
-                    PosterCard(title: nil, subtitle: nil, imageURL: show.posterURL, symbol: "rectangle.stack.fill")
-                        .frame(width: 110)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(show.title)
-                            .font(.title2.bold())
-                        Text(show.category)
-                            .foregroundStyle(.secondary)
-                        Text("\(show.seasons.count) Staffeln · \(show.episodes.count) Episoden")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.orange)
-                    }
-                }
-                .listRowBackground(Color.clear)
+                header
+                    .listRowBackground(Color.clear)
             }
 
-            ForEach(show.seasons, id: \.season) { season in
+            if isLoading {
+                Section {
+                    HStack {
+                        Spacer()
+                        ProgressView("Episoden werden geladen …")
+                        Spacer()
+                    }
+                }
+            } else if let errorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Button("Erneut versuchen", systemImage: "arrow.clockwise") {
+                        Task { await loadEpisodes() }
+                    }
+                }
+            }
+
+            ForEach(SeriesShow.seasons(of: episodes), id: \.season) { season in
                 Section(seasonTitle(season.season)) {
                     ForEach(season.episodes) { episode in
-                        Button {
-                            playChannel(episode.channel)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(episode.title)
-                                        .font(.body.weight(.medium))
-                                    if episode.number != nil {
-                                        Text(episode.channel.name)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                Spacer()
-                                Image(systemName: "play.circle.fill")
-                                    .font(.title2)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(Theme.orange)
-                            }
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
+                        EpisodeRow(episode: episode)
                     }
                 }
             }
         }
         .navigationTitle(show.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(
+                    userData.isFavorite(show) ? "Aus Favoriten entfernen" : "Zu Favoriten",
+                    systemImage: userData.isFavorite(show) ? "heart.fill" : "heart"
+                ) {
+                    userData.toggleFavorite(show)
+                }
+            }
+        }
+        .task { await loadEpisodes() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            PosterCard(title: nil, subtitle: nil, imageURL: show.posterURL, symbol: "rectangle.stack.fill")
+                .frame(width: 110)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(show.title)
+                    .font(.title2.bold())
+                Text(show.category)
+                    .foregroundStyle(.secondary)
+                if !episodes.isEmpty {
+                    let seasons = SeriesShow.seasons(of: episodes).count
+                    Text("\(seasons) \(seasons == 1 ? "Staffel" : "Staffeln") · \(episodes.count) Episoden")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.orange)
+                }
+                if let plot = show.plot, !plot.isEmpty {
+                    Text(plot)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(6)
+                }
+            }
+        }
     }
 
     private func seasonTitle(_ season: Int) -> String {
         season > 0 ? "Staffel \(season)" : "Episoden"
+    }
+
+    private func loadEpisodes() async {
+        guard episodes.isEmpty else { return }
+        guard show.needsEpisodeLoading else {
+            episodes = show.episodes
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            episodes = try await store.episodes(for: show)
+        } catch {
+            errorMessage = HTTPClient.message(for: error)
+        }
+    }
+}
+
+private struct EpisodeRow: View {
+    @Environment(UserDataStore.self) private var userData
+    @Environment(\.playChannel) private var playChannel
+    let episode: SeriesShow.Episode
+
+    var body: some View {
+        Button {
+            playChannel(episode.channel)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(episode.displayTitle)
+                        .font(.body.weight(.medium))
+                    if let progress = userData.playbackProgress(for: episode.channel) {
+                        if progress.isFinished {
+                            Label("Gesehen", systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView(value: progress.fraction)
+                                .tint(Theme.orange)
+                                .frame(maxWidth: 160)
+                        }
+                    }
+                }
+                Spacer()
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Theme.orange)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -149,6 +254,8 @@ struct PosterCard: View {
     let subtitle: String?
     let imageURL: URL?
     let symbol: String
+    var progress: Double?
+    var isFavorite = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -165,6 +272,24 @@ struct PosterCard: View {
                                 image.resizable().scaledToFill()
                             }
                         }
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isFavorite {
+                        Image(systemName: "heart.fill")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Theme.orange, in: .circle)
+                            .padding(6)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if let progress {
+                        ProgressView(value: progress)
+                            .tint(Theme.orange)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 8)
                     }
                 }
                 .aspectRatio(2 / 3, contentMode: .fit)
