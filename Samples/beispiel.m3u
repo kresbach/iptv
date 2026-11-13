@@ -1,0 +1,11 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="apple.bipbop" group-title="Test-Streams",Apple BipBop (HLS, fMP4)
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8
+#EXTINF:-1 tvg-id="apple.bipbop.ts" group-title="Test-Streams",Apple BipBop (HLS, TS)
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8
+#EXTINF:-1 tvg-id="mux.test" group-title="Filme",Big Buck Bunny (Mux)
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:-1 group-title="Filme",Tears of Steel (Unified Streaming)
+https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8
+#EXTINF:-1,Sender ohne Kategorie
+https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8
