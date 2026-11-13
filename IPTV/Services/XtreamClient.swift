@@ -28,6 +28,29 @@ struct XtreamClient: Sendable {
         return components.url
     }
 
+    struct AccountStatus: Sendable {
+        let isAuthenticated: Bool
+        let status: String?
+        let activeConnections: Int?
+        let maxConnections: Int?
+        let expires: Date?
+        let allowedFormats: [String]
+    }
+
+    /// Kontostatus für die Diagnose (aktive/erlaubte Verbindungen, Ablaufdatum).
+    func accountStatus() async throws -> AccountStatus {
+        let account: Account = try await request(action: nil)
+        let info = account.userInfo
+        return AccountStatus(
+            isAuthenticated: info?.auth?.int == 1,
+            status: info?.status?.string,
+            activeConnections: info?.activeCons?.int,
+            maxConnections: info?.maxConnections?.int,
+            expires: info?.expDate?.int.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            allowedFormats: info?.allowedOutputFormats ?? []
+        )
+    }
+
     var xmltvURL: URL? {
         endpoint("xmltv.php", query: [])
     }
@@ -203,6 +226,9 @@ struct XtreamClient: Sendable {
         let auth: Flexible?
         let status: Flexible?
         let allowedOutputFormats: [String]?
+        let activeCons: Flexible?
+        let maxConnections: Flexible?
+        let expDate: Flexible?
     }
 
     private struct Category: Decodable {

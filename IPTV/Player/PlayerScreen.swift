@@ -21,6 +21,8 @@ struct PlayerScreen: View {
     @State private var showsControls = true
     @State private var hideTask: Task<Void, Never>?
     @State private var isScrubbing = false
+    @State private var findings: [StreamDiagnostics.Finding] = []
+    @State private var isDiagnosing = false
     @State private var isZoomed = false
 
     private var isLive: Bool { channel.kind == .live }
@@ -288,6 +290,12 @@ struct PlayerScreen: View {
 
     // MARK: - Fehler
 
+    private func diagnose() async {
+        isDiagnosing = true
+        defer { isDiagnosing = false }
+        findings = await StreamDiagnostics.run(for: channel, source: store.activePlaylist?.source)
+    }
+
     private func errorOverlay(_ message: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -299,18 +307,53 @@ struct PlayerScreen: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if !findings.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(findings) { finding in
+                        Label {
+                            Text(finding.text).font(.caption)
+                        } icon: {
+                            Image(systemName: finding.level == .ok ? "checkmark.circle.fill"
+                                  : finding.level == .warning ? "exclamationmark.circle.fill" : "xmark.octagon.fill")
+                                .foregroundStyle(finding.level == .ok ? Color.green : finding.level == .warning ? Color.yellow : Color.red)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack {
                 Button("Schließen", systemImage: "xmark") { close() }
                     .buttonStyle(.glass)
                 Button("Erneut versuchen", systemImage: "arrow.clockwise") {
                     errorMessage = nil
+                    findings = []
                     attempt += 1
                 }
                 .buttonStyle(.glassProminent)
             }
+
+            HStack(spacing: 16) {
+                Button {
+                    Task { await diagnose() }
+                } label: {
+                    if isDiagnosing {
+                        ProgressView()
+                    } else {
+                        Label("Diagnose", systemImage: "stethoscope")
+                    }
+                }
+                .disabled(isDiagnosing)
+
+                Button("Link kopieren", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = channel.url.absoluteString
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(Theme.orange)
         }
         .padding(24)
-        .frame(maxWidth: 420)
+        .frame(maxWidth: 460)
         .background(.black.opacity(0.75), in: .rect(cornerRadius: 24))
         .padding()
     }
