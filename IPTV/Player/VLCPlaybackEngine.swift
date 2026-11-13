@@ -23,6 +23,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var pendingSeek: Double?
     @ObservationIgnored private var hasDrawable = false
     @ObservationIgnored private var wantsPlayback = false
+    @ObservationIgnored private var sawActivity = false
 
     /// VLC soll erst starten, wenn die Videofläche existiert.
     func attach(_ view: UIView) {
@@ -37,7 +38,6 @@ final class VLCPlaybackEngine: PlaybackEngine {
             // Live: kurzer Puffer für schnellen Start, VOD: größerer Puffer gegen Ruckler.
             "network-caching": isLive ? 1500 : 3000,
             "http-user-agent": HTTPClient.userAgent,
-            "http-reconnect": true,
         ])
         player.media = media
         pendingSeek = resumeAt
@@ -47,8 +47,13 @@ final class VLCPlaybackEngine: PlaybackEngine {
 
     func update() {
         let state = player.state
-        if state == .error {
-            set(\.failureMessage, "VLC konnte den Stream nicht öffnen. Ist der Link noch gültig?")
+        let activeStates: [VLCMediaPlayerState] = [.opening, .buffering, .playing, .esAdded]
+        if activeStates.contains(state) { sawActivity = true }
+
+        // VLC meldet abgelehnte Streams oft als „beendet“ statt als Fehler.
+        let endedWithoutPlaying = sawActivity && !hasStartedPlayback && (state == .ended || state == .stopped)
+        if state == .error || (wantsPlayback && endedWithoutPlaying) {
+            set(\.failureMessage, "Der Stream konnte nicht geöffnet werden. Der Server hat die Verbindung abgelehnt oder der Link ist nicht mehr gültig.")
             return
         }
         let playing = player.isPlaying
@@ -57,7 +62,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
         set(\.isPlaying, playing)
         set(\.isBuffering, state == .opening || (state == .buffering && !playing))
         set(\.time, current.rounded())
-        if !hasStartedPlayback, playing, current > 0 { hasStartedPlayback = true }
+        if !hasStartedPlayback, playing { hasStartedPlayback = true }
 
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 {

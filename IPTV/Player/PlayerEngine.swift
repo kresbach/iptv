@@ -37,29 +37,19 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
     /// Reihenfolge der Versuche: Scheitert einer, wird automatisch der nächste probiert.
     func candidates(for channel: Channel) -> [PlaybackCandidate] {
         let url = channel.url
-        let vlc = Self.isVLCAvailable
-        // Xtream-Live als MPEG-TS startet mit VLC deutlich schneller als HLS.
-        let fastLiveURL = channel.kind == .live ? Self.xtreamTSVariant(of: url) : nil
+        guard Self.isVLCAvailable else { return [.init(player: .apple, url: url)] }
 
-        var result: [PlaybackCandidate] = []
         switch self {
         case .apple:
-            result = [.init(player: .apple, url: url)]
+            return [.init(player: .apple, url: url)]
         case .vlc:
-            result = vlc
-                ? [fastLiveURL.map { .init(player: .vlc, url: $0) }, .init(player: .vlc, url: url)].compactMap { $0 }
-                : [.init(player: .apple, url: url)]
+            return [.init(player: .vlc, url: url)]
         case .automatic:
-            guard vlc else { return [.init(player: .apple, url: url)] }
-            if let fastLiveURL {
-                result = [.init(player: .vlc, url: fastLiveURL), .init(player: .apple, url: url), .init(player: .vlc, url: url)]
-            } else if Self.needsVLC(url) {
-                result = [.init(player: .vlc, url: url)]
-            } else {
-                result = [.init(player: .apple, url: url), .init(player: .vlc, url: url)]
-            }
+            // Formate, die nur VLC kann, direkt mit VLC; sonst Apple und bei Fehler VLC.
+            return Self.needsVLC(url)
+                ? [.init(player: .vlc, url: url)]
+                : [.init(player: .apple, url: url), .init(player: .vlc, url: url)]
         }
-        return result
     }
 
     private static func needsVLC(_ url: URL) -> Bool {
@@ -67,11 +57,6 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
             || vlcSchemes.contains(url.scheme?.lowercased() ?? "")
     }
 
-    /// `…/live/user/pass/123.m3u8` → `…/live/user/pass/123.ts`
-    private static func xtreamTSVariant(of url: URL) -> URL? {
-        guard url.path().contains("/live/"), url.pathExtension.lowercased() == "m3u8" else { return nil }
-        return url.deletingPathExtension().appendingPathExtension("ts")
-    }
 }
 
 enum ResolvedPlayer: Equatable {
@@ -82,6 +67,8 @@ enum ResolvedPlayer: Equatable {
 struct PlaybackCandidate: Equatable {
     let player: ResolvedPlayer
     let url: URL
+
+    var playerName: String { player == .vlc ? "VLC" : "Apple-Player" }
 
     @MainActor
     func makeEngine() -> any PlaybackEngine {
@@ -168,15 +155,13 @@ final class ApplePlaybackEngine: PlaybackEngine {
 
     func start(url: URL, isLive: Bool, resumeAt: Double?) {
         self.isLive = isLive
+        try? AVAudioSession.sharedInstance().setActive(true)
         let item = AVPlayerItem(url: url)
         // Mit der ersten Qualitätsstufe beginnen statt erst die beste auszuhandeln.
         item.startsOnFirstEligibleVariant = true
         if isLive {
-            // Kleiner Vorpuffer und sofortiger Start: Live-Sender laufen viel schneller an.
-            item.preferredForwardBufferDuration = 2
-            player.automaticallyWaitsToMinimizeStalling = false
-        } else {
-            player.automaticallyWaitsToMinimizeStalling = true
+            // Kleiner Vorpuffer: Live-Sender laufen schneller an.
+            item.preferredForwardBufferDuration = 4
         }
         pendingSeek = resumeAt
         pausedByUser = false
@@ -201,17 +186,13 @@ final class ApplePlaybackEngine: PlaybackEngine {
         set(\.time, current.isFinite ? current.rounded() : 0)
         set(\.duration, total.isFinite ? total.rounded() : 0)
         set(\.isPictureInPictureActive, pipController?.isPictureInPictureActive ?? false)
-        if !hasStartedPlayback, status == .playing, current > 0 { hasStartedPlayback = true }
+        if !hasStartedPlayback, status == .playing { hasStartedPlayback = true }
 
         if item.status == .readyToPlay, let target = pendingSeek {
             pendingSeek = nil
             seek(to: target)
         }
 
-        // Ohne automatisches Warten kann Live nach einem Aussetzer stehen bleiben: wieder anstoßen.
-        if isLive, !pausedByUser, status == .paused, item.isPlaybackLikelyToKeepUp {
-            player.play()
-        }
     }
 
     func togglePlayPause() {

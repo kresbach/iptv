@@ -25,6 +25,13 @@ struct PlayerScreen: View {
 
     private var isLive: Bool { channel.kind == .live }
 
+    /// Was gerade versucht wird, z. B. „VLC · Versuch 2 von 2“.
+    private var statusText: String {
+        guard candidates.indices.contains(candidateIndex) else { return "" }
+        let name = candidates[candidateIndex].playerName
+        return candidates.count > 1 ? "\(name) · Versuch \(candidateIndex + 1) von \(candidates.count)" : name
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -39,7 +46,7 @@ struct PlayerScreen: View {
                 .onTapGesture { toggleControls() }
 
             if let engine, errorMessage == nil {
-                BufferingIndicator(engine: engine)
+                BufferingIndicator(engine: engine, status: statusText)
             }
 
             if showsControls, errorMessage == nil {
@@ -225,11 +232,17 @@ struct PlayerScreen: View {
                 // statt auf das (oft sehr lange) Timeout des Players zu warten.
                 let hasAlternative = candidateIndex + 1 < candidates.count
                 let timedOut = hasAlternative && !engine.hasStartedPlayback
-                    && ContinuousClock.now - candidateStart > .seconds(isLive ? 8 : 15)
+                    && ContinuousClock.now - candidateStart > .seconds(isLive ? 12 : 20)
 
                 if let failure = engine.failureMessage ?? (timedOut ? "Zeitüberschreitung" : nil) {
+                    print("Wiedergabe mit \(candidates[candidateIndex].playerName) fehlgeschlagen: \(failure)")
                     engine.stop()
                     if hasAlternative {
+                        self.engine = nil
+                        // IPTV-Konten erlauben oft nur eine Verbindung: dem Server Zeit geben,
+                        // die alte zu schließen, bevor der nächste Versuch startet.
+                        try? await Task.sleep(for: .seconds(1.5))
+                        guard !Task.isCancelled else { break }
                         candidateIndex += 1
                         startCandidate()
                         candidateStart = .now
@@ -356,13 +369,21 @@ private struct PlayerButtonLabel: View {
 
 private struct BufferingIndicator: View {
     let engine: any PlaybackEngine
+    let status: String
 
     var body: some View {
-        if engine.isBuffering {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.white)
-                .allowsHitTesting(false)
+        if engine.isBuffering || !engine.hasStartedPlayback {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                if !engine.hasStartedPlayback, !status.isEmpty {
+                    Text("Verbinde … (\(status))")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+            }
+            .allowsHitTesting(false)
         }
     }
 }
