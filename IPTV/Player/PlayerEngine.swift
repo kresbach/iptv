@@ -45,10 +45,17 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
         case .vlc:
             return [.init(player: .vlc, url: url)]
         case .automatic:
-            // Formate, die nur VLC kann, direkt mit VLC; sonst Apple und bei Fehler VLC.
-            return Self.needsVLC(url)
-                ? [.init(player: .vlc, url: url)]
-                : [.init(player: .apple, url: url), .init(player: .vlc, url: url)]
+            if Self.needsVLC(url) {
+                // Formate, die nur VLC kann.
+                return [.init(player: .vlc, url: url)]
+            }
+            if channel.kind != .live {
+                // Filme/Episoden: VLC nutzt eine einzige Verbindung. Der Apple-Player lädt
+                // Dateien in mehreren parallelen Verbindungen – das lehnen IPTV-Konten mit
+                // nur einer erlaubten Verbindung ab („Öffnen fehlgeschlagen“).
+                return [.init(player: .vlc, url: url), .init(player: .apple, url: url)]
+            }
+            return [.init(player: .apple, url: url), .init(player: .vlc, url: url)]
         }
     }
 
@@ -57,6 +64,20 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
             || vlcSchemes.contains(url.scheme?.lowercased() ?? "")
     }
 
+}
+
+/// Merkt sich, wann zuletzt ein Stream beendet wurde. Server zählen die Verbindung
+/// danach oft noch eine Weile mit; kurz danach wird deshalb vor dem Start geprüft.
+@MainActor
+enum StreamConnectionTracker {
+    static var lastStreamEnded: ContinuousClock.Instant?
+
+    static func streamEnded() { lastStreamEnded = .now }
+
+    static var endedRecently: Bool {
+        guard let lastStreamEnded else { return false }
+        return ContinuousClock.now - lastStreamEnded < .seconds(90)
+    }
 }
 
 enum ResolvedPlayer: Equatable {

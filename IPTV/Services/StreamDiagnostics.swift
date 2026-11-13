@@ -43,7 +43,7 @@ enum StreamDiagnostics {
                 result.append(Finding(
                     level: active >= max ? .problem : .ok,
                     text: active >= max
-                        ? "Verbindungen: \(active) von \(max) belegt – das Limit ist erreicht. Schließe die Wiedergabe auf anderen Geräten oder warte einige Minuten."
+                        ? "Verbindungen: \(active) von \(max) belegt – das Limit ist erreicht. Nach dem Schließen eines Streams zählt der Server die Verbindung oft noch bis zu einer Minute mit. Bleibt es dauerhaft belegt, nutzt ein anderes Gerät den Zugang."
                         : "Verbindungen: \(active) von \(max) belegt"
                 ))
             }
