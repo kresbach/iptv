@@ -133,7 +133,13 @@ private struct CategoryCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .glassEffect(.regular.tint(Theme.orange.opacity(0.12)).interactive(), in: .rect(cornerRadius: 24))
+        // Bewusst kein Glaseffekt: bei hunderten Kategorien ist ein einfacher Hintergrund viel schneller.
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(Theme.orange.opacity(0.18), lineWidth: 1)
+        }
+        .contentShape(.rect(cornerRadius: 24))
         .accessibilityElement(children: .combine)
     }
 }

@@ -34,7 +34,7 @@ final class UserDataStore {
     private(set) var history: [HistoryEntry] = []
     private(set) var progress: [String: PlaybackProgress] = [:]
 
-    @ObservationIgnored private var favoriteSet: Set<String> = []
+    private var favoriteSet: Set<String> = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     private static let fileName = "userdata.json"
     private static let historyLimit = 40

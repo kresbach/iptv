@@ -11,6 +11,8 @@ enum HTTPClient {
         configuration.timeoutIntervalForResource = 600
         configuration.httpAdditionalHeaders = ["User-Agent": userAgent]
         configuration.waitsForConnectivity = false
+        configuration.urlCache = URLCache(memoryCapacity: 20_000_000, diskCapacity: 200_000_000)
+        configuration.httpMaximumConnectionsPerHost = 6
         return URLSession(configuration: configuration)
     }()
 

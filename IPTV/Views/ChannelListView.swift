@@ -165,15 +165,14 @@ struct ChannelBadge: View {
                     .padding(4)
             }
             .overlay {
-                if let logoURL = channel.logoURL {
-                    AsyncImage(url: logoURL) { phase in
-                        if let image = phase.image {
-                            ZStack {
-                                Color(.secondarySystemBackground)
-                                image.resizable().scaledToFit().padding(size * 0.1)
-                            }
-                        }
-                    }
+                if channel.logoURL != nil {
+                    CachedImage(
+                        url: channel.logoURL,
+                        maxPixelSize: size * 3,
+                        contentMode: .fit,
+                        loadedBackground: Color(.secondarySystemBackground),
+                        inset: size * 0.1
+                    )
                 }
             }
             .clipShape(.rect(cornerRadius: size * 0.26))

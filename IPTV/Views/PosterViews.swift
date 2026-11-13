@@ -266,12 +266,8 @@ struct PosterCard: View {
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 .overlay {
-                    if let imageURL {
-                        AsyncImage(url: imageURL) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFill()
-                            }
-                        }
+                    if imageURL != nil {
+                        CachedImage(url: imageURL, maxPixelSize: 360)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
