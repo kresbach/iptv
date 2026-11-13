@@ -240,15 +240,17 @@ struct PlayerScreen: View {
         if attempt == 0 { userData.recordPlayback(of: channel) }
         candidates = engineSetting.candidates(for: channel)
         candidateIndex = 0
-        // Nur wenn kurz vorher ein Stream lief: warten, bis der Server die Verbindung freigibt.
-        if StreamConnectionTracker.endedRecently || attempt > 0 {
-            guard await waitForFreeConnection() else { return }
-        }
+        // Nur lokal warten, bis ein vorheriger VLC-Player gestoppt ist – nicht auf den
+        // Verbindungszähler des Servers, der oft veraltet ist.
+        await finishPreviousPlayback()
+        guard !Task.isCancelled else { return }
         startCandidate()
         showsControls = true
         scheduleHide()
 
         var ticks = 0
+        var retryRound = 0
+        let maxRetryRounds = 4
         var candidateStart = ContinuousClock.now
         while !Task.isCancelled {
             if let engine {
@@ -257,21 +259,36 @@ struct PlayerScreen: View {
                 // Startet ein Versuch nicht in angemessener Zeit, direkt den nächsten probieren,
                 // statt auf das (oft sehr lange) Timeout des Players zu warten.
                 let hasAlternative = candidateIndex + 1 < candidates.count
-                let timedOut = hasAlternative && !engine.hasStartedPlayback
-                    && ContinuousClock.now - candidateStart > .seconds(isLive ? 12 : 20)
+                let canRetry = hasAlternative || retryRound < maxRetryRounds
+                let timedOut = canRetry && !engine.hasStartedPlayback
+                    && ContinuousClock.now - candidateStart > .seconds(isLive ? 15 : 25)
 
                 if let failure = engine.failureMessage ?? (timedOut ? "Zeitüberschreitung" : nil) {
                     print("Wiedergabe mit \(candidates[candidateIndex].playerName) fehlgeschlagen: \(failure)")
-                    attemptErrors.append("\(candidates[candidateIndex].playerName): \(failure)")
+                    let line = "\(candidates[candidateIndex].playerName): \(failure)"
+                    if !attemptErrors.contains(line) { attemptErrors.append(line) }
                     engine.stop()
-                    StreamConnectionTracker.streamEnded()
                     if hasAlternative {
                         self.engine = nil
                         // IPTV-Konten erlauben oft nur eine Verbindung: warten, bis der Server
                         // die alte freigegeben hat, bevor der nächste Versuch startet.
                         try? await Task.sleep(for: .seconds(1.5))
-                        guard !Task.isCancelled, await waitForFreeConnection() else { return }
+                        await finishPreviousPlayback()
+                        guard !Task.isCancelled else { break }
                         candidateIndex += 1
+                        startCandidate()
+                        candidateStart = .now
+                    } else if retryRound < maxRetryRounds {
+                        // Häufigster Grund bei Konten mit einer Verbindung: Der Server hat die
+                        // vorherige noch nicht freigegeben. Automatisch erneut versuchen.
+                        retryRound += 1
+                        self.engine = nil
+                        connectionWaitMessage = "Stream startet noch nicht – vermutlich ist die vorherige Verbindung beim Server noch offen.\nNeuer Versuch \(retryRound) von \(maxRetryRounds) …"
+                        try? await Task.sleep(for: .seconds(4))
+                        await finishPreviousPlayback()
+                        guard !Task.isCancelled else { break }
+                        connectionWaitMessage = nil
+                        candidateIndex = 0
                         startCandidate()
                         candidateStart = .now
                     } else {
@@ -296,46 +313,21 @@ struct PlayerScreen: View {
 
         // Ansicht wurde geschlossen.
         saveProgress()
-        if engine != nil { StreamConnectionTracker.streamEnded() }
         engine?.stop()
     }
 
-    /// Bei Xtream: wartet bis zu 45 Sekunden, bis eine Verbindung des Kontos frei ist.
-    /// - Returns: `false`, wenn weiterhin alle Verbindungen belegt sind (Fehler wird angezeigt).
-    private func waitForFreeConnection() async -> Bool {
-        defer { connectionWaitMessage = nil }
-
-        // Erst warten, bis ein zuvor genutzter VLC-Player wirklich gestoppt ist.
+    /// Wartet (höchstens 10 Sekunden), bis ein zuvor genutzter VLC-Player vollständig
+    /// gestoppt ist und seine Verbindung geschlossen hat.
+    private func finishPreviousPlayback() async {
         #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
-        if VLCPlayerRetirement.isBusy {
-            connectionWaitMessage = "Vorherige Wiedergabe wird beendet …"
-            for _ in 0..<40 where VLCPlayerRetirement.isBusy && !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(250))
-            }
+        guard VLCPlayerRetirement.isBusy else { return }
+        connectionWaitMessage = "Vorherige Wiedergabe wird beendet …"
+        defer { connectionWaitMessage = nil }
+        for _ in 0..<40 {
+            guard VLCPlayerRetirement.isBusy, !Task.isCancelled else { return }
+            try? await Task.sleep(for: .milliseconds(250))
         }
         #endif
-
-        guard case .xtream(let credentials)? = store.activePlaylist?.source else { return true }
-        let client = XtreamClient(credentials: credentials)
-        let deadline = ContinuousClock.now + .seconds(60)
-
-        while !Task.isCancelled {
-            guard let status = try? await client.accountStatus(),
-                  let active = status.activeConnections,
-                  let max = status.maxConnections, max > 0 else { return true }
-            if active < max { return true }
-
-            if ContinuousClock.now > deadline {
-                errorMessage = """
-                Alle Verbindungen deines Kontos sind belegt (\(active) von \(max)).
-                Läuft der Zugang noch auf einem anderen Gerät? Sonst gibt der Server die Verbindung meist nach ein bis zwei Minuten frei.
-                """
-                return false
-            }
-            connectionWaitMessage = "Warte auf freie Verbindung …\n\(active) von \(max) belegt. Der Server gibt sie meist nach einigen Sekunden frei."
-            try? await Task.sleep(for: .seconds(3))
-        }
-        return false
     }
 
     private func startCandidate() {
@@ -357,7 +349,6 @@ struct PlayerScreen: View {
 
     private func close() {
         saveProgress()
-        if engine != nil { StreamConnectionTracker.streamEnded() }
         engine?.stop()
         engine = nil
         dismiss()

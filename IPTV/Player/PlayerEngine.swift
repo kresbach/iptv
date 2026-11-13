@@ -77,20 +77,6 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
 
 }
 
-/// Merkt sich, wann zuletzt ein Stream beendet wurde. Server zählen die Verbindung
-/// danach oft noch eine Weile mit; kurz danach wird deshalb vor dem Start geprüft.
-@MainActor
-enum StreamConnectionTracker {
-    static var lastStreamEnded: ContinuousClock.Instant?
-
-    static func streamEnded() { lastStreamEnded = .now }
-
-    static var endedRecently: Bool {
-        guard let lastStreamEnded else { return false }
-        return ContinuousClock.now - lastStreamEnded < .seconds(90)
-    }
-}
-
 enum ResolvedPlayer: Equatable {
     case apple
     case vlc
