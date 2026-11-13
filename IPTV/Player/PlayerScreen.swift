@@ -273,7 +273,14 @@ struct PlayerScreen: View {
                     } else {
                         self.engine = nil
                         let ext = channel.url.pathExtension.isEmpty ? "ohne Endung" : ".\(channel.url.pathExtension)"
-                        errorMessage = (attemptErrors + ["Dateityp: \(ext)"]).joined(separator: "\n")
+                        var lines = attemptErrors + ["Dateityp: \(ext)"]
+                        let vlcOnly = ["mkv", "avi", "ts", "flv", "wmv"].contains(channel.url.pathExtension.lowercased())
+                        if vlcOnly && !PlayerEngine.isVLCAvailable {
+                            lines.append("Dieses Format kann nur VLC abspielen, VLC ist aber nicht eingebunden.")
+                        } else if vlcOnly && engineSetting == .apple {
+                            lines.append("Dieses Format kann nur VLC abspielen. Stelle unter Einstellungen → Wiedergabe „Automatisch“ ein.")
+                        }
+                        errorMessage = lines.joined(separator: "\n")
                         return
                     }
                 }
