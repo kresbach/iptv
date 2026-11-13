@@ -18,6 +18,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
     private(set) var time: Double = 0
     private(set) var duration: Double = 0
     private(set) var failureMessage: String?
+    private(set) var hasStartedPlayback = false
 
     @ObservationIgnored private var pendingSeek: Double?
     @ObservationIgnored private var hasDrawable = false
@@ -34,7 +35,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
         let media = VLCMedia(url: url)
         media.addOptions([
             // Live: kurzer Puffer für schnellen Start, VOD: größerer Puffer gegen Ruckler.
-            "network-caching": isLive ? 1000 : 3000,
+            "network-caching": isLive ? 1500 : 3000,
             "http-user-agent": HTTPClient.userAgent,
             "http-reconnect": true,
         ])
@@ -47,26 +48,35 @@ final class VLCPlaybackEngine: PlaybackEngine {
     func update() {
         let state = player.state
         if state == .error {
-            failureMessage = "VLC konnte den Stream nicht öffnen. Ist der Link noch gültig?"
+            set(\.failureMessage, "VLC konnte den Stream nicht öffnen. Ist der Link noch gültig?")
             return
         }
-        isPlaying = player.isPlaying
-        isBuffering = state == .opening || (state == .buffering && !player.isPlaying)
-        time = Double(player.time.intValue) / 1000
+        let playing = player.isPlaying
+        let current = Double(player.time.intValue) / 1000
+
+        set(\.isPlaying, playing)
+        set(\.isBuffering, state == .opening || (state == .buffering && !playing))
+        set(\.time, current.rounded())
+        if !hasStartedPlayback, playing, current > 0 { hasStartedPlayback = true }
 
         let length = Double(player.media?.length.intValue ?? 0) / 1000
         if length > 0 {
-            duration = length
-        } else if player.position > 0.001, time > 0 {
+            set(\.duration, length.rounded())
+        } else if player.position > 0.001, current > 0 {
             // Manche Streams melden keine Länge – dann aus der Position schätzen.
-            duration = time / Double(player.position)
+            set(\.duration, (current / Double(player.position)).rounded())
         }
 
         // Weiterschauen erst, wenn VLC läuft und die Länge kennt.
-        if let target = pendingSeek, duration > 0, player.isPlaying {
+        if let target = pendingSeek, duration > 0, playing {
             pendingSeek = nil
             seek(to: target)
         }
+    }
+
+    /// Setzt nur bei Änderung, damit SwiftUI nicht unnötig neu zeichnet.
+    private func set<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<VLCPlaybackEngine, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
     }
 
     func togglePlayPause() {

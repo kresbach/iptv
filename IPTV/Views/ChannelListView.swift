@@ -97,7 +97,8 @@ struct ChannelRow: View {
 
                 if channel.kind == .live, let guide = store.epg, !guide.schedule(for: channel).isEmpty {
                     NowPlayingLine(channel: channel, guide: guide)
-                } else if let progress = userData.playbackProgress(for: channel), !progress.isFinished {
+                } else if channel.kind != .live,
+                          let progress = userData.playbackProgress(for: channel), !progress.isFinished {
                     ProgressView(value: progress.fraction)
                         .tint(Theme.orange)
                         .frame(maxWidth: 160)

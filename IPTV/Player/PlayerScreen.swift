@@ -20,7 +20,7 @@ struct PlayerScreen: View {
 
     @State private var showsControls = true
     @State private var hideTask: Task<Void, Never>?
-    @State private var scrubPosition: Double?
+    @State private var isScrubbing = false
     @State private var isZoomed = false
 
     private var isLive: Bool { channel.kind == .live }
@@ -38,11 +38,8 @@ struct PlayerScreen: View {
                 .ignoresSafeArea()
                 .onTapGesture { toggleControls() }
 
-            if let engine, engine.isBuffering, errorMessage == nil {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.white)
-                    .allowsHitTesting(false)
+            if let engine, errorMessage == nil {
+                BufferingIndicator(engine: engine)
             }
 
             if showsControls, errorMessage == nil {
@@ -126,7 +123,7 @@ struct PlayerScreen: View {
 
             AirPlayButton()
                 .frame(width: 44, height: 44)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .background(.black.opacity(0.45), in: .circle)
 
             if let apple = engine as? ApplePlaybackEngine {
                 if apple.supportsPictureInPicture {
@@ -151,62 +148,23 @@ struct PlayerScreen: View {
         .padding(.top, 8)
     }
 
+    @ViewBuilder
     private var centerControls: some View {
-        HStack(spacing: 36) {
-            if !isLive, (engine?.duration ?? 0) > 0 {
-                roundButton("gobackward.10", label: "10 Sekunden zurück", size: 56) { engine?.skip(by: -10) }
-            }
-
-            Button {
-                engine?.togglePlayPause()
-                scheduleHide()
-            } label: {
-                Image(systemName: engine?.isPlaying == true ? "pause.fill" : "play.fill")
-                    .font(.system(size: 34, weight: .semibold))
-                    .frame(width: 76, height: 76)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel(engine?.isPlaying == true ? "Pause" : "Abspielen")
-
-            if !isLive, (engine?.duration ?? 0) > 0 {
-                roundButton("goforward.10", label: "10 Sekunden vor", size: 56) { engine?.skip(by: 10) }
-            }
+        if let engine {
+            CenterControls(engine: engine, isLive: isLive, onInteraction: scheduleHide)
         }
     }
 
     @ViewBuilder
     private var bottomBar: some View {
-        if let engine, !isLive, engine.duration > 0 {
-            let position = scrubPosition ?? engine.time
-            VStack(spacing: 6) {
-                Slider(
-                    value: Binding(get: { position }, set: { scrubPosition = $0 }),
-                    in: 0...max(engine.duration, 1)
-                ) { editing in
-                    if editing {
-                        hideTask?.cancel()
-                    } else if let target = scrubPosition {
-                        engine.seek(to: target)
-                        scrubPosition = nil
-                        scheduleHide()
-                    }
+        if let engine, !isLive {
+            PlaybackTimeline(
+                engine: engine,
+                onScrubbingChanged: { scrubbing in
+                    isScrubbing = scrubbing
+                    if scrubbing { hideTask?.cancel() } else { scheduleHide() }
                 }
-                .tint(Theme.orange)
-
-                HStack {
-                    Text(Self.format(position))
-                    Spacer()
-                    Text("-" + Self.format(max(engine.duration - position, 0)))
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.85))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .glassEffect(in: .rect(cornerRadius: 22))
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+            )
         } else if isLive, let guide = store.epg, !guide.schedule(for: channel).isEmpty {
             PlayerEPGPanel(channel: channel, guide: guide)
                 .padding(.horizontal)
@@ -225,13 +183,9 @@ struct PlayerScreen: View {
             action()
             scheduleHide()
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: size - 16, height: size - 16)
+            PlayerButtonLabel(symbol: symbol, size: size, tint: tint)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 
@@ -245,7 +199,7 @@ struct PlayerScreen: View {
         hideTask?.cancel()
         hideTask = Task {
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, engine?.isPlaying == true, scrubPosition == nil else { return }
+            guard !Task.isCancelled, engine?.isPlaying == true, !isScrubbing else { return }
             showsControls = false
         }
     }
@@ -262,15 +216,23 @@ struct PlayerScreen: View {
         scheduleHide()
 
         var ticks = 0
+        var candidateStart = ContinuousClock.now
         while !Task.isCancelled {
             if let engine {
                 engine.update()
-                if let failure = engine.failureMessage {
+
+                // Startet ein Versuch nicht in angemessener Zeit, direkt den nächsten probieren,
+                // statt auf das (oft sehr lange) Timeout des Players zu warten.
+                let hasAlternative = candidateIndex + 1 < candidates.count
+                let timedOut = hasAlternative && !engine.hasStartedPlayback
+                    && ContinuousClock.now - candidateStart > .seconds(isLive ? 8 : 15)
+
+                if let failure = engine.failureMessage ?? (timedOut ? "Zeitüberschreitung" : nil) {
                     engine.stop()
-                    if candidateIndex + 1 < candidates.count {
-                        // Nächsten Player bzw. nächstes Format probieren.
+                    if hasAlternative {
                         candidateIndex += 1
                         startCandidate()
+                        candidateStart = .now
                     } else {
                         self.engine = nil
                         errorMessage = failure
@@ -279,7 +241,7 @@ struct PlayerScreen: View {
                 }
             }
             ticks += 1
-            if ticks % 10 == 0 { saveProgress() }
+            if ticks % 30 == 0 { saveProgress() }  // alle 15 Sekunden
             try? await Task.sleep(for: .milliseconds(500))
         }
 
@@ -311,10 +273,6 @@ struct PlayerScreen: View {
         dismiss()
     }
 
-    private static func format(_ seconds: Double) -> String {
-        Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
-    }
-
     // MARK: - Fehler
 
     private func errorOverlay(_ message: String) -> some View {
@@ -340,7 +298,7 @@ struct PlayerScreen: View {
         }
         .padding(24)
         .frame(maxWidth: 420)
-        .glassEffect(in: .rect(cornerRadius: 24))
+        .background(.black.opacity(0.75), in: .rect(cornerRadius: 24))
         .padding()
     }
 }
@@ -372,8 +330,117 @@ private struct PlayerEPGPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .glassEffect(in: .rect(cornerRadius: 22))
+            .background(.black.opacity(0.55), in: .rect(cornerRadius: 22))
         }
+    }
+}
+
+// MARK: - Unter-Views
+// Jede liest nur den Zustand, den sie braucht. So zeichnet SwiftUI bei jeder
+// Zeitänderung nur die Zeitleiste neu und nicht den ganzen Player.
+
+private struct PlayerButtonLabel: View {
+    let symbol: String
+    let size: CGFloat
+    var tint: Color = .white
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.4, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(.black.opacity(0.45), in: .circle)
+            .contentShape(.circle)
+    }
+}
+
+private struct BufferingIndicator: View {
+    let engine: any PlaybackEngine
+
+    var body: some View {
+        if engine.isBuffering {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct CenterControls: View {
+    let engine: any PlaybackEngine
+    let isLive: Bool
+    let onInteraction: () -> Void
+
+    var body: some View {
+        let canSeek = !isLive && engine.duration > 0
+        HStack(spacing: 36) {
+            if canSeek {
+                button("gobackward.10", size: 56, label: "10 Sekunden zurück") { engine.skip(by: -10) }
+            }
+            button(engine.isPlaying ? "pause.fill" : "play.fill", size: 80, label: engine.isPlaying ? "Pause" : "Abspielen") {
+                engine.togglePlayPause()
+            }
+            if canSeek {
+                button("goforward.10", size: 56, label: "10 Sekunden vor") { engine.skip(by: 10) }
+            }
+        }
+    }
+
+    private func button(_ symbol: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            onInteraction()
+        } label: {
+            PlayerButtonLabel(symbol: symbol, size: size)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Zeitleiste zum Spulen. Während des Ziehens wird nur lokal aktualisiert,
+/// gesprungen wird erst beim Loslassen.
+private struct PlaybackTimeline: View {
+    let engine: any PlaybackEngine
+    let onScrubbingChanged: (Bool) -> Void
+
+    @State private var scrubPosition: Double?
+
+    var body: some View {
+        if engine.duration > 0 {
+            let position = scrubPosition ?? engine.time
+            VStack(spacing: 6) {
+                Slider(
+                    value: Binding(get: { position }, set: { scrubPosition = $0 }),
+                    in: 0...max(engine.duration, 1)
+                ) { editing in
+                    onScrubbingChanged(editing)
+                    if !editing, let target = scrubPosition {
+                        engine.seek(to: target)
+                        scrubPosition = nil
+                    }
+                }
+                .tint(Theme.orange)
+
+                HStack {
+                    Text(Self.format(position))
+                    Spacer()
+                    Text("-" + Self.format(max(engine.duration - position, 0)))
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(.black.opacity(0.55), in: .rect(cornerRadius: 22))
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+    }
+
+    private static func format(_ seconds: Double) -> String {
+        Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond))
     }
 }
 

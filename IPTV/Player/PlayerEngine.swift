@@ -109,6 +109,8 @@ protocol PlaybackEngine: AnyObject {
     /// Gesamtlänge in Sekunden, 0 bei Live-Streams oder unbekannt.
     var duration: Double { get }
     var failureMessage: String? { get }
+    /// `true`, sobald tatsächlich Bild/Ton läuft (für den Start-Watchdog).
+    var hasStartedPlayback: Bool { get }
 
     func start(url: URL, isLive: Bool, resumeAt: Double?)
     /// Wird regelmäßig aufgerufen und aktualisiert den Zustand.
@@ -138,12 +140,15 @@ final class ApplePlaybackEngine: PlaybackEngine {
     private(set) var time: Double = 0
     private(set) var duration: Double = 0
     private(set) var failureMessage: String?
+    private(set) var hasStartedPlayback = false
     private(set) var isPictureInPictureActive = false
 
     let supportsPictureInPicture = AVPictureInPictureController.isPictureInPictureSupported()
 
     @ObservationIgnored private var pipController: AVPictureInPictureController?
     @ObservationIgnored private var pendingSeek: Double?
+    @ObservationIgnored private var isLive = false
+    @ObservationIgnored private var pausedByUser = false
 
     func attach(layer: AVPlayerLayer) {
         guard supportsPictureInPicture, pipController == nil else { return }
@@ -162,10 +167,19 @@ final class ApplePlaybackEngine: PlaybackEngine {
     }
 
     func start(url: URL, isLive: Bool, resumeAt: Double?) {
+        self.isLive = isLive
         let item = AVPlayerItem(url: url)
-        // Kleiner Vorpuffer bei Live: schnellerer Start und Senderwechsel.
-        item.preferredForwardBufferDuration = isLive ? 3 : 0
+        // Mit der ersten Qualitätsstufe beginnen statt erst die beste auszuhandeln.
+        item.startsOnFirstEligibleVariant = true
+        if isLive {
+            // Kleiner Vorpuffer und sofortiger Start: Live-Sender laufen viel schneller an.
+            item.preferredForwardBufferDuration = 2
+            player.automaticallyWaitsToMinimizeStalling = false
+        } else {
+            player.automaticallyWaitsToMinimizeStalling = true
+        }
         pendingSeek = resumeAt
+        pausedByUser = false
         player.replaceCurrentItem(with: item)
         player.play()
     }
@@ -173,25 +187,41 @@ final class ApplePlaybackEngine: PlaybackEngine {
     func update() {
         guard let item = player.currentItem else { return }
         if item.status == .failed {
-            failureMessage = item.error?.localizedDescription ?? "Das Format wird möglicherweise nicht unterstützt."
+            set(\.failureMessage, item.error?.localizedDescription ?? "Das Format wird möglicherweise nicht unterstützt.")
             return
         }
-        isPlaying = player.timeControlStatus != .paused
-        isBuffering = item.status == .unknown || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+
+        let status = player.timeControlStatus
         let current = player.currentTime().seconds
-        time = current.isFinite ? current : 0
         let total = item.duration.seconds
-        duration = total.isFinite ? total : 0
-        isPictureInPictureActive = pipController?.isPictureInPictureActive ?? false
+
+        set(\.isPlaying, status != .paused)
+        set(\.isBuffering, item.status == .unknown || status == .waitingToPlayAtSpecifiedRate
+            || (isLive && status == .playing && item.isPlaybackBufferEmpty))
+        set(\.time, current.isFinite ? current.rounded() : 0)
+        set(\.duration, total.isFinite ? total.rounded() : 0)
+        set(\.isPictureInPictureActive, pipController?.isPictureInPictureActive ?? false)
+        if !hasStartedPlayback, status == .playing, current > 0 { hasStartedPlayback = true }
 
         if item.status == .readyToPlay, let target = pendingSeek {
             pendingSeek = nil
             seek(to: target)
         }
+
+        // Ohne automatisches Warten kann Live nach einem Aussetzer stehen bleiben: wieder anstoßen.
+        if isLive, !pausedByUser, status == .paused, item.isPlaybackLikelyToKeepUp {
+            player.play()
+        }
     }
 
     func togglePlayPause() {
-        if player.timeControlStatus == .paused { player.play() } else { player.pause() }
+        if player.timeControlStatus == .paused {
+            pausedByUser = false
+            player.play()
+        } else {
+            pausedByUser = true
+            player.pause()
+        }
         isPlaying.toggle()
     }
 
@@ -202,7 +232,13 @@ final class ApplePlaybackEngine: PlaybackEngine {
 
     func stop() {
         if pipController?.isPictureInPictureActive == true { pipController?.stopPictureInPicture() }
+        pausedByUser = true
         player.pause()
         player.replaceCurrentItem(with: nil)
+    }
+
+    /// Setzt nur bei Änderung, damit SwiftUI nicht unnötig neu zeichnet.
+    private func set<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<ApplePlaybackEngine, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
     }
 }
