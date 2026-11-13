@@ -303,10 +303,21 @@ struct PlayerScreen: View {
     /// Bei Xtream: wartet bis zu 45 Sekunden, bis eine Verbindung des Kontos frei ist.
     /// - Returns: `false`, wenn weiterhin alle Verbindungen belegt sind (Fehler wird angezeigt).
     private func waitForFreeConnection() async -> Bool {
+        defer { connectionWaitMessage = nil }
+
+        // Erst warten, bis ein zuvor genutzter VLC-Player wirklich gestoppt ist.
+        #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
+        if VLCPlayerRetirement.isBusy {
+            connectionWaitMessage = "Vorherige Wiedergabe wird beendet …"
+            for _ in 0..<40 where VLCPlayerRetirement.isBusy && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        #endif
+
         guard case .xtream(let credentials)? = store.activePlaylist?.source else { return true }
         let client = XtreamClient(credentials: credentials)
-        let deadline = ContinuousClock.now + .seconds(45)
-        defer { connectionWaitMessage = nil }
+        let deadline = ContinuousClock.now + .seconds(60)
 
         while !Task.isCancelled {
             guard let status = try? await client.accountStatus(),

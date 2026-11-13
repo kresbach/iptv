@@ -24,6 +24,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var hasDrawable = false
     @ObservationIgnored private var wantsPlayback = false
     @ObservationIgnored private var sawActivity = false
+    @ObservationIgnored private var isStopped = false
 
     /// VLC soll erst starten, wenn die Videofläche existiert.
     func attach(_ view: UIView) {
@@ -99,8 +100,39 @@ final class VLCPlaybackEngine: PlaybackEngine {
     }
 
     func stop() {
+        guard !isStopped else { return }
+        isStopped = true
         wantsPlayback = false
+        pendingSeek = nil
         player.stop()
+        // VLC stoppt im Hintergrund. Den Player festhalten, bis er wirklich beendet ist
+        // und die Netzwerkverbindung geschlossen hat – sonst bleibt bei Konten mit nur
+        // einer Verbindung der nächste Stream blockiert.
+        VLCPlayerRetirement.retire(player)
+    }
+}
+
+/// Hält beendete VLC-Player, bis sie vollständig gestoppt sind, und löst dann das
+/// Medium, damit Eingabe-Thread und HTTP-Verbindung sicher geschlossen werden.
+@MainActor
+enum VLCPlayerRetirement {
+    private static var retired: [VLCMediaPlayer] = []
+
+    /// `true`, solange ein beendeter Player noch herunterfährt.
+    static var isBusy: Bool { !retired.isEmpty }
+
+    static func retire(_ player: VLCMediaPlayer) {
+        retired.append(player)
+        Task { @MainActor in
+            // Bis zu 8 Sekunden auf den Stopp warten.
+            for _ in 0..<32 {
+                let state = player.state
+                if state == .stopped || state == .ended || state == .error { break }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            player.media = nil
+            retired.removeAll { $0 === player }
+        }
     }
 }
 
