@@ -63,15 +63,8 @@ struct XtreamClient: Sendable {
             throw XtreamError.accountInactive(status)
         }
         let formats = info.allowedOutputFormats ?? []
-        // Mit VLC startet MPEG-TS schneller als HLS – aber nur, wenn der Server es erlaubt.
-        let liveExtension: String
-        if PlayerEngine.isVLCAvailable, formats.contains("ts") {
-            liveExtension = "ts"
-        } else if formats.isEmpty || formats.contains("m3u8") {
-            liveExtension = "m3u8"
-        } else {
-            liveExtension = "ts"
-        }
+        // HLS (m3u8) können Apple-Player und VLC abspielen; .ts nur VLC.
+        let liveExtension = formats.isEmpty || formats.contains("m3u8") ? "m3u8" : "ts"
 
         async let liveCategoriesTask: [Category] = requestList(action: "get_live_categories")
         async let vodCategoriesTask: [Category] = requestList(action: "get_vod_categories")

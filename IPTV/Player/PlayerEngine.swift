@@ -7,7 +7,11 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
     case apple
     case vlc
 
-    static let storageKey = "playerEngine"
+    /// Getrennte Einstellungen für Live TV sowie Filme und Serien.
+    static let liveStorageKey = "playerEngineLive"
+    static let vodStorageKey = "playerEngineVOD"
+    static let liveDefault: PlayerEngine = .apple
+    static let vodDefault: PlayerEngine = .vlc
 
     var id: String { rawValue }
 
@@ -41,7 +45,7 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
 
         switch self {
         case .apple:
-            return [.init(player: .apple, url: url)]
+            return [.init(player: .apple, url: Self.appleCompatibleURL(url, kind: channel.kind))]
         case .vlc:
             return [.init(player: .vlc, url: url)]
         case .automatic:
@@ -57,6 +61,13 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
             }
             return [.init(player: .apple, url: url), .init(player: .vlc, url: url)]
         }
+    }
+
+    /// Der Apple-Player kann kein reines MPEG-TS. Xtream-Live-Links werden daher
+    /// von `.ts` auf `.m3u8` (HLS) umgestellt, das der Server ebenfalls anbietet.
+    private static func appleCompatibleURL(_ url: URL, kind: ContentKind) -> URL {
+        guard kind == .live, url.path().contains("/live/"), url.pathExtension.lowercased() == "ts" else { return url }
+        return url.deletingPathExtension().appendingPathExtension("m3u8")
     }
 
     private static func needsVLC(_ url: URL) -> Bool {

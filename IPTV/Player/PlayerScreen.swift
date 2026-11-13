@@ -10,7 +10,11 @@ struct PlayerScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
-    @AppStorage(PlayerEngine.storageKey) private var engineSetting: PlayerEngine = .automatic
+    @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
+    @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
+
+    /// Player-Einstellung passend zum Inhalt: Live TV oder Filme/Serien.
+    private var engineSetting: PlayerEngine { isLive ? liveEngine : vodEngine }
 
     @State private var engine: (any PlaybackEngine)?
     @State private var candidates: [PlaybackCandidate] = []

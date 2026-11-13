@@ -5,7 +5,8 @@ struct SettingsView: View {
     @Environment(UserDataStore.self) private var userData
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(PlayerEngine.storageKey) private var playerEngine: PlayerEngine = .automatic
+    @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
+    @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
     @State private var confirmsClearHistory = false
 
     var body: some View {
@@ -87,16 +88,21 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Player", selection: $playerEngine) {
-                    ForEach(PlayerEngine.allCases) { engine in
-                        Text(engine.title).tag(engine)
-                    }
+                Picker(selection: $liveEngine) {
+                    ForEach(PlayerEngine.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label("Live TV", systemImage: ContentKind.live.symbol)
+                }
+                Picker(selection: $vodEngine) {
+                    ForEach(PlayerEngine.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label("Filme & Serien", systemImage: ContentKind.movie.symbol)
                 }
             } header: {
-                Text("Wiedergabe")
+                Text("Player")
             } footer: {
                 Text(PlayerEngine.isVLCAvailable
-                     ? "„Automatisch“ nutzt den Apple-Player für HLS/MP4 und VLC für Formate wie .ts oder .mkv. Scheitert der Apple-Player, wird VLC versucht."
+                     ? "Empfohlen: Apple für Live TV (Bild-in-Bild, AirPlay), VLC für Filme und Serien (spielt auch .mkv und nutzt nur eine Verbindung). „Automatisch“ wählt je nach Format."
                      : "VLC ist nicht eingebunden. Füge in Xcode das Paket „vlckit-spm“ hinzu, um .ts- und .mkv-Streams abzuspielen (siehe README).")
             }
 
