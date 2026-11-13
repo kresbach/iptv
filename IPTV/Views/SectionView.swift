@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Einstieg in einen Bereich (Live TV, Filme oder Serien): Kategorien als Kacheln,
-/// davor „Alle“ und – falls vorhanden – „Favoriten“.
+/// Einstieg in einen Bereich (Live TV, Filme oder Serien): Kategorien als Liste,
+/// davor „Alle“ und – falls vorhanden – „Favoriten“. Mit Suchfeld zum Filtern.
 struct SectionView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
     let kind: ContentKind
 
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 14)]
+    @State private var query = ""
 
     private var categories: [ChannelCategory] {
         kind == .series ? store.content.series.categories : store.section(kind).categories
@@ -22,36 +22,42 @@ struct SectionView: View {
 
     var body: some View {
         let total = store.content.count(of: kind)
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let visible = trimmed.isEmpty ? categories : categories.filter { $0.name.localizedStandardContains(trimmed) }
 
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 14) {
-                NavigationLink(value: CategoryRoute(kind: kind, filter: .all)) {
-                    CategoryCard(title: "Alle", count: total, unit: kind.unit, symbol: kind.symbol)
-                }
-                .buttonStyle(.plain)
-
-                if favoriteCount > 0 {
-                    NavigationLink(value: CategoryRoute(kind: kind, filter: .favorites)) {
-                        CategoryCard(title: "Favoriten", count: favoriteCount, unit: kind.unit, symbol: "heart.fill")
+        List {
+            if trimmed.isEmpty {
+                Section {
+                    NavigationLink(value: CategoryRoute(kind: kind, filter: .all)) {
+                        CategoryRow(title: "Alle", count: total, unit: kind.unit, symbol: kind.symbol)
                     }
-                    .buttonStyle(.plain)
+                    if favoriteCount > 0 {
+                        NavigationLink(value: CategoryRoute(kind: kind, filter: .favorites)) {
+                            CategoryRow(title: "Favoriten", count: favoriteCount, unit: kind.unit, symbol: "heart.fill")
+                        }
+                    }
                 }
+            }
 
-                ForEach(categories) { category in
+            Section {
+                ForEach(visible) { category in
                     NavigationLink(value: CategoryRoute(kind: kind, filter: .category(category.name))) {
-                        CategoryCard(
+                        CategoryRow(
                             title: category.name,
                             count: category.count,
                             unit: kind.unit,
                             symbol: CategoryIcon.symbol(for: category.name, fallback: kind.symbol)
                         )
                     }
-                    .buttonStyle(.plain)
+                }
+            } header: {
+                if !categories.isEmpty {
+                    Text("\(categories.count) Kategorien")
                 }
             }
-            .padding()
         }
-        .background(Theme.backgroundGlow.ignoresSafeArea())
+        .listStyle(.insetGrouped)
+        .searchable(text: $query, prompt: "Kategorie suchen")
         .overlay {
             if total == 0 && !store.isLoading {
                 ContentUnavailableView(
@@ -59,11 +65,44 @@ struct SectionView: View {
                     systemImage: kind.symbol,
                     description: Text("Die aktive Playlist enthält keine Einträge in diesem Bereich.")
                 )
+            } else if visible.isEmpty && !trimmed.isEmpty {
+                ContentUnavailableView.search(text: trimmed)
             }
         }
         .navigationTitle(kind.title)
-        .navigationSubtitle("\(total.formatted()) \(kind.unit) in \(categories.count) Kategorien")
+        .navigationSubtitle("\(total.formatted()) \(kind.unit)")
         .refreshable { await store.refresh() }
+    }
+}
+
+/// Zeile einer Kategorie: Symbol, Name und Anzahl.
+private struct CategoryRow: View {
+    let title: String
+    let count: Int
+    let unit: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(Theme.gradient, in: .rect(cornerRadius: 9))
+
+            Text(title)
+                .font(.body.weight(.medium))
+                .lineLimit(2)
+
+            Spacer(minLength: 8)
+
+            Text(count.formatted())
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue("\(count) \(unit)")
     }
 }
 
@@ -104,43 +143,6 @@ struct CategoryDestinationView: View {
         case .favorites: return series.shows.filter { userData.isFavorite($0) }
         case .category(let name): return series.shows(in: name)
         }
-    }
-}
-
-private struct CategoryCard: View {
-    let title: String
-    let count: Int
-    let unit: String
-    let symbol: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
-                .background(Theme.gradient, in: .circle)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(2, reservesSpace: true)
-                    .multilineTextAlignment(.leading)
-                Text("\(count.formatted()) \(unit)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        // Bewusst kein Glaseffekt: bei hunderten Kategorien ist ein einfacher Hintergrund viel schneller.
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(Theme.orange.opacity(0.18), lineWidth: 1)
-        }
-        .contentShape(.rect(cornerRadius: 24))
-        .accessibilityElement(children: .combine)
     }
 }
 
