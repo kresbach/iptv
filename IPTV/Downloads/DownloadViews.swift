@@ -14,6 +14,7 @@ struct DownloadButton: View {
     var style: Style = .large
 
     @State private var confirmsDelete = false
+    @State private var expectedSize: Int64?
 
     var body: some View {
         let item = downloads.item(for: channel)
@@ -23,6 +24,11 @@ struct DownloadButton: View {
             case .large: largeButton(item)
             case .compact: compactButton(item)
             }
+        }
+        .task(id: channel.url) {
+            // Größe nur für den großen Knopf abfragen (nicht für jede Episode einzeln).
+            guard style == .large, downloads.item(for: channel) == nil else { return }
+            expectedSize = await downloads.expectedSize(for: channel)
         }
         .confirmationDialog("Download löschen?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Löschen", role: .destructive) {
@@ -58,7 +64,12 @@ struct DownloadButton: View {
     }
 
     private func largeTitle(_ item: DownloadItem?) -> String {
-        guard let item else { return "Herunterladen" }
+        guard let item else {
+            return expectedSize.map { "Herunterladen · \(DownloadManager.format($0))" } ?? "Herunterladen"
+        }
+        if item.compression == .running {
+            return "Wird verkleinert … \(Int((item.compressionProgress ?? 0) * 100)) %"
+        }
         switch item.state {
         case .queued: return "In Warteschlange"
         case .paused: return "Pausiert"
@@ -253,7 +264,16 @@ private struct DownloadRow: View {
             }
         case .completed:
             HStack(spacing: 6) {
-                Text(DownloadManager.format(item.totalBytes))
+                switch item.compression {
+                case .running?:
+                    Text("Wird verkleinert … \(Int((item.compressionProgress ?? 0) * 100)) %")
+                case .pending?:
+                    Text("\(DownloadManager.format(item.totalBytes)) · Verkleinern wartet")
+                case .done(let original)? where original > item.totalBytes:
+                    Text("\(DownloadManager.format(item.totalBytes)) (vorher \(DownloadManager.format(original)))")
+                default:
+                    Text(DownloadManager.format(item.totalBytes))
+                }
                 if let progress = userData.playbackProgress(for: item.channel), !progress.isFinished, progress.position > 30 {
                     Text("· angefangen")
                 } else if userData.playbackProgress(for: item.channel)?.isFinished == true {

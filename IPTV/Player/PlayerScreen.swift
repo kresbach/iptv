@@ -92,7 +92,10 @@ struct PlayerScreen: View {
         }
         .onDisappear {
             store.playbackEnded()
-            downloads.playbackEnded()
+            downloads.playbackEnded(
+                channel: channel,
+                finished: userData.playbackProgress(for: channel)?.isFinished == true
+            )
         }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)

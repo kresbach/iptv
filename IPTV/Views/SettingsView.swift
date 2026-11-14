@@ -7,6 +7,9 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var sync
     @Environment(DownloadManager.self) private var downloads
     @State private var confirmsDeleteDownloads = false
+    @AppStorage(DownloadSettings.compressionKey) private var downloadCompression: DownloadCompression = .medium
+    @AppStorage(DownloadSettings.storageLimitKey) private var storageLimitGB = 0
+    @AppStorage(DownloadSettings.autoDeleteKey) private var autoDeleteWatched = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @AppStorage(SyncedSettings.syncPlaylistsKey) private var syncPlaylists = false
@@ -154,6 +157,16 @@ extension SettingsView {
             LabeledContent("Frei auf dem Gerät", value: DownloadManager.format(DownloadManager.availableBytes))
             Toggle("Während der Wiedergabe pausieren", isOn: $downloads.pausesDuringPlayback)
                 .tint(Theme.orange)
+            Picker("Verkleinern (nur MP4)", selection: $downloadCompression) {
+                ForEach(DownloadCompression.allCases) { Text($0.title).tag($0) }
+            }
+            Picker("Speicherlimit", selection: $storageLimitGB) {
+                ForEach(DownloadSettings.storageLimitOptions, id: \.self) { gigabytes in
+                    Text(gigabytes == 0 ? "Kein Limit" : "\(gigabytes) GB").tag(gigabytes)
+                }
+            }
+            Toggle("Gesehene automatisch löschen", isOn: $autoDeleteWatched)
+                .tint(Theme.orange)
             Button("Alle Downloads löschen", systemImage: "trash", role: .destructive) {
                 confirmsDeleteDownloads = true
             }
@@ -164,7 +177,7 @@ extension SettingsView {
         } header: {
             Text("Downloads")
         } footer: {
-            Text("Downloads laufen auch bei gesperrtem Gerät weiter. Da viele IPTV-Konten nur eine Verbindung erlauben, pausiert ein Download, solange ein Stream läuft, und setzt danach fort.")
+            Text("Downloads laufen auch bei gesperrtem Gerät weiter und pausieren, solange ein Stream läuft. MP4-Dateien werden nach dem Download auf dem Gerät verkleinert, MKV-Dateien kann iOS nicht umwandeln und bleiben in Originalgröße.")
         }
     }
 
