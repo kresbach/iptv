@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Die Client-ID einer iOS-App ist kein Geheimnis und darf im Code stehen.
 enum GoogleConfig {
-    static let clientID = ""
+    static let clientID = "153909316647-3odkbailnlk0e5tf9to2ieia6qm7hafg.apps.googleusercontent.com"
 
     /// Umgekehrte Client-ID, z. B. `com.googleusercontent.apps.1234-abc`.
     static var redirectScheme: String {
