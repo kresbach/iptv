@@ -9,12 +9,12 @@ final class UserDataStore {
     struct HistoryEntry: Codable, Hashable, Sendable {
         let key: String
         /// Momentaufnahme, damit der Eintrag auch ohne geladene Playlist abspielbar bleibt.
-        let channel: Channel
+        var channel: Channel
         var date: Date
     }
 
     struct PlaybackProgress: Codable, Hashable, Sendable {
-        let channel: Channel
+        var channel: Channel
         var position: Double
         var duration: Double
         var updated: Date

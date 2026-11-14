@@ -16,12 +16,33 @@ enum HTTPClient {
         return URLSession(configuration: configuration)
     }()
 
-    static func data(from url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
+    /// Lädt Daten. Playlists und API-Antworten immer frisch vom Server (`useCache: false`),
+    /// nur Logos und Cover dürfen aus dem Zwischenspeicher kommen.
+    static func data(from url: URL, useCache: Bool = false) async throws -> Data {
+        let request = URLRequest(
+            url: url,
+            cachePolicy: useCache ? .useProtocolCachePolicy : .reloadIgnoringLocalCacheData
+        )
+        let (data, response) = try await session.data(for: request)
+        try check(response)
+        return data
+    }
+
+    /// Lädt große Dateien (z. B. den TV-Guide) direkt auf die Festplatte statt in den Speicher.
+    /// Der Aufrufer muss die zurückgegebene Datei löschen.
+    static func download(from url: URL) async throws -> URL {
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        let (temporary, response) = try await session.download(for: request)
+        try check(response)
+        let destination = FileManager.default.temporaryDirectory.appending(path: "download-\(UUID().uuidString)")
+        try FileManager.default.moveItem(at: temporary, to: destination)
+        return destination
+    }
+
+    private static func check(_ response: URLResponse) throws {
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw LoadError.httpStatus(http.statusCode)
         }
-        return data
     }
 
     enum LoadError: LocalizedError {

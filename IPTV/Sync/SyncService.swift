@@ -131,18 +131,43 @@ final class SyncService {
             let local = localSnapshot(store: store, userData: userData, includePlaylists: syncPlaylists)
             let merged = remote.map { Self.merge(local: local, remote: $0) } ?? local
 
-            // Lokal übernehmen.
-            userData.applySync(favorites: merged.favorites, history: merged.history, progress: merged.progress)
-            if let settings = merged.settings, settings.changedAt > SyncedSettings.current.changedAt {
-                settings.apply()
-            }
+            // Lokal übernehmen – zuerst die Playlists, damit ihre Zugangsdaten
+            // für die Links in Verlauf und Fortschritt bereitstehen.
             if syncPlaylists, let playlists = merged.playlists {
                 await store.applySyncedPlaylists(playlists, deleted: merged.deletedPlaylists ?? [:])
             }
+            let redactor = CredentialRedactor(playlists: store.playlists)
+            userData.applySync(
+                favorites: merged.favorites,
+                history: merged.history.map { entry in
+                    var entry = entry
+                    entry.channel = redactor.restore(entry.channel)
+                    return entry
+                },
+                progress: merged.progress.mapValues { item in
+                    var item = item
+                    item.channel = redactor.restore(item.channel)
+                    return item
+                }
+            )
+            if let settings = merged.settings, settings.changedAt > SyncedSettings.current.changedAt {
+                settings.apply()
+            }
 
-            // Hochladen.
+            // Hochladen – auch Einträge aus älteren Ständen ohne Zugangsdaten.
+            let uploadRedactor = CredentialRedactor(playlists: store.playlists)
             var upload = merged
             upload.updatedAt = .now
+            upload.history = merged.history.map { entry in
+                var entry = entry
+                entry.channel = uploadRedactor.redact(entry.channel)
+                return entry
+            }
+            upload.progress = merged.progress.mapValues { item in
+                var item = item
+                item.channel = uploadRedactor.redact(item.channel)
+                return item
+            }
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             try await drive.upload(try encoder.encode(upload), existingFileID: remoteFile?.fileID)
@@ -159,11 +184,21 @@ final class SyncService {
 
     private func localSnapshot(store: PlaylistStore, userData: UserDataStore, includePlaylists: Bool) -> SyncSnapshot {
         let state = userData.syncState()
+        // Zugangsdaten aus den Links entfernen – sie gehören nur mit „Playlists synchronisieren“ in die Cloud.
+        let redactor = CredentialRedactor(playlists: store.playlists)
         return SyncSnapshot(
             updatedAt: .now,
             favorites: state.favorites,
-            history: state.history,
-            progress: state.progress,
+            history: state.history.map { entry in
+                var entry = entry
+                entry.channel = redactor.redact(entry.channel)
+                return entry
+            },
+            progress: state.progress.mapValues { item in
+                var item = item
+                item.channel = redactor.redact(item.channel)
+                return item
+            },
             settings: SyncedSettings.current,
             playlists: includePlaylists ? store.playlists : nil,
             deletedPlaylists: includePlaylists ? store.deletedPlaylists : nil

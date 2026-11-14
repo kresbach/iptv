@@ -9,7 +9,8 @@ actor ImagePipeline {
 
     private nonisolated(unsafe) let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 800
+        // Nach Speichergröße begrenzen (ca. 80 MB), nicht nach Anzahl – Poster sind groß.
+        cache.totalCostLimit = 80 * 1024 * 1024
         return cache
     }()
     private var running: [String: Task<UIImage?, Never>] = [:]
@@ -24,13 +25,16 @@ actor ImagePipeline {
         if let task = running[key] { return await task.value }
 
         let task = Task.detached(priority: .utility) { () -> UIImage? in
-            guard let data = try? await HTTPClient.data(from: url) else { return nil }
+            guard let data = try? await HTTPClient.data(from: url, useCache: true) else { return nil }
             return Self.downsample(data, maxPixelSize: maxPixelSize)
         }
         running[key] = task
         let image = await task.value
         running[key] = nil
-        if let image { cache.setObject(image, forKey: key as NSString) }
+        if let image {
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+            cache.setObject(image, forKey: key as NSString, cost: cost)
+        }
         return image
     }
 

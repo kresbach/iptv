@@ -55,11 +55,15 @@ enum ContentClassifier {
         }
 
         let isVODFile = vodExtensions.contains(url.pathExtension.lowercased())
-        let groupIsVOD = group.hasPrefix("vod") || group.hasPrefix("serie")
-        guard isVODFile || groupIsVOD else { return .live }
-
-        if looksLikeEpisode || group.contains("serie") { return .series }
-        return .movie
+        if isVODFile {
+            return looksLikeEpisode || group.contains("serie") ? .series : .movie
+        }
+        if group.hasPrefix("vod") {
+            return looksLikeEpisode ? .series : .movie
+        }
+        // Gruppen wie „Serien HD“ enthalten oft Live-Sender – nur mit Episodenkennung als Serie werten.
+        if looksLikeEpisode && group.contains("serie") { return .series }
+        return .live
     }
 }
 

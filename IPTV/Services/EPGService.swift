@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// Lädt einen TV-Guide im XMLTV-Format (auch `.xml.gz`) und behält nur Sendungen
@@ -13,8 +14,12 @@ enum EPGService {
     }
 
     static func load(from url: URL, for channels: [Channel]) async throws -> EPGGuide {
-        let raw = try await HTTPClient.data(from: url)
-        let xml = try gunzipIfNeeded(raw)
+        // Große TV-Guides (oft > 100 MB) nie komplett in den Speicher laden:
+        // auf die Festplatte herunterladen, dort entpacken und gestreamt lesen.
+        let downloaded = try await HTTPClient.download(from: url)
+        defer { try? FileManager.default.removeItem(at: downloaded) }
+        let xmlFile = try gunzipFileIfNeeded(downloaded)
+        defer { if xmlFile != downloaded { try? FileManager.default.removeItem(at: xmlFile) } }
 
         var wantedIDs = Set<String>()
         var wantedNames = Set<String>()
@@ -29,30 +34,64 @@ enum EPGService {
             wantedNames: wantedNames,
             window: now.addingTimeInterval(-2 * 3600)...now.addingTimeInterval(48 * 3600)
         )
-        let parser = XMLParser(data: xml)
+        guard let stream = InputStream(url: xmlFile) else { throw EPGError.invalidData }
+        let parser = XMLParser(stream: stream)
         parser.delegate = collector
         guard parser.parse() || !collector.programmes.isEmpty else { throw EPGError.invalidData }
 
-        let sorted = collector.programmes.mapValues { $0.sorted { $0.start < $1.start } }
-        return EPGGuide(programmes: sorted, fetchedAt: now)
+        // Sortieren und doppelte Sendungen (gleiche Startzeit) entfernen.
+        let cleaned = collector.programmes.mapValues { list -> [Programme] in
+            var seen = Set<Date>()
+            return list.sorted { $0.start < $1.start }.filter { seen.insert($0.start).inserted }
+        }
+        return EPGGuide(programmes: cleaned, fetchedAt: now)
     }
 
-    /// Entpackt gzip-Daten (z. B. `epg.xml.gz`); andere Daten bleiben unverändert.
-    static func gunzipIfNeeded(_ input: Data) throws -> Data {
-        let bytes = [UInt8](input)
-        guard bytes.count > 18, bytes[0] == 0x1f, bytes[1] == 0x8b else { return input }
+    /// Entpackt eine gzip-Datei (z. B. `epg.xml.gz`) blockweise in eine neue Datei.
+    /// Andere Dateien werden unverändert zurückgegeben.
+    static func gunzipFileIfNeeded(_ file: URL) throws -> URL {
+        let input = try FileHandle(forReadingFrom: file)
+        defer { try? input.close() }
 
-        let flags = bytes[3]
-        var offset = 10
-        if flags & 0x04 != 0 { offset += 2 + (Int(bytes[offset]) | Int(bytes[offset + 1]) << 8) }  // FEXTRA
-        if flags & 0x08 != 0 { while offset < bytes.count, bytes[offset] != 0 { offset += 1 }; offset += 1 }  // FNAME
-        if flags & 0x10 != 0 { while offset < bytes.count, bytes[offset] != 0 { offset += 1 }; offset += 1 }  // FCOMMENT
-        if flags & 0x02 != 0 { offset += 2 }  // FHCRC
-        guard offset < bytes.count - 8 else { throw EPGError.invalidData }
+        let header = try input.read(upToCount: 10) ?? Data()
+        guard header.count == 10, header[0] == 0x1f, header[1] == 0x8b else { return file }
+
+        // Optionale Kopffelder überspringen.
+        let flags = header[3]
+        if flags & 0x04 != 0, let extra = try input.read(upToCount: 2), extra.count == 2 {
+            _ = try input.read(upToCount: Int(extra[extra.startIndex]) | Int(extra[extra.startIndex + 1]) << 8)
+        }
+        if flags & 0x08 != 0 { try skipZeroTerminated(input) }
+        if flags & 0x10 != 0 { try skipZeroTerminated(input) }
+        if flags & 0x02 != 0 { _ = try input.read(upToCount: 2) }
+
+        // Die letzten 8 Bytes (Prüfsumme, Länge) gehören nicht zum DEFLATE-Strom.
+        let fileSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value ?? 0
+        let deflateEnd = fileSize > 8 ? fileSize - 8 : 0
+        guard try input.offset() < deflateEnd else { throw EPGError.invalidData }
+
+        let output = FileManager.default.temporaryDirectory.appending(path: "epg-\(UUID().uuidString).xml")
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let writer = try FileHandle(forWritingTo: output)
+        defer { try? writer.close() }
 
         // Apple „zlib“ = rohes DEFLATE (RFC 1951), genau der Inhalt einer gzip-Datei.
-        let deflated = Data(bytes[offset..<(bytes.count - 8)]) as NSData
-        return try deflated.decompressed(using: .zlib) as Data
+        let filter = try OutputFilter(.decompress, using: .zlib) { data in
+            if let data { try? writer.write(contentsOf: data) }
+        }
+        while true {
+            let position = try input.offset()
+            guard position < deflateEnd else { break }
+            let count = Int(min(UInt64(1 << 20), deflateEnd - position))
+            guard let chunk = try input.read(upToCount: count), !chunk.isEmpty else { break }
+            try filter.write(chunk)
+        }
+        try filter.finalize()
+        return output
+    }
+
+    private static func skipZeroTerminated(_ handle: FileHandle) throws {
+        while let byte = try handle.read(upToCount: 1), let value = byte.first, value != 0 {}
     }
 }
 

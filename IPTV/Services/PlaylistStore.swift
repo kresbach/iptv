@@ -27,6 +27,10 @@ final class PlaylistStore {
     @ObservationIgnored private(set) var deletedPlaylists: [UUID: Date] = [:]
     @ObservationIgnored private var movieInfoCache: [String: MediaInfo] = [:]
     @ObservationIgnored private var loadGeneration = 0
+    /// Anzahl laufender Ladevorgänge; `isLoading` bleibt aktiv, bis alle fertig sind.
+    @ObservationIgnored private var activeLoads = 0 {
+        didSet { isLoading = activeLoads > 0 }
+    }
 
     private static let libraryFile = "library.json"
     private static let epgMaxAge: TimeInterval = 6 * 3600
@@ -108,9 +112,9 @@ final class PlaylistStore {
     @discardableResult
     func addPlaylist(name: String, source: PlaylistSource, fileData: Data? = nil) async -> Bool {
         var playlist = Playlist(name: name, source: source)
-        isLoading = true
+        activeLoads += 1
         errorMessage = nil
-        defer { isLoading = false }
+        defer { activeLoads -= 1 }
 
         do {
             if let fileData {
@@ -173,9 +177,9 @@ final class PlaylistStore {
         guard let playlist = activePlaylist else { return false }
         loadGeneration += 1
         let generation = loadGeneration
-        isLoading = true
+        activeLoads += 1
         if !silent { errorMessage = nil }
-        defer { isLoading = false }
+        defer { activeLoads -= 1 }
 
         do {
             let (data, detectedEPG) = try await fetchData(for: playlist)

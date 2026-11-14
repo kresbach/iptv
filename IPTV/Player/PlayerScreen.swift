@@ -8,6 +8,7 @@ struct PlayerScreen: View {
     let channel: Channel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
     @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
@@ -84,6 +85,22 @@ struct PlayerScreen: View {
         .persistentSystemOverlays(showsControls ? .automatic : .hidden)
         .preferredColorScheme(.dark)
         .task(id: attempt) { await runPlayback() }
+        .onChange(of: scenePhase) { _, phase in
+            handleScenePhase(phase)
+        }
+    }
+
+    /// VLC zeichnet mit der GPU und darf im Hintergrund nicht weiterlaufen; außerdem
+    /// Fortschritt sichern. Der Apple-Player läuft im Hintergrund als Bild-in-Bild weiter.
+    private func handleScenePhase(_ phase: ScenePhase) {
+        guard phase == .background else { return }
+        saveProgress()
+        #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
+        if let vlc = engine as? VLCPlaybackEngine, vlc.isPlaying {
+            vlc.togglePlayPause()
+            showsControls = true
+        }
+        #endif
     }
 
     // MARK: - Video
@@ -307,7 +324,7 @@ struct PlayerScreen: View {
                         if vlcOnly && !PlayerEngine.isVLCAvailable {
                             lines.append("Dieses Format kann nur VLC abspielen, VLC ist aber nicht eingebunden.")
                         } else if vlcOnly && engineSetting == .apple {
-                            lines.append("Dieses Format kann nur VLC abspielen. Stelle unter Einstellungen → Wiedergabe „Automatisch“ ein.")
+                            lines.append("Dieses Format kann nur VLC abspielen. Stelle unter Einstellungen → Player „VLC“ oder „Automatisch“ ein.")
                         }
                         errorMessage = lines.joined(separator: "\n")
                         return

@@ -47,6 +47,11 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
         )
     }
 
+    /// Kopie mit anderem Stream-Link (z. B. ohne Zugangsdaten für den Sync).
+    func with(url newURL: URL) -> Channel {
+        Channel(id: id, name: name, url: newURL, group: group, tvgID: tvgID, logoURL: logoURL, kind: kind)
+    }
+
     static let ungroupedTitle = "Ohne Kategorie"
 
     /// Kategorie für die Anzeige. Einträge ohne Gruppe landen in „Ohne Kategorie“.

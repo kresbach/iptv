@@ -150,7 +150,8 @@ struct SeriesShow: Identifiable, Hashable, Codable, Sendable {
     /// Xtream: `series_id` zum Nachladen der Episoden.
     var xtreamSeriesID: Int?
 
-    var id: String { favoriteKey }
+    /// Eindeutig, auch wenn zwei Serien gleich heißen (Xtream: über die Serien-ID).
+    var id: String { xtreamSeriesID.map { "xtream-\($0)" } ?? favoriteKey }
     var favoriteKey: String { "series|\(category)|\(title)" }
     var needsEpisodeLoading: Bool { episodes.isEmpty && xtreamSeriesID != nil }
 
