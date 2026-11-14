@@ -24,10 +24,18 @@ final class UserDataStore {
         var remaining: Double { max(duration - position, 0) }
     }
 
+    /// Favoriten-Zustand mit Zeitpunkt der letzten Änderung (für den Abgleich zwischen Geräten).
+    struct FavoriteState: Codable, Hashable, Sendable {
+        var isFavorite: Bool
+        var changedAt: Date
+    }
+
     private struct Snapshot: Codable, Sendable {
         var favorites: [String] = []
         var history: [HistoryEntry] = []
         var progress: [String: PlaybackProgress] = [:]
+        /// Optional, damit ältere Dateien ohne dieses Feld lesbar bleiben.
+        var favoriteChanges: [String: Date]?
     }
 
     private(set) var favorites: [String] = []
@@ -35,6 +43,10 @@ final class UserDataStore {
     private(set) var progress: [String: PlaybackProgress] = [:]
 
     private var favoriteSet: Set<String> = []
+    /// Letzte Änderung je Favoriten-Schlüssel, auch für entfernte Favoriten.
+    @ObservationIgnored private var favoriteChanges: [String: Date] = [:]
+    /// Wird nach jeder Änderung aufgerufen (z. B. für die Synchronisierung).
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     private static let fileName = "userdata.json"
     private static let historyLimit = 40
@@ -46,6 +58,7 @@ final class UserDataStore {
         favoriteSet = Set(snapshot.favorites)
         history = snapshot.history
         progress = snapshot.progress
+        favoriteChanges = snapshot.favoriteChanges ?? [:]
     }
 
     // MARK: - Favoriten
@@ -61,6 +74,7 @@ final class UserDataStore {
             favoriteSet.insert(key)
             favorites.insert(key, at: 0)
         }
+        favoriteChanges[key] = .now
         scheduleSave()
     }
 
@@ -115,11 +129,46 @@ final class UserDataStore {
             .sorted { $0.updated > $1.updated }
     }
 
+    // MARK: - Synchronisierung
+
+    /// Aktueller Stand für den Abgleich.
+    func syncState() -> (favorites: [String: FavoriteState], history: [HistoryEntry], progress: [String: PlaybackProgress]) {
+        var states: [String: FavoriteState] = [:]
+        for (key, date) in favoriteChanges {
+            states[key] = FavoriteState(isFavorite: favoriteSet.contains(key), changedAt: date)
+        }
+        for key in favorites where states[key] == nil {
+            states[key] = FavoriteState(isFavorite: true, changedAt: .distantPast)
+        }
+        return (states, history, progress)
+    }
+
+    /// Übernimmt einen zusammengeführten Stand.
+    func applySync(favorites states: [String: FavoriteState], history: [HistoryEntry], progress: [String: PlaybackProgress]) {
+        let active = states
+            .filter { $0.value.isFavorite }
+            .sorted { $0.value.changedAt > $1.value.changedAt }
+            .map { $0.key }
+        favorites = active
+        favoriteSet = Set(active)
+        favoriteChanges = states
+            .filter { $0.value.changedAt != .distantPast }
+            .mapValues { $0.changedAt }
+        self.history = Array(history.sorted { $0.date > $1.date }.prefix(Self.historyLimit))
+        self.progress = progress
+        persist(notify: false)
+    }
+
     // MARK: - Speichern
 
     private func scheduleSave() {
+        persist(notify: true)
+    }
+
+    private func persist(notify: Bool) {
         saveTask?.cancel()
-        let snapshot = Snapshot(favorites: favorites, history: history, progress: progress)
+        if notify { onChange?() }
+        let snapshot = Snapshot(favorites: favorites, history: history, progress: progress, favoriteChanges: favoriteChanges)
         saveTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }

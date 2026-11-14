@@ -1,9 +1,13 @@
+import AuthenticationServices
 import SwiftUI
 
 struct SettingsView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(SyncService.self) private var sync
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @AppStorage(SyncedSettings.syncPlaylistsKey) private var syncPlaylists = false
 
     @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
     @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
@@ -106,6 +110,8 @@ struct SettingsView: View {
                      : "VLC ist nicht eingebunden. Füge in Xcode das Paket „vlckit-spm“ hinzu, um .ts- und .mkv-Streams abzuspielen (siehe README).")
             }
 
+            googleDriveSection
+
             Section("Verlauf") {
                 Button("Verlauf und Fortschritt löschen", systemImage: "clock.arrow.circlepath", role: .destructive) {
                     confirmsClearHistory = true
@@ -118,6 +124,8 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Einstellungen")
+        .onChange(of: liveEngine) { SyncedSettings.markChanged() }
+        .onChange(of: vodEngine) { SyncedSettings.markChanged() }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Fertig", systemImage: "checkmark") { dismiss() }
@@ -127,6 +135,72 @@ struct SettingsView: View {
             Button("Löschen", role: .destructive) { userData.clearHistory() }
         } message: {
             Text("„Zuletzt gesehen“ und „Weiterschauen“ werden geleert. Favoriten bleiben erhalten.")
+        }
+    }
+}
+
+extension SettingsView {
+    /// Google-Drive-Synchronisierung für Favoriten, Fortschritt und Einstellungen.
+    @ViewBuilder
+    var googleDriveSection: some View {
+        Section {
+            if !sync.isConfigured {
+                Label {
+                    Text("Für die Synchronisierung wird eine Google-Client-ID benötigt. Trage sie in GoogleConfig.swift ein (Anleitung im README).")
+                        .font(.footnote)
+                } icon: {
+                    Image(systemName: "info.circle.fill").foregroundStyle(Theme.orange)
+                }
+            } else if !sync.isSignedIn {
+                Button {
+                    Task { await sync.signIn(using: webAuthenticationSession, store: store, userData: userData) }
+                } label: {
+                    Label("Mit Google anmelden", systemImage: "person.crop.circle.badge.plus")
+                }
+            } else {
+                if let email = sync.accountEmail {
+                    LabeledContent("Konto", value: email)
+                }
+                LabeledContent("Letzter Abgleich") {
+                    if let lastSync = sync.lastSync {
+                        Text(lastSync, format: .relative(presentation: .named))
+                    } else {
+                        Text("noch nie")
+                    }
+                }
+                Button {
+                    Task { await sync.sync(store: store, userData: userData) }
+                } label: {
+                    HStack {
+                        Label("Jetzt synchronisieren", systemImage: "arrow.triangle.2.circlepath")
+                        Spacer()
+                        if sync.isSyncing { ProgressView() }
+                    }
+                }
+                .disabled(sync.isSyncing)
+
+                Toggle(isOn: $syncPlaylists) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Playlists synchronisieren")
+                        Text("Inklusive Links und Zugangsdaten")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(Theme.orange)
+
+                Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    sync.signOut()
+                }
+            }
+        } header: {
+            Text("Google Drive")
+        } footer: {
+            if let error = sync.lastError {
+                Text(error).foregroundStyle(.red)
+            } else {
+                Text("Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und Player-Einstellungen werden in einem versteckten App-Ordner deines Google Drive gespeichert und auf allen Geräten abgeglichen. Die App hat keinen Zugriff auf deine übrigen Dateien.")
+            }
         }
     }
 }

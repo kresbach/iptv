@@ -62,6 +62,27 @@ Der Apple-Player spielt HLS (`.m3u8`) und MP4. Für MPEG-TS (`.ts`), MKV und and
 
 Hinweis: `vlckit-spm` ist ein inoffizielles Paket, das die offiziellen VLCKit-Binärdateien von VideoLAN für den Swift Package Manager bereitstellt. Es vergrößert die App um etwa 50–70 MB.
 
+## Google-Drive-Synchronisierung einrichten
+
+Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und die Player-Einstellungen (optional auch die Playlists) lassen sich über Google Drive zwischen Geräten abgleichen. Gespeichert wird in einem **versteckten App-Ordner** (`appDataFolder`), auf andere Dateien hat die App keinen Zugriff.
+
+Einmalig eine eigene Google-Client-ID anlegen (kostenlos, ca. 5 Minuten):
+
+1. [console.cloud.google.com](https://console.cloud.google.com) öffnen und ein **neues Projekt** anlegen, z. B. „IPTV“.
+2. **APIs & Dienste → Bibliothek**: „Google Drive API“ suchen und **aktivieren**.
+3. **APIs & Dienste → OAuth-Zustimmungsbildschirm** (bzw. „Google Auth Platform“):
+   - Nutzertyp **Extern**, App-Name „IPTV“, deine E-Mail als Support- und Entwickler-Kontakt.
+   - Unter **Zielgruppe / Testnutzer** deine Google-Adresse eintragen. Im Testmodus können sich nur eingetragene Testnutzer anmelden, das genügt für die private Nutzung.
+4. **APIs & Dienste → Anmeldedaten → Anmeldedaten erstellen → OAuth-Client-ID**:
+   - Anwendungstyp **iOS**
+   - Bundle-ID: `com.kresbach.IPTV`
+5. Die angezeigte **Client-ID** (endet auf `.apps.googleusercontent.com`) in `IPTV/App/GoogleConfig.swift` bei `clientID` eintragen.
+6. App neu bauen → *Einstellungen → Google Drive → Mit Google anmelden*.
+
+Beim ersten Anmelden warnt Google ggf., dass die App nicht verifiziert ist: über **Erweitert → Weiter zu IPTV** bestätigen.
+
+Abgleich: beim App-Start, beim Wechsel in den Hintergrund, ca. 20 Sekunden nach Änderungen und per *Jetzt synchronisieren*. Bei Konflikten gewinnt je Eintrag die neuere Änderung; entfernte Favoriten tauchen nicht wieder auf.
+
 ## Hinweise
 
 - **http-Playlists**: Die `IPTV-Info.plist` erlaubt http über `NSAllowsArbitraryLoads`. Ergänze dort keine weiteren `NSAllows…`-Schlüssel, sonst ignoriert iOS diese Freigabe und http-Downloads scheitern.

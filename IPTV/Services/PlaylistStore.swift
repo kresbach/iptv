@@ -24,6 +24,7 @@ final class PlaylistStore {
     private(set) var epgErrorMessage: String?
 
     @ObservationIgnored private var seriesCache: [String: SeriesDetails] = [:]
+    @ObservationIgnored private(set) var deletedPlaylists: [UUID: Date] = [:]
     @ObservationIgnored private var movieInfoCache: [String: MediaInfo] = [:]
     @ObservationIgnored private var loadGeneration = 0
 
@@ -64,6 +65,7 @@ final class PlaylistStore {
         if let library = await Storage.read(Library.self, from: Self.libraryFile) {
             playlists = library.playlists
             activeID = library.activeID ?? library.playlists.first?.id
+            deletedPlaylists = library.deletedPlaylists ?? [:]
         } else {
             await migrateLegacyPlaylist()
         }
@@ -194,6 +196,7 @@ final class PlaylistStore {
 
     func delete(_ id: UUID) async {
         playlists.removeAll { $0.id == id }
+        deletedPlaylists[id] = .now
         for file in [Self.contentFile(id), Self.epgFile(id), Self.sourceFile(id)] {
             Storage.remove(file)
         }
@@ -209,6 +212,32 @@ final class PlaylistStore {
             }
         }
         await saveLibrary()
+    }
+
+    // MARK: - Synchronisierung
+
+    /// Übernimmt Playlists von einem anderen Gerät: neue werden ergänzt,
+    /// dort gelöschte entfernt. Lokale Playlists mit gleicher ID bleiben unverändert.
+    func applySyncedPlaylists(_ synced: [Playlist], deleted: [UUID: Date]) async {
+        deletedPlaylists.merge(deleted) { max($0, $1) }
+        var changed = false
+
+        for id in deletedPlaylists.keys where playlists.contains(where: { $0.id == id }) {
+            await delete(id)
+            changed = true
+        }
+        for playlist in synced where deletedPlaylists[playlist.id] == nil
+            && !playlists.contains(where: { $0.id == playlist.id }) {
+            playlists.append(playlist)
+            changed = true
+        }
+        guard changed else { return }
+        await saveLibrary()
+
+        if activeID == nil, let first = playlists.first {
+            phase = .ready
+            await activate(first.id)
+        }
     }
 
     // MARK: - Details zu Filmen und Serien (Xtream lädt sie erst beim Öffnen)
@@ -307,7 +336,10 @@ final class PlaylistStore {
     }
 
     private func saveLibrary() async {
-        await Storage.write(Library(playlists: playlists, activeID: activeID), to: Self.libraryFile)
+        await Storage.write(
+            Library(playlists: playlists, activeID: activeID, deletedPlaylists: deletedPlaylists),
+            to: Self.libraryFile
+        )
     }
 
     /// Übernimmt die Playlist aus Version 1 (eine einzelne `playlist.json`).
@@ -336,6 +368,8 @@ final class PlaylistStore {
     private struct Library: Codable, Sendable {
         let playlists: [Playlist]
         let activeID: UUID?
+        /// Gelöschte Playlists, damit sie beim Abgleich nicht wieder auftauchen.
+        var deletedPlaylists: [UUID: Date]?
     }
 
     private static func contentFile(_ id: UUID) -> String { "content-\(id.uuidString).json" }
