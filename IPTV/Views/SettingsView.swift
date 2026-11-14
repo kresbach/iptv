@@ -147,7 +147,7 @@ extension SettingsView {
     /// Speicherbelegung und Verhalten der Downloads.
     @ViewBuilder
     var downloadsSection: some View {
-        @Bindable var downloads = downloads
+        @Bindable var downloads = self.downloads
         Section {
             LabeledContent("Heruntergeladen", value: "\(downloads.completedItems.count)")
             LabeledContent("Belegt", value: DownloadManager.format(downloads.usedBytes))
