@@ -5,6 +5,8 @@ struct SettingsView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
     @Environment(SyncService.self) private var sync
+    @Environment(DownloadManager.self) private var downloads
+    @State private var confirmsDeleteDownloads = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @AppStorage(SyncedSettings.syncPlaylistsKey) private var syncPlaylists = false
@@ -112,6 +114,8 @@ struct SettingsView: View {
 
             googleDriveSection
 
+            downloadsSection
+
             Section("Verlauf") {
                 Button("Verlauf und Fortschritt löschen", systemImage: "clock.arrow.circlepath", role: .destructive) {
                     confirmsClearHistory = true
@@ -140,6 +144,30 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Speicherbelegung und Verhalten der Downloads.
+    @ViewBuilder
+    var downloadsSection: some View {
+        @Bindable var downloads = downloads
+        Section {
+            LabeledContent("Heruntergeladen", value: "\(downloads.completedItems.count)")
+            LabeledContent("Belegt", value: DownloadManager.format(downloads.usedBytes))
+            LabeledContent("Frei auf dem Gerät", value: DownloadManager.format(DownloadManager.availableBytes))
+            Toggle("Während der Wiedergabe pausieren", isOn: $downloads.pausesDuringPlayback)
+                .tint(Theme.orange)
+            Button("Alle Downloads löschen", systemImage: "trash", role: .destructive) {
+                confirmsDeleteDownloads = true
+            }
+            .disabled(downloads.completedItems.isEmpty)
+            .confirmationDialog("Alle Downloads löschen?", isPresented: $confirmsDeleteDownloads, titleVisibility: .visible) {
+                Button("Löschen", role: .destructive) { downloads.removeAllCompleted() }
+            }
+        } header: {
+            Text("Downloads")
+        } footer: {
+            Text("Downloads laufen auch bei gesperrtem Gerät weiter. Da viele IPTV-Konten nur eine Verbindung erlauben, pausiert ein Download, solange ein Stream läuft, und setzt danach fort.")
+        }
+    }
+
     /// Google-Drive-Synchronisierung für Favoriten, Fortschritt und Einstellungen.
     @ViewBuilder
     var googleDriveSection: some View {

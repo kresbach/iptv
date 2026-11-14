@@ -27,6 +27,13 @@ struct MovieDetailView: View {
 
                     playButtons
 
+                    DownloadButton(
+                        channel: movie,
+                        title: MediaInfo.cleanTitle(movie.name),
+                        subtitle: [info?.year, info?.durationText].compactMap { $0 }.joined(separator: " · "),
+                        posterURL: info?.posterURL ?? movie.logoURL
+                    )
+
                     HStack(spacing: 12) {
                         TrailerButton(title: movie.name, info: info)
                         FavoriteToggle(isFavorite: userData.isFavorite(movie)) {

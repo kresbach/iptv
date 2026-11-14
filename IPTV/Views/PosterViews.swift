@@ -108,6 +108,7 @@ struct SeriesGridView: View {
 struct SeriesDetailView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(DownloadManager.self) private var downloads
     let show: SeriesShow
 
     @State private var info: MediaInfo?
@@ -189,9 +190,26 @@ struct SeriesDetailView: View {
                     Text(seasonTitle(current)).font(.headline)
                 }
 
+                let seasonEpisodes = seasons.first { $0.season == current }?.episodes ?? []
+                Button {
+                    for episode in seasonEpisodes {
+                        downloads.download(
+                            episode.channel,
+                            title: episode.displayTitle,
+                            subtitle: Self.episodeSubtitle(episode, show: show),
+                            posterURL: show.posterURL,
+                            showTitle: MediaInfo.cleanTitle(show.title)
+                        )
+                    }
+                } label: {
+                    Label("\(seasonTitle(current)) herunterladen", systemImage: "arrow.down.circle")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .disabled(seasonEpisodes.allSatisfy { downloads.item(for: $0.channel) != nil })
+
                 VStack(spacing: 0) {
                     ForEach(seasons.first { $0.season == current }?.episodes ?? []) { episode in
-                        EpisodeRow(episode: episode)
+                        EpisodeRow(episode: episode, show: show)
                             .padding(.vertical, 10)
                         Divider()
                     }
@@ -202,6 +220,15 @@ struct SeriesDetailView: View {
 
     private func seasonTitle(_ season: Int) -> String {
         season > 0 ? "Staffel \(season)" : "Episoden"
+    }
+
+    /// z. B. „Staffel 1, Episode 3“ für die Downloads-Übersicht.
+    static func episodeSubtitle(_ episode: SeriesShow.Episode, show: SeriesShow) -> String {
+        switch (episode.season, episode.number) {
+        case let (season?, number?): "Staffel \(season), Episode \(number)"
+        case let (nil, number?): "Episode \(number)"
+        default: MediaInfo.cleanTitle(show.title)
+        }
     }
 
     private func load() async {
@@ -223,36 +250,48 @@ private struct EpisodeRow: View {
     @Environment(UserDataStore.self) private var userData
     @Environment(\.playChannel) private var playChannel
     let episode: SeriesShow.Episode
+    let show: SeriesShow
 
     var body: some View {
-        Button {
-            playChannel(episode.channel)
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(episode.displayTitle)
-                        .font(.body.weight(.medium))
-                    if let progress = userData.playbackProgress(for: episode.channel) {
-                        if progress.isFinished {
-                            Label("Gesehen", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ProgressView(value: progress.fraction)
-                                .tint(Theme.orange)
-                                .frame(maxWidth: 160)
+        HStack(spacing: 12) {
+            Button {
+                playChannel(episode.channel)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(episode.displayTitle)
+                            .font(.body.weight(.medium))
+                        if let progress = userData.playbackProgress(for: episode.channel) {
+                            if progress.isFinished {
+                                Label("Gesehen", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ProgressView(value: progress.fraction)
+                                    .tint(Theme.orange)
+                                    .frame(maxWidth: 160)
+                            }
                         }
                     }
+                    Spacer()
+                    Image(systemName: "play.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Theme.orange)
                 }
-                Spacer()
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Theme.orange)
+                .contentShape(.rect)
             }
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+
+            DownloadButton(
+                channel: episode.channel,
+                title: episode.displayTitle,
+                subtitle: SeriesDetailView.episodeSubtitle(episode, show: show),
+                posterURL: show.posterURL,
+                showTitle: MediaInfo.cleanTitle(show.title),
+                style: .compact
+            )
         }
-        .buttonStyle(.plain)
     }
 }
 

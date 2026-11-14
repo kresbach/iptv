@@ -31,6 +31,7 @@ struct HomeView: View {
                 }
 
                 ContinueWatchingRow()
+                DownloadsShelf()
                 RecentChannelsRow()
                 FavoritesRow()
             }
@@ -71,6 +72,13 @@ struct HomeView: View {
                             .foregroundStyle(.secondary)
                     }
                     .accessibilityLabel(store.isLoading ? "Playlist wird aktualisiert" : "TV-Guide wird aktualisiert")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    DownloadsView()
+                } label: {
+                    Label("Downloads", systemImage: "arrow.down.circle")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

@@ -11,6 +11,7 @@ struct PlayerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(DownloadManager.self) private var downloads
     @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
     @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
 
@@ -85,8 +86,14 @@ struct PlayerScreen: View {
         .persistentSystemOverlays(showsControls ? .automatic : .hidden)
         .preferredColorScheme(.dark)
         .task(id: attempt) { await runPlayback() }
-        .onAppear { store.playbackStarted() }
-        .onDisappear { store.playbackEnded() }
+        .onAppear {
+            store.playbackStarted()
+            downloads.playbackStarted(isLocalFile: downloads.localURL(for: channel) != nil)
+        }
+        .onDisappear {
+            store.playbackEnded()
+            downloads.playbackEnded()
+        }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
         }
@@ -265,7 +272,9 @@ struct PlayerScreen: View {
         errorMessage = nil
         attemptErrors = []
         if attempt == 0 { userData.recordPlayback(of: channel) }
-        candidates = engineSetting.candidates(for: channel)
+        // Heruntergeladene Filme/Episoden von der lokalen Datei abspielen (auch offline).
+        let playbackChannel = downloads.localURL(for: channel).map { channel.with(url: $0) } ?? channel
+        candidates = engineSetting.candidates(for: playbackChannel)
         candidateIndex = 0
         // Nur lokal warten, bis ein vorheriger VLC-Player gestoppt ist – nicht auf den
         // Verbindungszähler des Servers, der oft veraltet ist.
