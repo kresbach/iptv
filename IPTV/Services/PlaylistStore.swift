@@ -27,6 +27,9 @@ final class PlaylistStore {
     @ObservationIgnored private(set) var deletedPlaylists: [UUID: Date] = [:]
     @ObservationIgnored private var movieInfoCache: [String: MediaInfo] = [:]
     @ObservationIgnored private var loadGeneration = 0
+    @ObservationIgnored private var backgroundRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshPendingAfterPlayback = false
+    @ObservationIgnored private var isPlaybackActive = false
     /// Anzahl laufender Ladevorgänge; `isLoading` bleibt aktiv, bis alle fertig sind.
     @ObservationIgnored private var activeLoads = 0 {
         didSet { isLoading = activeLoads > 0 }
@@ -83,8 +86,9 @@ final class PlaylistStore {
             content = await Self.buildContent(data)
             phase = .ready
             epg = await Storage.read(EPGGuide.self, from: Self.epgFile(playlist.id))
-            // Sofort mit dem gespeicherten Stand starten, Playlist und TV-Guide im Hintergrund erneuern.
-            refreshInBackground()
+            // Sofort mit dem gespeicherten Stand starten, Playlist und TV-Guide im Hintergrund
+            // erneuern – etwas verzögert, damit ein direkt gestarteter Sender die volle Bandbreite hat.
+            refreshInBackground(after: .seconds(8))
         } else {
             phase = .ready
             await refresh(forceEPG: true)
@@ -93,9 +97,40 @@ final class PlaylistStore {
 
     /// Aktualisiert Playlist und TV-Guide im Hintergrund, ohne die Oberfläche zu blockieren.
     /// Fehler (z. B. offline) werden nicht angezeigt – der gespeicherte Stand bleibt einfach bestehen.
-    func refreshInBackground() {
-        guard activePlaylist != nil, !isLoading else { return }
-        Task { await refresh(silent: true, forceEPG: true) }
+    func refreshInBackground(after delay: Duration = .zero) {
+        guard activePlaylist != nil, backgroundRefreshTask == nil else { return }
+        // Während der Wiedergabe nicht laden (TV-Guides sind oft viele MB groß und
+        // bremsen den Stream), sondern danach nachholen.
+        guard !isPlaybackActive else {
+            refreshPendingAfterPlayback = true
+            return
+        }
+        backgroundRefreshTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await refresh(silent: true, forceEPG: true)
+            // Ein abgebrochener Task darf einen inzwischen neu gestarteten nicht austragen.
+            if !Task.isCancelled { backgroundRefreshTask = nil }
+        }
+    }
+
+    /// Vom Player beim Start aufrufen: laufende Hintergrund-Aktualisierung anhalten.
+    func playbackStarted() {
+        isPlaybackActive = true
+        if let task = backgroundRefreshTask {
+            task.cancel()
+            backgroundRefreshTask = nil
+            refreshPendingAfterPlayback = true
+        }
+    }
+
+    /// Vom Player beim Schließen aufrufen: zurückgestellte Aktualisierung nachholen.
+    func playbackEnded() {
+        isPlaybackActive = false
+        if refreshPendingAfterPlayback {
+            refreshPendingAfterPlayback = false
+            refreshInBackground(after: .seconds(5))
+        }
     }
 
     /// Beim Zurückkehren in die App: aktualisieren, wenn der letzte Stand älter als 6 Stunden ist.
@@ -199,6 +234,7 @@ final class PlaylistStore {
             await refreshEPG(force: forceEPG)
             return true
         } catch {
+            if Task.isCancelled { return false }
             if !silent { errorMessage = HTTPClient.message(for: error) }
             // Auch ohne neue Playlist den TV-Guide versuchen.
             if forceEPG { await refreshEPG(force: true) }
@@ -311,14 +347,20 @@ final class PlaylistStore {
 
         let channels = content.live.items
         do {
-            let guide = try await Task.detached(priority: .utility) {
+            let loader = Task.detached(priority: .utility) {
                 try await EPGService.load(from: url, for: channels)
-            }.value
-            guard playlist.id == activeID else { return }
+            }
+            // Abbruch (z. B. weil ein Stream startet) an den Download weitergeben.
+            let guide = try await withTaskCancellationHandler {
+                try await loader.value
+            } onCancel: {
+                loader.cancel()
+            }
+            guard playlist.id == activeID, !Task.isCancelled else { return }
             epg = guide
             await Storage.write(guide, to: Self.epgFile(playlist.id))
         } catch {
-            epgErrorMessage = HTTPClient.message(for: error)
+            if !Task.isCancelled { epgErrorMessage = HTTPClient.message(for: error) }
         }
     }
 

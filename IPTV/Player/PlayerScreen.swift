@@ -85,6 +85,8 @@ struct PlayerScreen: View {
         .persistentSystemOverlays(showsControls ? .automatic : .hidden)
         .preferredColorScheme(.dark)
         .task(id: attempt) { await runPlayback() }
+        .onAppear { store.playbackStarted() }
+        .onDisappear { store.playbackEnded() }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
         }
@@ -275,7 +277,8 @@ struct PlayerScreen: View {
 
         var ticks = 0
         var retryRound = 0
-        let maxRetryRounds = 4
+        // Live-HLS-Sitzungen gibt der Server oft erst nach 20–60 s frei.
+        let maxRetryRounds = 10
         var candidateStart = ContinuousClock.now
         while !Task.isCancelled {
             if let engine {
@@ -308,8 +311,12 @@ struct PlayerScreen: View {
                         // vorherige noch nicht freigegeben. Automatisch erneut versuchen.
                         retryRound += 1
                         self.engine = nil
-                        connectionWaitMessage = "Stream startet noch nicht – vermutlich ist die vorherige Verbindung beim Server noch offen.\nNeuer Versuch \(retryRound) von \(maxRetryRounds) …"
-                        try? await Task.sleep(for: .seconds(4))
+                        var message = "Der Server gibt die vorherige Verbindung noch frei …\nNeuer Versuch \(retryRound) von \(maxRetryRounds)"
+                        if isLive, engineSetting == .apple, PlayerEngine.isVLCAvailable {
+                            message += "\n\nTipp: Mit „Live TV: Automatisch“ in den Einstellungen wird beim Umschalten sofort freigegeben."
+                        }
+                        connectionWaitMessage = message
+                        try? await Task.sleep(for: .seconds(5))
                         await finishPreviousPlayback()
                         guard !Task.isCancelled else { break }
                         connectionWaitMessage = nil

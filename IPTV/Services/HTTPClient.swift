@@ -31,7 +31,9 @@ enum HTTPClient {
     /// Lädt große Dateien (z. B. den TV-Guide) direkt auf die Festplatte statt in den Speicher.
     /// Der Aufrufer muss die zurückgegebene Datei löschen.
     static func download(from url: URL) async throws -> URL {
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        // Große Hintergrund-Downloads sollen laufende Streams nicht ausbremsen.
+        request.networkServiceType = .background
         let (temporary, response) = try await session.download(for: request)
         try check(response)
         let destination = FileManager.default.temporaryDirectory.appending(path: "download-\(UUID().uuidString)")

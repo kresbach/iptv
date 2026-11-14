@@ -106,7 +106,7 @@ struct SettingsView: View {
                 Text("Player")
             } footer: {
                 Text(PlayerEngine.isVLCAvailable
-                     ? "Empfohlen: Apple für Live TV (Bild-in-Bild, AirPlay), VLC für Filme und Serien (spielt auch .mkv und nutzt nur eine Verbindung). „Automatisch“ wählt je nach Format."
+                     ? "Live TV mit „Apple“: Bild-in-Bild und AirPlay. Live TV mit „Automatisch“: schnellerer Start über VLC, und beim Umschalten wird die Verbindung sofort frei – empfohlen für Konten mit nur einer Verbindung. Filme und Serien: VLC (spielt auch .mkv)."
                      : "VLC ist nicht eingebunden. Füge in Xcode das Paket „vlckit-spm“ hinzu, um .ts- und .mkv-Streams abzuspielen (siehe README).")
             }
 

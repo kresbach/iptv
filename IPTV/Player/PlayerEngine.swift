@@ -54,6 +54,11 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
                 // Formate, die nur VLC kann.
                 return [.init(player: .vlc, url: url)]
             }
+            if channel.kind == .live, let tsURL = Self.xtreamTSVariant(of: url) {
+                // Live über VLC als MPEG-TS: startet schneller, und der Server gibt die
+                // Verbindung beim Schließen sofort frei (bei HLS erst nach 20–60 s).
+                return [.init(player: .vlc, url: tsURL), .init(player: .apple, url: url)]
+            }
             if channel.kind != .live {
                 // Filme/Episoden: VLC nutzt eine einzige Verbindung. Der Apple-Player lädt
                 // Dateien in mehreren parallelen Verbindungen – das lehnen IPTV-Konten mit
@@ -69,6 +74,12 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
     private static func appleCompatibleURL(_ url: URL, kind: ContentKind) -> URL {
         guard kind == .live, url.path().contains("/live/"), url.pathExtension.lowercased() == "ts" else { return url }
         return url.deletingPathExtension().appendingPathExtension("m3u8")
+    }
+
+    /// `…/live/USER/PASS/123.m3u8` → `…/live/USER/PASS/123.ts`
+    private static func xtreamTSVariant(of url: URL) -> URL? {
+        guard url.path().contains("/live/"), url.pathExtension.lowercased() == "m3u8" else { return nil }
+        return url.deletingPathExtension().appendingPathExtension("ts")
     }
 
     private static func needsVLC(_ url: URL) -> Bool {
@@ -175,11 +186,21 @@ final class ApplePlaybackEngine: PlaybackEngine {
     let supportsPictureInPicture = AVPictureInPictureController.isPictureInPictureSupported()
 
     @ObservationIgnored private var pipController: AVPictureInPictureController?
+    @ObservationIgnored private weak var playerLayer: AVPlayerLayer?
+    @ObservationIgnored private var wantsPlayback = false
+    @ObservationIgnored private var mutedSince: ContinuousClock.Instant?
     @ObservationIgnored private var pendingSeek: Double?
     @ObservationIgnored private var isLive = false
     @ObservationIgnored private var pausedByUser = false
 
     func attach(layer: AVPlayerLayer) {
+        playerLayer = layer
+        // Erst jetzt starten: Läuft die Wiedergabe vor dem Verbinden der Videofläche,
+        // ist der Ton sofort da, das Bild aber erst beim nächsten Schlüsselbild.
+        if wantsPlayback {
+            wantsPlayback = false
+            player.play()
+        }
         guard supportsPictureInPicture, pipController == nil else { return }
         let controller = AVPictureInPictureController(playerLayer: layer)
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
@@ -207,8 +228,15 @@ final class ApplePlaybackEngine: PlaybackEngine {
         }
         pendingSeek = resumeAt
         pausedByUser = false
+        // Ton stumm, bis das erste Bild sichtbar ist – damit Bild und Ton gemeinsam starten.
+        player.isMuted = true
+        mutedSince = .now
         player.replaceCurrentItem(with: item)
-        player.play()
+        if playerLayer != nil {
+            player.play()
+        } else {
+            wantsPlayback = true
+        }
     }
 
     func update() {
@@ -222,13 +250,21 @@ final class ApplePlaybackEngine: PlaybackEngine {
         let current = player.currentTime().seconds
         let total = item.duration.seconds
 
+        let videoVisible = playerLayer?.isReadyForDisplay ?? false
+        if let mutedSince, videoVisible || ContinuousClock.now - mutedSince > .seconds(4) {
+            // Erstes Bild ist da (oder reines Audio): Ton freigeben.
+            player.isMuted = false
+            self.mutedSince = nil
+        }
+
         set(\.isPlaying, status != .paused)
         set(\.isBuffering, item.status == .unknown || status == .waitingToPlayAtSpecifiedRate
-            || (isLive && status == .playing && item.isPlaybackBufferEmpty))
+            || (isLive && status == .playing && item.isPlaybackBufferEmpty)
+            || (status == .playing && mutedSince != nil && !videoVisible))
         set(\.time, current.isFinite ? current.rounded() : 0)
         set(\.duration, total.isFinite ? total.rounded() : 0)
         set(\.isPictureInPictureActive, pipController?.isPictureInPictureActive ?? false)
-        if !hasStartedPlayback, status == .playing { hasStartedPlayback = true }
+        if !hasStartedPlayback, status == .playing, videoVisible || mutedSince == nil { hasStartedPlayback = true }
 
         if item.status == .readyToPlay, let target = pendingSeek {
             pendingSeek = nil
@@ -296,6 +332,7 @@ final class ApplePlaybackEngine: PlaybackEngine {
 
     func stop() {
         if pipController?.isPictureInPictureActive == true { pipController?.stopPictureInPicture() }
+        wantsPlayback = false
         pausedByUser = true
         player.pause()
         player.replaceCurrentItem(with: nil)
