@@ -84,6 +84,9 @@ extension View {
         .navigationDestination(for: SeriesShow.self) { show in
             SeriesDetailView(show: show)
         }
+        .navigationDestination(for: Channel.self) { movie in
+            MovieDetailView(movie: movie)
+        }
     }
 }
 

@@ -76,6 +76,12 @@ final class UserDataStore {
         scheduleSave()
     }
 
+    /// Fortschritt verwerfen, z. B. für „Von vorne abspielen“.
+    func clearProgress(for channel: Channel) {
+        progress[channel.stableKey] = nil
+        scheduleSave()
+    }
+
     func clearHistory() {
         history = []
         progress = [:]

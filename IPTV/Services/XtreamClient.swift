@@ -119,9 +119,18 @@ struct XtreamClient: Sendable {
         return PlaylistData(channels: channels, shows: shows)
     }
 
-    /// Lädt Staffeln und Episoden einer Serie.
-    func episodes(for show: SeriesShow) async throws -> [SeriesShow.Episode] {
-        guard let seriesID = show.xtreamSeriesID else { return show.episodes }
+    /// Infos zu einem Film (Handlung, Besetzung, Trailer …) über `get_vod_info`.
+    func movieInfo(streamID: Int) async throws -> MediaInfo? {
+        let response: VODInfo = try await request(
+            action: "get_vod_info",
+            extra: [URLQueryItem(name: "vod_id", value: String(streamID))]
+        )
+        return Self.mediaInfo(from: response.info)
+    }
+
+    /// Lädt Infos, Staffeln und Episoden einer Serie.
+    func seriesDetails(for show: SeriesShow) async throws -> (info: MediaInfo?, episodes: [SeriesShow.Episode]) {
+        guard let seriesID = show.xtreamSeriesID else { return (nil, show.episodes) }
         let info: SeriesInfo = try await request(
             action: "get_series_info",
             extra: [URLQueryItem(name: "series_id", value: String(seriesID))]
@@ -146,7 +155,34 @@ struct XtreamClient: Sendable {
                 result.append(.init(channel: channel, season: season, number: number, title: title))
             }
         }
-        return result.sorted { ($0.season ?? 0, $0.number ?? 0) < ($1.season ?? 0, $1.number ?? 0) }
+        let sorted = result.sorted { ($0.season ?? 0, $0.number ?? 0) < ($1.season ?? 0, $1.number ?? 0) }
+        return (Self.mediaInfo(from: info.info), sorted)
+    }
+
+    /// Wandelt den losen Info-Block der Xtream-API in `MediaInfo` um.
+    private static func mediaInfo(from block: InfoBlock?) -> MediaInfo? {
+        guard let block else { return nil }
+        func value(_ keys: String...) -> String? {
+            keys.lazy
+                .compactMap { block.values[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+        }
+        let durationSeconds = value("durationSecs").flatMap(Int.init)
+        let info = MediaInfo(
+            plot: value("plot", "description"),
+            cast: value("cast", "actors"),
+            director: value("director"),
+            genre: value("genre"),
+            releaseDate: value("releasedate", "releaseDate", "releaseDate"),
+            rating: value("rating", "rating5based").flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) },
+            durationMinutes: durationSeconds.map { $0 / 60 }
+                ?? MediaInfo.minutes(from: value("duration"))
+                ?? MediaInfo.minutes(from: value("episodeRunTime")),
+            trailerURL: MediaInfo.trailerURL(fromYouTube: value("youtubeTrailer")),
+            backdropURL: (block.backdrops.first ?? value("backdropPath")).flatMap(URL.init(string:)),
+            posterURL: value("movieImage", "coverBig", "cover").flatMap(URL.init(string:))
+        )
+        return info == MediaInfo() ? nil : info
     }
 
     // MARK: - Intern
@@ -255,14 +291,53 @@ struct XtreamClient: Sendable {
 
     private struct SeriesInfo: Decodable {
         let episodes: [String: [Episode]]?
+        let info: InfoBlock?
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             // Ohne Episoden liefern manche Server ein leeres Array statt eines Objekts.
             episodes = try? container.decodeIfPresent([String: [Episode]].self, forKey: .episodes)
+            info = try? container.decodeIfPresent(InfoBlock.self, forKey: .info)
         }
 
-        private enum CodingKeys: String, CodingKey { case episodes }
+        private enum CodingKeys: String, CodingKey { case episodes, info }
+    }
+
+    private struct VODInfo: Decodable {
+        let info: InfoBlock?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Ohne Infos liefern manche Server `[]` statt eines Objekts.
+            info = try? container.decodeIfPresent(InfoBlock.self, forKey: .info)
+        }
+
+        private enum CodingKeys: String, CodingKey { case info }
+    }
+
+    /// Info-Block mit wechselnden Feldern und Typen: alles als Text sammeln,
+    /// Hintergrundbilder kommen als Liste.
+    private struct InfoBlock: Decodable {
+        var values: [String: String] = [:]
+        var backdrops: [String] = []
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: AnyKey.self)
+            for key in container.allKeys {
+                if let list = try? container.decode([String].self, forKey: key) {
+                    if key.stringValue == "backdropPath" { backdrops = list.filter { !$0.isEmpty } }
+                } else if let value = try? container.decode(Flexible.self, forKey: key), let text = value.string {
+                    values[key.stringValue] = text
+                }
+            }
+        }
+    }
+
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        let intValue: Int? = nil
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
     }
 
     private struct Episode: Decodable {

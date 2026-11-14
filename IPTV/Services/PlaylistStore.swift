@@ -23,7 +23,8 @@ final class PlaylistStore {
     var errorMessage: String?
     private(set) var epgErrorMessage: String?
 
-    @ObservationIgnored private var episodeCache: [String: [SeriesShow.Episode]] = [:]
+    @ObservationIgnored private var seriesCache: [String: SeriesDetails] = [:]
+    @ObservationIgnored private var movieInfoCache: [String: MediaInfo] = [:]
     @ObservationIgnored private var loadGeneration = 0
 
     private static let libraryFile = "library.json"
@@ -106,7 +107,8 @@ final class PlaylistStore {
             activeID = playlist.id
             content = await Self.buildContent(data)
             epg = nil
-            episodeCache = [:]
+            seriesCache = [:]
+            movieInfoCache = [:]
             phase = .ready
 
             await Storage.write(data, to: Self.contentFile(playlist.id))
@@ -129,7 +131,8 @@ final class PlaylistStore {
         activeID = id
         content = .empty
         epg = nil
-        episodeCache = [:]
+        seriesCache = [:]
+        movieInfoCache = [:]
         errorMessage = nil
         await saveLibrary()
 
@@ -160,7 +163,8 @@ final class PlaylistStore {
             guard generation == loadGeneration else { return false }
 
             content = built
-            episodeCache = [:]
+            seriesCache = [:]
+            movieInfoCache = [:]
             update(playlist.id) {
                 $0.detectedEPGURL = detectedEPG
                 $0.lastUpdated = .now
@@ -207,16 +211,34 @@ final class PlaylistStore {
         await saveLibrary()
     }
 
-    // MARK: - Serien (Xtream lädt Episoden erst beim Öffnen)
+    // MARK: - Details zu Filmen und Serien (Xtream lädt sie erst beim Öffnen)
 
-    func episodes(for show: SeriesShow) async throws -> [SeriesShow.Episode] {
-        guard show.needsEpisodeLoading else { return show.episodes }
-        if let cached = episodeCache[show.id] { return cached }
-        guard case .xtream(let credentials)? = activePlaylist?.source else { return [] }
+    struct SeriesDetails: Sendable {
+        let info: MediaInfo?
+        let episodes: [SeriesShow.Episode]
+    }
 
-        let episodes = try await XtreamClient(credentials: credentials).episodes(for: show)
-        episodeCache[show.id] = episodes
-        return episodes
+    func seriesDetails(for show: SeriesShow) async throws -> SeriesDetails {
+        if let cached = seriesCache[show.id] { return cached }
+        guard show.xtreamSeriesID != nil, case .xtream(let credentials)? = activePlaylist?.source else {
+            return SeriesDetails(info: nil, episodes: show.episodes)
+        }
+        let result = try await XtreamClient(credentials: credentials).seriesDetails(for: show)
+        let details = SeriesDetails(info: result.info, episodes: result.episodes)
+        seriesCache[show.id] = details
+        return details
+    }
+
+    /// Infos zu einem Film. Bei M3U-Playlists gibt es keine, dann `nil`.
+    func movieInfo(for movie: Channel) async -> MediaInfo? {
+        if let cached = movieInfoCache[movie.stableKey] { return cached }
+        guard case .xtream(let credentials)? = activePlaylist?.source,
+              movie.url.path().contains("/movie/"),
+              let streamID = Int(movie.url.deletingPathExtension().lastPathComponent) else { return nil }
+
+        guard let info = try? await XtreamClient(credentials: credentials).movieInfo(streamID: streamID) else { return nil }
+        movieInfoCache[movie.stableKey] = info
+        return info
     }
 
     // MARK: - TV-Guide

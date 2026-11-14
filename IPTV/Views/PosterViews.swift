@@ -17,9 +17,7 @@ struct MovieGridView: View {
         ScrollView {
             LazyVGrid(columns: PosterCard.columns, spacing: 18) {
                 ForEach(filtered) { movie in
-                    Button {
-                        playChannel(movie)
-                    } label: {
+                    NavigationLink(value: movie) {
                         PosterCard(
                             title: movie.name,
                             subtitle: nil,
@@ -31,6 +29,7 @@ struct MovieGridView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        Button("Direkt abspielen", systemImage: "play.fill") { playChannel(movie) }
                         FavoriteButton(isFavorite: userData.isFavorite(movie)) {
                             userData.toggleFavorite(movie)
                         }
@@ -104,85 +103,98 @@ struct SeriesGridView: View {
     }
 }
 
-/// Staffeln und Episoden einer Serie. Bei Xtream werden sie beim Öffnen geladen.
+/// Serie mit Infos (Handlung, Besetzung, Trailer) sowie Staffeln und Episoden.
+/// Bei Xtream werden Infos und Episoden beim Öffnen geladen.
 struct SeriesDetailView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
-    @Environment(\.playChannel) private var playChannel
     let show: SeriesShow
 
+    @State private var info: MediaInfo?
     @State private var episodes: [SeriesShow.Episode] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var selectedSeason: Int?
+
+    private var seasons: [(season: Int, episodes: [SeriesShow.Episode])] {
+        SeriesShow.seasons(of: episodes)
+    }
 
     var body: some View {
-        List {
-            Section {
-                header
-                    .listRowBackground(Color.clear)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                DetailHeader(
+                    title: show.title,
+                    backdropURL: info?.backdropURL ?? info?.posterURL ?? show.posterURL,
+                    posterURL: info?.posterURL ?? show.posterURL,
+                    symbol: ContentKind.series.symbol
+                )
 
-            if isLoading {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView("Episoden werden geladen …")
-                        Spacer()
-                    }
-                }
-            } else if let errorMessage {
-                Section {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                    Button("Erneut versuchen", systemImage: "arrow.clockwise") {
-                        Task { await loadEpisodes() }
-                    }
-                }
-            }
+                VStack(alignment: .leading, spacing: 18) {
+                    MetaRow(info: info, category: show.category)
 
-            ForEach(SeriesShow.seasons(of: episodes), id: \.season) { season in
-                Section(seasonTitle(season.season)) {
-                    ForEach(season.episodes) { episode in
-                        EpisodeRow(episode: episode)
+                    if !episodes.isEmpty {
+                        Text("\(seasons.count) \(seasons.count == 1 ? "Staffel" : "Staffeln") · \(episodes.count) Episoden")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.orange)
                     }
+
+                    HStack(spacing: 12) {
+                        TrailerButton(title: show.title, info: info)
+                        FavoriteToggle(isFavorite: userData.isFavorite(show)) {
+                            userData.toggleFavorite(show)
+                        }
+                    }
+
+                    InfoDetails(info: info ?? MediaInfo(plot: show.plot))
+
+                    episodeSection
                 }
+                .padding(.horizontal)
             }
+            .padding(.bottom, 32)
         }
         .navigationTitle(show.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(
-                    userData.isFavorite(show) ? "Aus Favoriten entfernen" : "Zu Favoriten",
-                    systemImage: userData.isFavorite(show) ? "heart.fill" : "heart"
-                ) {
-                    userData.toggleFavorite(show)
-                }
-            }
-        }
-        .task { await loadEpisodes() }
+        .task { await load() }
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            PosterCard(title: nil, subtitle: nil, imageURL: show.posterURL, symbol: "rectangle.stack.fill")
-                .frame(width: 110)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(show.title)
-                    .font(.title2.bold())
-                Text(show.category)
-                    .foregroundStyle(.secondary)
-                if !episodes.isEmpty {
-                    let seasons = SeriesShow.seasons(of: episodes).count
-                    Text("\(seasons) \(seasons == 1 ? "Staffel" : "Staffeln") · \(episodes.count) Episoden")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.orange)
+    @ViewBuilder
+    private var episodeSection: some View {
+        if isLoading {
+            ProgressView("Episoden werden geladen …")
+                .frame(maxWidth: .infinity)
+                .padding(.vertical)
+        } else if let errorMessage {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Button("Erneut versuchen", systemImage: "arrow.clockwise") {
+                    Task { await load() }
                 }
-                if let plot = show.plot, !plot.isEmpty {
-                    Text(plot)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(6)
+            }
+        } else if !seasons.isEmpty {
+            let current = selectedSeason ?? seasons.first?.season ?? 0
+
+            VStack(alignment: .leading, spacing: 12) {
+                if seasons.count > 1 {
+                    Picker("Staffel", selection: Binding(get: { current }, set: { selectedSeason = $0 })) {
+                        ForEach(seasons, id: \.season) { season in
+                            Text(seasonTitle(season.season)).tag(season.season)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Theme.orange)
+                } else {
+                    Text(seasonTitle(current)).font(.headline)
+                }
+
+                VStack(spacing: 0) {
+                    ForEach(seasons.first { $0.season == current }?.episodes ?? []) { episode in
+                        EpisodeRow(episode: episode)
+                            .padding(.vertical, 10)
+                        Divider()
+                    }
                 }
             }
         }
@@ -192,17 +204,15 @@ struct SeriesDetailView: View {
         season > 0 ? "Staffel \(season)" : "Episoden"
     }
 
-    private func loadEpisodes() async {
+    private func load() async {
         guard episodes.isEmpty else { return }
-        guard show.needsEpisodeLoading else {
-            episodes = show.episodes
-            return
-        }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
-            episodes = try await store.episodes(for: show)
+            let details = try await store.seriesDetails(for: show)
+            info = details.info
+            episodes = details.episodes
         } catch {
             errorMessage = HTTPClient.message(for: error)
         }

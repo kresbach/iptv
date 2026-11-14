@@ -72,12 +72,18 @@ struct SearchView: View {
         if !results.isEmpty {
             Section {
                 ForEach(results.prefix(limit)) { channel in
-                    Button {
-                        playChannel(channel)
-                    } label: {
-                        ChannelRow(channel: channel)
+                    if channel.kind == .movie {
+                        NavigationLink(value: channel) {
+                            ChannelRow(channel: channel)
+                        }
+                    } else {
+                        Button {
+                            playChannel(channel)
+                        } label: {
+                            ChannelRow(channel: channel)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             } header: {
                 Label(header(kind, count: results.count), systemImage: kind.symbol)

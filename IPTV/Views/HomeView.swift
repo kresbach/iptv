@@ -227,17 +227,25 @@ private struct FavoritesRow: View {
         if !channels.isEmpty || !shows.isEmpty {
             HomeShelf(title: "Favoriten", symbol: "heart.fill") {
                 ForEach(channels.prefix(20), id: \.stableKey) { channel in
-                    Button {
-                        playChannel(channel)
-                    } label: {
-                        if channel.kind == .live {
-                            ChannelTile(channel: channel)
-                        } else {
+                    if channel.kind == .movie {
+                        NavigationLink(value: channel) {
                             PosterCard(title: channel.name, subtitle: nil, imageURL: channel.logoURL, symbol: channel.kind.symbol)
                                 .frame(width: 120)
                         }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            playChannel(channel)
+                        } label: {
+                            if channel.kind == .live {
+                                ChannelTile(channel: channel)
+                            } else {
+                                PosterCard(title: channel.name, subtitle: nil, imageURL: channel.logoURL, symbol: channel.kind.symbol)
+                                    .frame(width: 120)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 ForEach(shows.prefix(20)) { show in
                     NavigationLink(value: show) {
