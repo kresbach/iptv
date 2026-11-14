@@ -12,11 +12,17 @@ enum M3UParser {
 
     enum ParseError: LocalizedError {
         case noChannels
+        case webPage
+        case serverMessage(String)
 
         var errorDescription: String? {
             switch self {
             case .noChannels:
                 "Die Datei enthält keine Sender. Ist es wirklich eine M3U-Playlist?"
+            case .webPage:
+                "Der Server hat eine Webseite statt einer Playlist geliefert. Meist sind Zugangsdaten falsch, das Konto ist abgelaufen oder der Link unvollständig."
+            case .serverMessage(let text):
+                "Der Server hat keine Playlist geliefert, sondern: „\(text)“"
             }
         }
     }
@@ -27,7 +33,9 @@ enum M3UParser {
         let epgURL: URL?
     }
 
-    static func parse(_ text: String) throws -> Result {
+    static func parse(_ rawText: String) throws -> Result {
+        // Unsichtbares Byte-Order-Mark am Anfang entfernen (sonst wird #EXTM3U nicht erkannt).
+        let text = rawText.hasPrefix("\u{FEFF}") ? String(rawText.dropFirst()) : rawText
         var channels: [Channel] = []
         var epgURL: URL?
         channels.reserveCapacity(1024)
@@ -78,7 +86,16 @@ enum M3UParser {
             }
         }
 
-        guard !channels.isEmpty else { throw ParseError.noChannels }
+        guard !channels.isEmpty else {
+            // Statt einer Playlist kam etwas anderes zurück – verständlich melden.
+            let start = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = start.prefix(200).lowercased()
+            if lower.hasPrefix("<") || lower.contains("<html") { throw ParseError.webPage }
+            if !start.isEmpty, !start.hasPrefix("#") {
+                throw ParseError.serverMessage(String(start.prefix(120)))
+            }
+            throw ParseError.noChannels
+        }
         return Result(channels: channels, epgURL: epgURL)
     }
 

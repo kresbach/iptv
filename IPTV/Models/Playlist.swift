@@ -65,7 +65,11 @@ extension URL {
     /// Macht aus einer Nutzereingabe eine URL. Fehlt das Schema, wird `http://` ergänzt,
     /// Leerzeichen am Rand werden entfernt.
     static func userInput(_ text: String) -> URL? {
-        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Eingefügte Links enthalten oft Zeilenumbrüche/Leerzeichen (Umbruch in E-Mails)
+        // oder HTML-kodierte „&amp;“ – beides bereinigen.
+        var trimmed = text
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+            .replacingOccurrences(of: "&amp;", with: "&")
         guard !trimmed.isEmpty else { return nil }
         if !trimmed.contains("://") { trimmed = "http://" + trimmed }
         let url = URL(string: trimmed)
@@ -74,5 +78,36 @@ extension URL {
               let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
               url.host() != nil else { return nil }
         return url
+    }
+
+    /// Erkennt Xtream-Panel-Links wie `…/get.php?username=…&password=…` und liefert
+    /// die Zugangsdaten für die (zuverlässigere) Xtream-Schnittstelle.
+    var xtreamCredentials: XtreamCredentials? {
+        let file = lastPathComponent.lowercased()
+        guard file == "get.php" || file == "player_api.php",
+              let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let items = components.queryItems,
+              let user = items.first(where: { $0.name.lowercased() == "username" })?.value, !user.isEmpty,
+              let pass = items.first(where: { $0.name.lowercased() == "password" })?.value, !pass.isEmpty,
+              let server = XtreamClient.normalizedServer(absoluteString)
+        else { return nil }
+        return XtreamCredentials(server: server, username: user, password: pass)
+    }
+
+    /// Ergänzt bei `get.php`-Links fehlende Parameter, damit das Panel eine vollständige
+    /// M3U-Liste mit Kategorien liefert (`type=m3u_plus`, `output=m3u8`).
+    var completedPanelPlaylistURL: URL {
+        guard lastPathComponent.lowercased() == "get.php",
+              var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return self }
+        var items = components.queryItems ?? []
+        if !items.contains(where: { $0.name.lowercased() == "type" }) {
+            items.append(URLQueryItem(name: "type", value: "m3u_plus"))
+        }
+        if !items.contains(where: { $0.name.lowercased() == "output" }) {
+            // HLS können Apple-Player und VLC abspielen.
+            items.append(URLQueryItem(name: "output", value: "m3u8"))
+        }
+        components.queryItems = items
+        return components.url ?? self
     }
 }

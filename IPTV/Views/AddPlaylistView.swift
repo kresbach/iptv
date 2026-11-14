@@ -138,7 +138,7 @@ struct AddPlaylistView: View {
         } header: {
             Text("M3U-Link")
         } footer: {
-            Text("http- und https-Adressen werden unterstützt. Fehlt „http://“, wird es automatisch ergänzt.")
+            Text("http- und https-Adressen werden unterstützt, auch Panel-Links wie „…/get.php?username=…&password=…“. Fehlt „http://“, wird es automatisch ergänzt.")
         }
     }
 
@@ -197,6 +197,19 @@ struct AddPlaylistView: View {
                 localError = "Bitte gib eine gültige Adresse ein, z. B. http://anbieter.de/playlist.m3u"
                 return
             }
+            let linkName = name.trimmingCharacters(in: .whitespaces).isEmpty ? (url.host() ?? "Playlist") : name
+            if let credentials = url.xtreamCredentials {
+                // Panel-Link (get.php): zuerst als Xtream laden (Cover, Serien, TV-Guide),
+                // klappt das nicht, als M3U-Liste.
+                Task {
+                    var success = await store.addPlaylist(name: linkName, source: .xtream(credentials))
+                    if !success {
+                        success = await store.addPlaylist(name: linkName, source: .m3u(url: url.completedPanelPlaylistURL))
+                    }
+                    if success, isSheet { dismiss() }
+                }
+                return
+            }
             source = .m3u(url: url)
             defaultName = url.host() ?? "Playlist"
         case .xtream:
@@ -219,7 +232,7 @@ struct AddPlaylistView: View {
 
         let finalName = name.trimmingCharacters(in: .whitespaces).isEmpty ? defaultName : name
         Task {
-            if await store.addPlaylist(name: finalName, source: source, fileData: fileData), isSheet {
+            if await store.addPlaylist(name: finalName, source: source, fileData: method == .file ? fileData : nil), isSheet {
                 dismiss()
             }
         }
