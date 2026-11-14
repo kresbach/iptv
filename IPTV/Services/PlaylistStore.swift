@@ -79,11 +79,26 @@ final class PlaylistStore {
             content = await Self.buildContent(data)
             phase = .ready
             epg = await Storage.read(EPGGuide.self, from: Self.epgFile(playlist.id))
-            await refreshEPG(force: false)
+            // Sofort mit dem gespeicherten Stand starten, Playlist und TV-Guide im Hintergrund erneuern.
+            refreshInBackground()
         } else {
             phase = .ready
-            await refresh()
+            await refresh(forceEPG: true)
         }
+    }
+
+    /// Aktualisiert Playlist und TV-Guide im Hintergrund, ohne die Oberfläche zu blockieren.
+    /// Fehler (z. B. offline) werden nicht angezeigt – der gespeicherte Stand bleibt einfach bestehen.
+    func refreshInBackground() {
+        guard activePlaylist != nil, !isLoading else { return }
+        Task { await refresh(silent: true, forceEPG: true) }
+    }
+
+    /// Beim Zurückkehren in die App: aktualisieren, wenn der letzte Stand älter als 6 Stunden ist.
+    func refreshIfStale() {
+        guard phase == .ready, let lastUpdated = activePlaylist?.lastUpdated,
+              Date.now.timeIntervalSince(lastUpdated) > Self.epgMaxAge else { return }
+        refreshInBackground()
     }
 
     // MARK: - Playlists verwalten
@@ -150,13 +165,16 @@ final class PlaylistStore {
     }
 
     /// Lädt die aktive Playlist neu vom Server.
+    /// - Parameters:
+    ///   - silent: Fehler nicht anzeigen (für die automatische Aktualisierung).
+    ///   - forceEPG: TV-Guide auch dann neu laden, wenn er noch aktuell ist.
     @discardableResult
-    func refresh() async -> Bool {
+    func refresh(silent: Bool = false, forceEPG: Bool = false) async -> Bool {
         guard let playlist = activePlaylist else { return false }
         loadGeneration += 1
         let generation = loadGeneration
         isLoading = true
-        errorMessage = nil
+        if !silent { errorMessage = nil }
         defer { isLoading = false }
 
         do {
@@ -173,10 +191,13 @@ final class PlaylistStore {
             }
             await Storage.write(data, to: Self.contentFile(playlist.id))
             await saveLibrary()
-            await refreshEPG(force: false)
+            if !silent { errorMessage = nil }
+            await refreshEPG(force: forceEPG)
             return true
         } catch {
-            errorMessage = HTTPClient.message(for: error)
+            if !silent { errorMessage = HTTPClient.message(for: error) }
+            // Auch ohne neue Playlist den TV-Guide versuchen.
+            if forceEPG { await refreshEPG(force: true) }
             return false
         }
     }

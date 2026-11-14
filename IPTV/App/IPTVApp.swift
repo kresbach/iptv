@@ -35,6 +35,7 @@ struct IPTVApp: App {
             case .background:
                 Task { await sync.sync(store: store, userData: userData) }
             case .active where store.phase != .restoring:
+                store.refreshIfStale()
                 Task { await sync.sync(store: store, userData: userData) }
             default:
                 break

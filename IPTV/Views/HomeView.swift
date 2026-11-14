@@ -62,6 +62,17 @@ struct HomeView: View {
             Button("Playlist hinzufügen", systemImage: "plus") { showsAddPlaylist = true }
         }
         .toolbar {
+            if (store.isLoading || store.isLoadingEPG) && !store.content.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(store.isLoading ? "Playlist" : "TV-Guide")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel(store.isLoading ? "Playlist wird aktualisiert" : "TV-Guide wird aktualisiert")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Einstellungen", systemImage: "gearshape.fill") { showsSettings = true }
             }
