@@ -19,6 +19,12 @@ final class VLCPlaybackEngine: PlaybackEngine {
     private(set) var duration: Double = 0
     private(set) var failureMessage: String?
     private(set) var hasStartedPlayback = false
+    private(set) var subtitleTracks: [MediaTrack] = []
+    private(set) var selectedSubtitle: Int?
+    private(set) var audioTracks: [MediaTrack] = []
+    private(set) var selectedAudio: Int?
+
+    @ObservationIgnored private var lastTrackRefresh = ContinuousClock.now - .seconds(60)
 
     @ObservationIgnored private var pendingSeek: Double?
     @ObservationIgnored private var hasDrawable = false
@@ -73,11 +79,49 @@ final class VLCPlaybackEngine: PlaybackEngine {
             set(\.duration, (current / Double(player.position)).rounded())
         }
 
+        if hasStartedPlayback { refreshTracksIfNeeded() }
+
         // Weiterschauen erst, wenn VLC läuft und die Länge kennt.
         if let target = pendingSeek, duration > 0, playing {
             pendingSeek = nil
             seek(to: target)
         }
+    }
+
+    // MARK: - Untertitel und Tonspuren
+
+    /// Spuren werden erst während der Wiedergabe bekannt; alle 3 Sekunden abgleichen.
+    private func refreshTracksIfNeeded() {
+        guard ContinuousClock.now - lastTrackRefresh > .seconds(3) else { return }
+        lastTrackRefresh = .now
+
+        set(\.subtitleTracks, Self.tracks(names: player.videoSubTitlesNames, indexes: player.videoSubTitlesIndexes))
+        let subtitle = Int(player.currentVideoSubTitleIndex)
+        set(\.selectedSubtitle, subtitle >= 0 ? subtitle : nil)
+
+        set(\.audioTracks, Self.tracks(names: player.audioTrackNames, indexes: player.audioTrackIndexes))
+        let audio = Int(player.currentAudioTrackIndex)
+        set(\.selectedAudio, audio >= 0 ? audio : nil)
+    }
+
+    /// VLC liefert Namen und Indizes als getrennte Listen; Index -1 ist „Deaktivieren“.
+    private static func tracks(names: [Any]?, indexes: [Any]?) -> [MediaTrack] {
+        let names = names ?? []
+        let indexes = indexes ?? []
+        return zip(names, indexes).compactMap { name, index in
+            guard let number = (index as? NSNumber)?.intValue, number >= 0 else { return nil }
+            return MediaTrack(id: number, name: "\(name)")
+        }
+    }
+
+    func selectSubtitle(_ id: Int?) {
+        player.currentVideoSubTitleIndex = Int32(id ?? -1)
+        selectedSubtitle = id
+    }
+
+    func selectAudio(_ id: Int) {
+        player.currentAudioTrackIndex = Int32(id)
+        selectedAudio = id
     }
 
     /// Setzt nur bei Änderung, damit SwiftUI nicht unnötig neu zeichnet.

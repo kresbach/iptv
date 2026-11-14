@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import AVKit
 import Foundation
 
@@ -103,6 +104,12 @@ struct PlaybackCandidate: Equatable {
     }
 }
 
+/// Eine Untertitel- oder Tonspur.
+struct MediaTrack: Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+}
+
 /// Gemeinsame Schnittstelle für Apple-Player und VLC, damit die Oberfläche
 /// (Steuerung, Zeitleiste, Fortschritt) für beide gleich ist.
 @MainActor
@@ -116,6 +123,15 @@ protocol PlaybackEngine: AnyObject {
     var failureMessage: String? { get }
     /// `true`, sobald tatsächlich Bild/Ton läuft (für den Start-Watchdog).
     var hasStartedPlayback: Bool { get }
+
+    /// Verfügbare Untertitel (ohne „Aus“) und die gewählte Spur (`nil` = aus).
+    var subtitleTracks: [MediaTrack] { get }
+    var selectedSubtitle: Int? { get }
+    var audioTracks: [MediaTrack] { get }
+    var selectedAudio: Int? { get }
+
+    func selectSubtitle(_ id: Int?)
+    func selectAudio(_ id: Int)
 
     func start(url: URL, isLive: Bool, resumeAt: Double?)
     /// Wird regelmäßig aufgerufen und aktualisiert den Zustand.
@@ -147,6 +163,14 @@ final class ApplePlaybackEngine: PlaybackEngine {
     private(set) var failureMessage: String?
     private(set) var hasStartedPlayback = false
     private(set) var isPictureInPictureActive = false
+    private(set) var subtitleTracks: [MediaTrack] = []
+    private(set) var selectedSubtitle: Int?
+    private(set) var audioTracks: [MediaTrack] = []
+    private(set) var selectedAudio: Int?
+
+    @ObservationIgnored private var legibleGroup: AVMediaSelectionGroup?
+    @ObservationIgnored private var audibleGroup: AVMediaSelectionGroup?
+    @ObservationIgnored private var didLoadTracks = false
 
     let supportsPictureInPicture = AVPictureInPictureController.isPictureInPictureSupported()
 
@@ -210,7 +234,48 @@ final class ApplePlaybackEngine: PlaybackEngine {
             pendingSeek = nil
             seek(to: target)
         }
+        if item.status == .readyToPlay, !didLoadTracks {
+            didLoadTracks = true
+            Task { await loadTracks(of: item) }
+        }
 
+    }
+
+    private func loadTracks(of item: AVPlayerItem) async {
+        let asset = item.asset
+        let legible = try? await asset.loadMediaSelectionGroup(for: .legible)
+        let audible = try? await asset.loadMediaSelectionGroup(for: .audible)
+        guard player.currentItem === item else { return }
+
+        legibleGroup = legible
+        audibleGroup = audible
+        subtitleTracks = Self.tracks(in: legible)
+        audioTracks = Self.tracks(in: audible)
+        selectedSubtitle = Self.selectedIndex(in: legible, of: item)
+        selectedAudio = Self.selectedIndex(in: audible, of: item)
+    }
+
+    private static func tracks(in group: AVMediaSelectionGroup?) -> [MediaTrack] {
+        guard let group else { return [] }
+        return group.options.enumerated().map { MediaTrack(id: $0.offset, name: $0.element.displayName) }
+    }
+
+    private static func selectedIndex(in group: AVMediaSelectionGroup?, of item: AVPlayerItem) -> Int? {
+        guard let group, let option = item.currentMediaSelection.selectedMediaOption(in: group) else { return nil }
+        return group.options.firstIndex(of: option)
+    }
+
+    func selectSubtitle(_ id: Int?) {
+        guard let item = player.currentItem, let group = legibleGroup else { return }
+        let option = id.flatMap { group.options.indices.contains($0) ? group.options[$0] : nil }
+        item.select(option, in: group)
+        selectedSubtitle = option == nil ? nil : id
+    }
+
+    func selectAudio(_ id: Int) {
+        guard let item = player.currentItem, let group = audibleGroup, group.options.indices.contains(id) else { return }
+        item.select(group.options[id], in: group)
+        selectedAudio = id
     }
 
     func togglePlayPause() {

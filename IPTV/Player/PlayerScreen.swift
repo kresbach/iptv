@@ -166,6 +166,14 @@ struct PlayerScreen: View {
                 ) { isZoomed.toggle() }
             }
 
+            if let engine {
+                TrackMenu(
+                    engine: engine,
+                    onOpen: { hideTask?.cancel() },
+                    onSelect: { scheduleHide() }
+                )
+            }
+
             roundButton(
                 userData.isFavorite(channel) ? "heart.fill" : "heart",
                 label: userData.isFavorite(channel) ? "Aus Favoriten entfernen" : "Zu Favoriten",
@@ -473,6 +481,69 @@ private struct PlayerButtonLabel: View {
             .frame(width: size, height: size)
             .background(.black.opacity(0.45), in: .circle)
             .contentShape(.circle)
+    }
+}
+
+/// Menü für Untertitel und Tonspur. Erscheint nur, wenn es etwas zu wählen gibt.
+private struct TrackMenu: View {
+    let engine: any PlaybackEngine
+    let onOpen: () -> Void
+    let onSelect: () -> Void
+
+    var body: some View {
+        let subtitles = engine.subtitleTracks
+        let audio = engine.audioTracks
+
+        if !subtitles.isEmpty || audio.count > 1 {
+            Menu {
+                if !subtitles.isEmpty {
+                    Section("Untertitel") {
+                        Button {
+                            engine.selectSubtitle(nil)
+                            onSelect()
+                        } label: {
+                            optionLabel("Aus", isSelected: engine.selectedSubtitle == nil)
+                        }
+                        ForEach(subtitles) { track in
+                            Button {
+                                engine.selectSubtitle(track.id)
+                                onSelect()
+                            } label: {
+                                optionLabel(track.name, isSelected: engine.selectedSubtitle == track.id)
+                            }
+                        }
+                    }
+                }
+                if audio.count > 1 {
+                    Section("Tonspur") {
+                        ForEach(audio) { track in
+                            Button {
+                                engine.selectAudio(track.id)
+                                onSelect()
+                            } label: {
+                                optionLabel(track.name, isSelected: engine.selectedAudio == track.id)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                PlayerButtonLabel(
+                    symbol: engine.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
+                    size: 44
+                )
+            }
+            .simultaneousGesture(TapGesture().onEnded { onOpen() })
+            .accessibilityLabel("Untertitel und Tonspur")
+        }
+    }
+
+    @ViewBuilder
+    private func optionLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
     }
 }
 
