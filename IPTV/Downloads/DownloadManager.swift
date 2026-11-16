@@ -35,7 +35,10 @@ final class DownloadManager {
     @ObservationIgnored private var resumeData: [UUID: Data] = [:]
     @ObservationIgnored private var isPlaybackActive = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
-    @ObservationIgnored private var knownSizes: [URL: Int64] = [:]
+    /// Bekannte Dateigrößen je Film (Schlüssel: `stableKey`), 0 = Server nennt keine Größe.
+    private(set) var sizes: [String: Int64] = [:]
+    @ObservationIgnored private var sizeSaveTask: Task<Void, Never>?
+    private static let sizesFile = "sizes.json"
 
     private static let pauseKey = "downloadsPauseDuringPlayback"
     private static let listFile = "downloads.json"
@@ -80,17 +83,52 @@ final class DownloadManager {
         items.filter { if case .failed = $0.state { true } else { false } }
     }
 
+    /// Bereits bekannte Dateigröße, ohne den Server zu fragen.
+    func knownSize(for channel: Channel) -> Int64? {
+        guard let size = sizes[channel.stableKey], size > 0 else { return nil }
+        return size
+    }
+
     /// Dateigröße vor dem Download (über eine HEAD-Anfrage), sofern der Server sie nennt.
+    /// Ergebnisse werden dauerhaft gemerkt.
     func expectedSize(for channel: Channel) async -> Int64? {
-        if let known = knownSizes[channel.url] { return known }
+        let key = channel.stableKey
+        if let known = sizes[key] { return known > 0 ? known : nil }
         var request = URLRequest(url: channel.url, timeoutInterval: 15)
         request.httpMethod = "HEAD"
         request.setValue(HTTPClient.userAgent, forHTTPHeaderField: "User-Agent")
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              http.expectedContentLength > 0 else { return nil }
-        knownSizes[channel.url] = http.expectedContentLength
-        return http.expectedContentLength
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else {
+            return nil  // Netzwerkfehler: später erneut versuchen
+        }
+        let http = response as? HTTPURLResponse
+        let size = (http.map { (200..<300).contains($0.statusCode) } ?? false) ? max(http?.expectedContentLength ?? 0, 0) : 0
+        sizes[key] = size
+        saveSizes()
+        return size > 0 ? size : nil
+    }
+
+    /// Ermittelt nacheinander die Größen der Filme, die noch unbekannt sind (höchstens `limit`).
+    /// Pausiert, solange ein Stream läuft, damit die Verbindung des Kontos frei bleibt.
+    func fetchSizes(for channels: [Channel], limit: Int = 300, progress: (Int, Int) -> Void) async {
+        let missing = Array(channels.filter { sizes[$0.stableKey] == nil }.prefix(limit))
+        for (index, channel) in missing.enumerated() {
+            while isPlaybackActive, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            guard !Task.isCancelled else { return }
+            _ = await expectedSize(for: channel)
+            progress(index + 1, missing.count)
+        }
+    }
+
+    private func saveSizes() {
+        sizeSaveTask?.cancel()
+        let snapshot = sizes
+        sizeSaveTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await Storage.write(snapshot, to: Self.sizesFile)
+        }
     }
 
     /// Belegter Speicher aller fertigen Downloads in Bytes.
@@ -312,6 +350,10 @@ final class DownloadManager {
     }
 
     private func loadList() {
+        if let data = try? Data(contentsOf: Storage.url(Self.sizesFile)),
+           let saved = try? JSONDecoder().decode([String: Int64].self, from: data) {
+            sizes = saved
+        }
         guard let data = try? Data(contentsOf: Storage.url(Self.listFile)),
               let saved = try? JSONDecoder().decode([DownloadItem].self, from: data) else { return }
         // Fertige Einträge ohne Datei (z. B. vom System gelöscht) aussortieren.

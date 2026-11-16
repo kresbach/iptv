@@ -4,15 +4,37 @@ import SwiftUI
 struct MovieGridView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(DownloadManager.self) private var downloads
     @Environment(\.playChannel) private var playChannel
 
     let title: String
     let movies: [Channel]
 
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case standard = "Standard"
+        case smallest = "Kleinste zuerst"
+        case largest = "Größte zuerst"
+        var id: String { rawValue }
+    }
+
     @State private var query = ""
+    @State private var sortOrder: SortOrder = .standard
+    @State private var sizeProgress: (done: Int, total: Int)?
+
+    /// Höchstens so viele Größen werden pro Durchgang beim Server abgefragt.
+    private static let sizeFetchLimit = 300
+
+    private func sorted(_ list: [Channel]) -> [Channel] {
+        guard sortOrder != .standard else { return list }
+        // Unbekannte Größen immer ans Ende.
+        let known = list.compactMap { movie in downloads.knownSize(for: movie).map { (movie, $0) } }
+        let knownIDs = Set(known.map { $0.0.id })
+        let ordered = known.sorted { sortOrder == .smallest ? $0.1 < $1.1 : $0.1 > $1.1 }.map { $0.0 }
+        return ordered + list.filter { !knownIDs.contains($0.id) }
+    }
 
     var body: some View {
-        let filtered = store.search(query, in: movies)
+        let filtered = sorted(store.search(query, in: movies))
 
         ScrollView {
             LazyVGrid(columns: PosterCard.columns, spacing: 18) {
@@ -20,7 +42,7 @@ struct MovieGridView: View {
                     NavigationLink(value: movie) {
                         PosterCard(
                             title: movie.name,
-                            subtitle: nil,
+                            subtitle: downloads.knownSize(for: movie).map { DownloadManager.format($0) },
                             imageURL: movie.logoURL,
                             symbol: "film.fill",
                             progress: userData.playbackProgress(for: movie).flatMap { $0.isFinished ? nil : $0.fraction },
@@ -41,6 +63,42 @@ struct MovieGridView: View {
         .navigationTitle(title)
         .navigationSubtitle("\(movies.count.formatted()) Filme")
         .searchable(text: $query, prompt: "Film suchen")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sortierung", selection: $sortOrder) {
+                        ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    Label("Sortieren", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let sizeProgress, sizeProgress.done < sizeProgress.total {
+                HStack(spacing: 10) {
+                    ProgressView(value: Double(sizeProgress.done), total: Double(max(sizeProgress.total, 1)))
+                        .tint(Theme.orange)
+                    Text("Größen: \(sizeProgress.done) von \(sizeProgress.total)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+        // Beim Sortieren nach Größe die fehlenden Größen nachladen; endet beim Verlassen der Liste.
+        .task(id: sortOrder) {
+            guard sortOrder != .standard else {
+                sizeProgress = nil
+                return
+            }
+            await downloads.fetchSizes(for: movies, limit: Self.sizeFetchLimit) { done, total in
+                sizeProgress = (done, total)
+            }
+            sizeProgress = nil
+        }
         .overlay {
             if filtered.isEmpty {
                 if query.isEmpty {
