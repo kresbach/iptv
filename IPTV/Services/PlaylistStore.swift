@@ -319,6 +319,14 @@ final class PlaylistStore {
         return details
     }
 
+    /// Andere Fassungen desselben Films in der Playlist (z. B. SD statt 4K), höchstens 8.
+    func alternativeVersions(of movie: Channel) async -> [Channel] {
+        let movies = content.movies.items
+        return await Task.detached(priority: .userInitiated) {
+            Array(MediaInfo.versions(of: movie, in: movies).prefix(8))
+        }.value
+    }
+
     /// Infos zu einem Film. Bei M3U-Playlists gibt es keine, dann `nil`.
     func movieInfo(for movie: Channel) async -> MediaInfo? {
         if let cached = movieInfoCache[movie.stableKey] { return cached }

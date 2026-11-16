@@ -5,12 +5,15 @@ import SwiftUI
 struct MovieDetailView: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(DownloadManager.self) private var downloads
     @Environment(\.playChannel) private var playChannel
 
     let movie: Channel
 
     @State private var info: MediaInfo?
     @State private var isLoading = true
+    @State private var versions: [MovieVersion] = []
+    @State private var ownSize: Int64?
 
     var body: some View {
         ScrollView {
@@ -47,6 +50,10 @@ struct MovieDetailView: View {
                     }
 
                     InfoDetails(info: info)
+
+                    if !versions.isEmpty {
+                        MovieVersionsList(versions: versions, ownSize: ownSize)
+                    }
                 }
                 .padding(.horizontal)
             }
@@ -57,7 +64,26 @@ struct MovieDetailView: View {
         .task {
             info = await store.movieInfo(for: movie)
             isLoading = false
+            await loadVersions()
         }
+    }
+
+    /// Sucht andere Fassungen desselben Films und fragt nacheinander ihre Dateigrößen ab.
+    private func loadVersions() async {
+        let found = await store.alternativeVersions(of: movie)
+        guard !found.isEmpty, !Task.isCancelled else { return }
+        versions = found.map { MovieVersion(channel: $0, size: nil) }
+        ownSize = await downloads.expectedSize(for: movie)
+
+        for channel in found {
+            guard !Task.isCancelled else { return }
+            let size = await downloads.expectedSize(for: channel)
+            if let index = versions.firstIndex(where: { $0.channel.id == channel.id }) {
+                versions[index].size = size
+            }
+        }
+        // Kleinste zuerst, unbekannte Größen ans Ende.
+        versions.sort { ($0.size ?? .max) < ($1.size ?? .max) }
     }
 
     @ViewBuilder
@@ -99,6 +125,70 @@ struct MovieDetailView: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
+        }
+    }
+}
+
+/// Eine weitere Fassung desselben Films mit ihrer Dateigröße.
+struct MovieVersion: Identifiable {
+    let channel: Channel
+    var size: Int64?
+    var id: UUID { channel.id }
+}
+
+/// Liste „Weitere Fassungen“ – zeigt, ob es den Film auch kleiner gibt.
+private struct MovieVersionsList: View {
+    let versions: [MovieVersion]
+    let ownSize: Int64?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Weitere Fassungen").font(.headline)
+            Text("Derselbe Film in anderer Qualität. Kleinere Fassungen sparen Speicher beim Herunterladen.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 0) {
+                ForEach(versions) { version in
+                    NavigationLink(value: version.channel) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(version.channel.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Text(version.channel.category)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                if let size = version.size {
+                                    Text(DownloadManager.format(size))
+                                        .font(.subheadline.monospacedDigit())
+                                    if let ownSize, ownSize > 0, size < ownSize {
+                                        Text("\(Int((1 - Double(size) / Double(ownSize)) * 100)) % kleiner")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(.green)
+                                    }
+                                } else {
+                                    Text("Größe unbekannt")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 10)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
         }
     }
 }

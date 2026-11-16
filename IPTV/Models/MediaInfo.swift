@@ -62,6 +62,49 @@ struct MediaInfo: Hashable, Sendable {
         return result.trimmingCharacters(in: .whitespaces)
     }
 
+    // MARK: - Fassungen desselben Films
+
+    /// Vergleichsschlüssel für einen Filmtitel: ohne Anbieter-Präfix, Klammerzusätze und
+    /// Qualitätsangaben (4K, HD, 1080p …), dazu das Erscheinungsjahr, falls angegeben.
+    static func versionKey(for title: String) -> (name: String, year: String?) {
+        var text = cleanTitle(title).lowercased()
+        var year: String?
+        if let range = text.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) {
+            let found = String(text[range])
+            // Titel wie „1917“ oder „2012“ nicht als Jahr werten.
+            if text.trimmingCharacters(in: .whitespaces) != found {
+                year = found
+                text.removeSubrange(range)
+            }
+        }
+        text = text.replacingOccurrences(of: #"[\(\[\{][^\)\]\}]*[\)\]\}]"#, with: " ", options: .regularExpression)
+        text = text.replacingOccurrences(
+            of: #"\b(4k|8k|uhd|fhd|hd|sd|hq|lq|2160p|1080p|720p|576p|480p|hevc|h265|h264|x265|x264|hdr|hdr10|remux|bluray|webrip)\b"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let words = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        return (words.joined(separator: " "), year)
+    }
+
+    /// Andere Einträge der Playlist, die denselben Film enthalten (z. B. SD, HD, 4K).
+    static func versions(of movie: Channel, in movies: [Channel]) -> [Channel] {
+        let target = versionKey(for: movie.name)
+        guard !target.name.isEmpty else { return [] }
+        // Schnelle Vorauswahl über das längste Wort, damit nicht jeder Titel aufbereitet wird.
+        let anchor = target.name.split(separator: " ").max { $0.count < $1.count }.map(String.init) ?? target.name
+
+        return movies.filter { candidate in
+            guard candidate.id != movie.id, candidate.url != movie.url,
+                  candidate.name.localizedCaseInsensitiveContains(anchor) else { return false }
+            let key = versionKey(for: candidate.name)
+            guard key.name == target.name else { return false }
+            // Unterschiedliche Jahre = Neuverfilmung, keine andere Fassung.
+            if let a = key.year, let b = target.year, a != b { return false }
+            return true
+        }
+    }
+
     /// „01:52:03“ oder „112 min“ → Minuten.
     static func minutes(from value: String?) -> Int? {
         guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
