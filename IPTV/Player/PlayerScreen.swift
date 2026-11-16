@@ -1,4 +1,5 @@
 import AVKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -6,7 +7,16 @@ import UniformTypeIdentifiers
 /// Video über den ganzen Bildschirm, Bedienelemente blenden sich automatisch aus,
 /// Zeitleiste zum Spulen bei Filmen und Episoden, TV-Programm bei Live-Sendern.
 struct PlayerScreen: View {
-    let channel: Channel
+    let request: PlaybackRequest
+
+    /// Aktuell laufender Eintrag; ändert sich beim Umschalten oder bei der nächsten Episode.
+    @State private var current: Channel
+    private var channel: Channel { current }
+
+    init(request: PlaybackRequest) {
+        self.request = request
+        _current = State(initialValue: request.channel)
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -34,6 +44,37 @@ struct PlayerScreen: View {
     @State private var connectionWaitMessage: String?
     @State private var isDiagnosing = false
     @State private var isZoomed = false
+    @State private var showsChannelList = false
+    @State private var airPlayHint: String?
+
+    /// Nachbar in der Liste, aus der gestartet wurde. Live TV läuft am Ende wieder von vorn.
+    private func neighbor(_ offset: Int) -> Channel? {
+        let queue = request.queue
+        guard queue.count > 1, let index = queue.firstIndex(where: { $0.id == current.id }) else { return nil }
+        let target = index + offset
+        if isLive { return queue[(target % queue.count + queue.count) % queue.count] }
+        return queue.indices.contains(target) ? queue[target] : nil
+    }
+
+    /// Aktion für die Tasten „vorheriger/nächster Sender“ (nur Live TV mit Senderliste).
+    private func zapAction(_ offset: Int) -> (() -> Void)? {
+        guard isLive, let target = neighbor(offset) else { return nil }
+        return { switchTo(target) }
+    }
+
+    /// Wechselt im laufenden Player zu einem anderen Sender bzw. einer anderen Episode.
+    private func switchTo(_ next: Channel) {
+        guard next.id != current.id else { return }
+        saveProgress()
+        engine?.stop()
+        engine = nil
+        errorMessage = nil
+        findings = []
+        current = next
+        downloads.playbackStarted(isLocalFile: downloads.localURL(for: next) != nil)
+        showsControls = true
+        attempt += 1
+    }
 
     private var isLive: Bool { channel.kind == .live }
 
@@ -51,11 +92,28 @@ struct PlayerScreen: View {
             videoSurface
                 .ignoresSafeArea()
 
-            // Fängt Tipps auf das Video ab und blendet die Steuerung ein/aus.
-            Color.clear
-                .contentShape(.rect)
-                .ignoresSafeArea()
-                .onTapGesture { toggleControls() }
+            // Tippen, Doppeltipp, Wischen (Helligkeit, Lautstärke, Senderwechsel).
+            PlayerGestureLayer(
+                allowsSeek: !isLive,
+                allowsZap: isLive && request.queue.count > 1,
+                onTap: { toggleControls() },
+                onSeek: { engine?.skip(by: $0) },
+                onZap: { offset in
+                    if let next = neighbor(offset) { switchTo(next) }
+                }
+            )
+            .ignoresSafeArea()
+
+            if let apple = engine as? ApplePlaybackEngine, apple.isExternalPlaybackActive {
+                VStack(spacing: 10) {
+                    Image(systemName: "airplayvideo")
+                        .font(.system(size: 54))
+                    Text("Wiedergabe über AirPlay")
+                        .font(.headline)
+                }
+                .foregroundStyle(.white.opacity(0.85))
+                .allowsHitTesting(false)
+            }
 
             if let engine, errorMessage == nil {
                 BufferingIndicator(engine: engine, status: statusText)
@@ -95,6 +153,9 @@ struct PlayerScreen: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            saveProgress()
+            engine?.stop()
+            engine = nil
             store.playbackEnded()
             downloads.playbackEnded(
                 channel: channel,
@@ -103,6 +164,41 @@ struct PlayerScreen: View {
         }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main)
+        ) { _ in
+            handleRouteChange()
+        }
+        .sheet(isPresented: $showsChannelList) {
+            NavigationStack {
+                PlayerChannelList(channels: request.queue, current: current) { selected in
+                    showsChannelList = false
+                    switchTo(selected)
+                }
+            }
+            .environment(store)
+            .environment(userData)
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// AirPlay gewählt, während VLC läuft: auf den Apple-Player wechseln, denn nur er
+    /// kann Video per AirPlay an den Fernseher übergeben.
+    private func handleRouteChange() {
+        guard PlayerEngine.isAirPlayRouteActive else {
+            airPlayHint = nil
+            return
+        }
+        guard engine != nil, !(engine is ApplePlaybackEngine) else { return }
+        let playbackChannel = downloads.localURL(for: channel).map { channel.with(url: $0) } ?? channel
+        if PlayerEngine.airPlayCandidates(for: playbackChannel) != nil {
+            saveProgress()
+            engine?.stop()
+            engine = nil
+            attempt += 1
+        } else {
+            airPlayHint = "Dieses Format kann nicht direkt per AirPlay gesendet werden. Nutze im Kontrollzentrum „Bildschirmsynchronisierung“, um es auf dem TV zu sehen."
         }
     }
 
@@ -125,6 +221,7 @@ struct PlayerScreen: View {
     private var videoSurface: some View {
         if let apple = engine as? ApplePlaybackEngine {
             AppleVideoSurface(engine: apple, isZoomed: isZoomed)
+                .id(ObjectIdentifier(apple))
         }
         #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
         if let vlc = engine as? VLCPlaybackEngine {
@@ -220,13 +317,46 @@ struct PlayerScreen: View {
     @ViewBuilder
     private var centerControls: some View {
         if let engine {
-            CenterControls(engine: engine, isLive: isLive, onInteraction: scheduleHide)
+            CenterControls(
+                engine: engine,
+                isLive: isLive,
+                onPrevious: zapAction(-1),
+                onNext: zapAction(1),
+                onInteraction: scheduleHide
+            )
         }
     }
 
     @ViewBuilder
     private var bottomBar: some View {
+        if let airPlayHint {
+            Text(airPlayHint)
+                .font(.footnote)
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(.black.opacity(0.6), in: .rect(cornerRadius: 14))
+                .padding(.horizontal)
+                .padding(.bottom, 6)
+        }
         if let engine, !isLive {
+            if let next = neighbor(1) {
+                HStack {
+                    Spacer()
+                    Button {
+                        switchTo(next)
+                    } label: {
+                        Label("Nächste Episode", systemImage: "forward.end.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(.black.opacity(0.55), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 6)
+            }
             PlaybackTimeline(
                 engine: engine,
                 onScrubbingChanged: { scrubbing in
@@ -234,10 +364,31 @@ struct PlayerScreen: View {
                     if scrubbing { hideTask?.cancel() } else { scheduleHide() }
                 }
             )
-        } else if isLive, let guide = store.epg, !guide.schedule(for: channel).isEmpty {
-            PlayerEPGPanel(channel: channel, guide: guide)
+        } else if isLive {
+            if request.queue.count > 1 {
+                HStack {
+                    Button {
+                        hideTask?.cancel()
+                        showsChannelList = true
+                    } label: {
+                        Label("Senderliste", systemImage: "list.bullet")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(.black.opacity(0.55), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
                 .padding(.horizontal)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
+            }
+            if let guide = store.epg, !guide.schedule(for: channel).isEmpty {
+                PlayerEPGPanel(channel: channel, guide: guide)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
         }
     }
 
@@ -278,10 +429,19 @@ struct PlayerScreen: View {
     private func runPlayback() async {
         errorMessage = nil
         attemptErrors = []
-        if attempt == 0 { userData.recordPlayback(of: channel) }
+        userData.recordPlayback(of: channel)
         // Heruntergeladene Filme/Episoden von der lokalen Datei abspielen (auch offline).
         let playbackChannel = downloads.localURL(for: channel).map { channel.with(url: $0) } ?? channel
         candidates = engineSetting.candidates(for: playbackChannel)
+        // Ist ein Fernseher per AirPlay gewählt, den Apple-Player nehmen (nur er überträgt Video).
+        if PlayerEngine.isAirPlayRouteActive {
+            if let airPlay = PlayerEngine.airPlayCandidates(for: playbackChannel) {
+                candidates = airPlay + candidates.filter { $0.player != .apple }
+                airPlayHint = nil
+            } else {
+                airPlayHint = "Dieses Format kann nicht direkt per AirPlay gesendet werden. Nutze im Kontrollzentrum „Bildschirmsynchronisierung“, um es auf dem TV zu sehen."
+            }
+        }
         candidateIndex = 0
         // Nur lokal warten, bis ein vorheriger VLC-Player gestoppt ist – nicht auf den
         // Verbindungszähler des Servers, der oft veraltet ist.
@@ -353,8 +513,12 @@ struct PlayerScreen: View {
                         return
                     }
                     if !isLive, engine.hasEnded {
-                        // Film/Episode zu Ende: Fortschritt sichern und Player schließen.
-                        close()
+                        // Zu Ende: bei Serien direkt die nächste Episode, sonst Player schließen.
+                        if let next = neighbor(1) {
+                            switchTo(next)
+                        } else {
+                            close()
+                        }
                         return
                     }
                 }
@@ -419,9 +583,8 @@ struct PlayerScreen: View {
             try? await Task.sleep(for: .milliseconds(started ? 500 : 120))
         }
 
-        // Ansicht wurde geschlossen.
-        saveProgress()
-        engine?.stop()
+        // Aufräumen übernehmen `close()`, `switchTo(_:)` bzw. `onDisappear` – nicht hier,
+        // sonst würde ein beendeter Durchlauf den Player des nächsten stoppen.
     }
 
     /// Wartet (höchstens 10 Sekunden), bis ein zuvor genutzter VLC-Player vollständig
@@ -675,11 +838,16 @@ private struct BufferingIndicator: View {
 private struct CenterControls: View {
     let engine: any PlaybackEngine
     let isLive: Bool
+    var onPrevious: (() -> Void)?
+    var onNext: (() -> Void)?
     let onInteraction: () -> Void
 
     var body: some View {
         let canSeek = !isLive && engine.duration > 0
         HStack(spacing: 36) {
+            if let onPrevious {
+                button("backward.end.fill", size: 56, label: "Vorheriger Sender", action: onPrevious)
+            }
             if canSeek {
                 button("gobackward.10", size: 56, label: "10 Sekunden zurück") { engine.skip(by: -10) }
             }
@@ -688,6 +856,9 @@ private struct CenterControls: View {
             }
             if canSeek {
                 button("goforward.10", size: 56, label: "10 Sekunden vor") { engine.skip(by: 10) }
+            }
+            if let onNext {
+                button("forward.end.fill", size: 56, label: "Nächster Sender", action: onNext)
             }
         }
     }
@@ -749,6 +920,43 @@ private struct PlaybackTimeline: View {
     }
 }
 
+/// Senderliste im Player zum direkten Umschalten.
+private struct PlayerChannelList: View {
+    let channels: [Channel]
+    let current: Channel
+    let onSelect: (Channel) -> Void
+
+    @State private var query = ""
+
+    var body: some View {
+        let filtered = query.isEmpty ? channels : channels.filter { $0.name.localizedStandardContains(query) }
+
+        ScrollViewReader { proxy in
+            List(filtered) { channel in
+                Button {
+                    onSelect(channel)
+                } label: {
+                    HStack {
+                        ChannelRow(channel: channel, showsCategory: false)
+                        if channel.id == current.id {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundStyle(Theme.orange)
+                                .accessibilityLabel("Läuft gerade")
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .id(channel.id)
+            }
+            .listStyle(.plain)
+            .onAppear { proxy.scrollTo(current.id, anchor: .center) }
+        }
+        .searchable(text: $query, prompt: "Sender suchen")
+        .navigationTitle("Senderliste")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 // MARK: - Video-Flächen
 
 /// UIView, deren Layer direkt ein `AVPlayerLayer` ist.
@@ -774,6 +982,7 @@ private struct AppleVideoSurface: UIViewRepresentable {
     func updateUIView(_ view: PlayerLayerView, context: Context) {
         if view.playerLayer.player !== engine.player {
             view.playerLayer.player = engine.player
+            engine.attach(layer: view.playerLayer)
         }
         view.playerLayer.videoGravity = isZoomed ? .resizeAspectFill : .resizeAspect
     }

@@ -187,7 +187,12 @@ struct DownloadsView: View {
 
     private func completedRow(_ item: DownloadItem) -> some View {
         Button {
-            playChannel(item.channel)
+            // Bei Serien die übrigen heruntergeladenen Episoden mitgeben (nächste Episode offline).
+            let queue = item.showTitle == nil ? [] : downloads.completedItems
+                .filter { $0.showTitle == item.showTitle }
+                .sorted { ($0.subtitle ?? "").localizedStandardCompare($1.subtitle ?? "") == .orderedAscending }
+                .map(\.channel)
+            playChannel(item.channel, queue: queue)
         } label: {
             DownloadRow(item: item)
         }

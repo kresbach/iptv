@@ -69,6 +69,19 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
         }
     }
 
+    /// AirPlay-Video kann nur der Apple-Player. Liefert die passenden Versuche,
+    /// oder `nil`, wenn das Format (z. B. MKV) nur mit VLC abspielbar ist.
+    static func airPlayCandidates(for channel: Channel) -> [PlaybackCandidate]? {
+        let url = appleCompatibleURL(channel.url, kind: channel.kind)
+        guard !needsVLC(url) else { return nil }
+        return [.init(player: .apple, url: url)]
+    }
+
+    /// `true`, wenn der Ton gerade über AirPlay ausgegeben wird (Fernseher/Apple TV gewählt).
+    static var isAirPlayRouteActive: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .airPlay }
+    }
+
     /// Der Apple-Player kann kein reines MPEG-TS. Xtream-Live-Links werden daher
     /// von `.ts` auf `.m3u8` (HLS) umgestellt, das der Server ebenfalls anbietet.
     private static func appleCompatibleURL(_ url: URL, kind: ContentKind) -> URL {
@@ -178,6 +191,8 @@ final class ApplePlaybackEngine: PlaybackEngine {
     private(set) var hasStartedPlayback = false
     private(set) var hasEnded = false
     private(set) var isPictureInPictureActive = false
+    /// `true`, wenn das Video gerade per AirPlay auf einem Fernseher läuft.
+    private(set) var isExternalPlaybackActive = false
     private(set) var subtitleTracks: [MediaTrack] = []
     private(set) var selectedSubtitle: Int?
     private(set) var audioTracks: [MediaTrack] = []
@@ -223,6 +238,9 @@ final class ApplePlaybackEngine: PlaybackEngine {
     func start(url: URL, isLive: Bool, resumeAt: Double?) {
         self.isLive = isLive
         try? AVAudioSession.sharedInstance().setActive(true)
+        // AirPlay: Video direkt an den Fernseher übergeben (nicht nur den Bildschirm spiegeln).
+        player.allowsExternalPlayback = true
+        player.usesExternalPlaybackWhileExternalScreenIsActive = true
         let item = AVPlayerItem(url: url)
         // Mit der ersten Qualitätsstufe beginnen statt erst die beste auszuhandeln.
         item.startsOnFirstEligibleVariant = true
@@ -255,7 +273,10 @@ final class ApplePlaybackEngine: PlaybackEngine {
         let current = player.currentTime().seconds
         let total = item.duration.seconds
 
-        let videoVisible = playerLayer?.isReadyForDisplay ?? false
+        let external = player.isExternalPlaybackActive
+        set(\.isExternalPlaybackActive, external)
+        // Bei AirPlay zeigt der Fernseher das Bild, nicht die App.
+        let videoVisible = external || (playerLayer?.isReadyForDisplay ?? false)
         if let mutedSince, videoVisible || ContinuousClock.now - mutedSince > .seconds(4) {
             // Erstes Bild ist da (oder reines Audio): Ton freigeben.
             player.isMuted = false

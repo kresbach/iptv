@@ -6,6 +6,7 @@ struct IPTVApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = PlaylistStore()
     @State private var downloads = DownloadManager.shared
+    @State private var categoryPreferences = CategoryPreferences()
     @State private var userData = UserDataStore()
     @State private var sync = SyncService()
     @Environment(\.scenePhase) private var scenePhase
@@ -22,6 +23,7 @@ struct IPTVApp: App {
                 .environment(userData)
                 .environment(sync)
                 .environment(downloads)
+                .environment(categoryPreferences)
                 .tint(Theme.orange)
                 .task {
                     await userData.restore()
@@ -36,6 +38,7 @@ struct IPTVApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
+                categoryPreferences.lock()
                 Task { await sync.sync(store: store, userData: userData) }
             case .active where store.phase != .restoring:
                 store.refreshIfStale()

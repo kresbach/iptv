@@ -180,10 +180,11 @@ private struct ShelfLabelStyle: LabelStyle {
 private struct ContinueWatchingRow: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(CategoryPreferences.self) private var prefs
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
-        let entries = Array(userData.continueWatching.prefix(15))
+        let entries = Array(userData.continueWatching.filter { prefs.isVisible($0.channel) }.prefix(15))
         if !entries.isEmpty {
             HomeShelf(title: "Weiterschauen", symbol: "play.circle.fill") {
                 ForEach(entries, id: \.channel.stableKey) { entry in
@@ -211,18 +212,19 @@ private struct ContinueWatchingRow: View {
 private struct RecentChannelsRow: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(CategoryPreferences.self) private var prefs
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
         let recent = userData.history
-            .filter { $0.channel.kind == .live }
+            .filter { $0.channel.kind == .live && prefs.isVisible($0.channel) }
             .prefix(15)
             .map { store.channel(forKey: $0.key) ?? $0.channel }
         if !recent.isEmpty {
             HomeShelf(title: "Zuletzt gesehen", symbol: "clock.fill") {
                 ForEach(recent, id: \.stableKey) { channel in
                     Button {
-                        playChannel(channel)
+                        playChannel(channel, queue: recent)
                     } label: {
                         ChannelTile(channel: channel)
                     }
@@ -237,11 +239,12 @@ private struct RecentChannelsRow: View {
 private struct FavoritesRow: View {
     @Environment(PlaylistStore.self) private var store
     @Environment(UserDataStore.self) private var userData
+    @Environment(CategoryPreferences.self) private var prefs
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
-        let channels = userData.favorites.compactMap { store.channel(forKey: $0) }
-        let shows = userData.favorites.compactMap { store.content.series.show(forKey: $0) }
+        let channels = prefs.filter(userData.favorites.compactMap { store.channel(forKey: $0) })
+        let shows = prefs.filter(userData.favorites.compactMap { store.content.series.show(forKey: $0) })
 
         if !channels.isEmpty || !shows.isEmpty {
             HomeShelf(title: "Favoriten", symbol: "heart.fill") {

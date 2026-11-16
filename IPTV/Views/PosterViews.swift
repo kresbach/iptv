@@ -267,7 +267,7 @@ struct SeriesDetailView: View {
 
                 VStack(spacing: 0) {
                     ForEach(seasons.first { $0.season == current }?.episodes ?? []) { episode in
-                        EpisodeRow(episode: episode, show: show)
+                        EpisodeRow(episode: episode, show: show, queue: episodes.map(\.channel))
                             .padding(.vertical, 10)
                         Divider()
                     }
@@ -309,11 +309,13 @@ private struct EpisodeRow: View {
     @Environment(\.playChannel) private var playChannel
     let episode: SeriesShow.Episode
     let show: SeriesShow
+    /// Alle Episoden der Serie in Reihenfolge, für „Nächste Episode“.
+    let queue: [Channel]
 
     var body: some View {
         HStack(spacing: 12) {
             Button {
-                playChannel(episode.channel)
+                playChannel(episode.channel, queue: queue)
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {

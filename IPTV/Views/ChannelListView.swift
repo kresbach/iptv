@@ -18,7 +18,7 @@ struct ChannelListView: View {
 
         List(filtered) { channel in
             Button {
-                playChannel(channel)
+                playChannel(channel, queue: filtered)
             } label: {
                 ChannelRow(channel: channel, showsCategory: showsCategory)
             }

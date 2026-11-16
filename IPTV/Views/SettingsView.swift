@@ -7,6 +7,12 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var sync
     @Environment(DownloadManager.self) private var downloads
     @State private var confirmsDeleteDownloads = false
+    @Environment(CategoryPreferences.self) private var prefs
+    @State private var showsPINSetup = false
+    @State private var asksPIN = false
+    @State private var pinAction: PINAction = .change
+
+    private enum PINAction { case change, remove }
     @AppStorage(DownloadSettings.storageLimitKey) private var storageLimitGB = 0
     @AppStorage(DownloadSettings.autoDeleteKey) private var autoDeleteWatched = false
     @Environment(\.dismiss) private var dismiss
@@ -118,6 +124,8 @@ struct SettingsView: View {
 
             downloadsSection
 
+            parentalSection
+
             Section("Verlauf") {
                 Button("Verlauf und Fortschritt löschen", systemImage: "clock.arrow.circlepath", role: .destructive) {
                     confirmsClearHistory = true
@@ -146,6 +154,42 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Kindersicherung: PIN festlegen, ändern oder entfernen.
+    @ViewBuilder
+    var parentalSection: some View {
+        Section {
+            if prefs.hasPIN {
+                LabeledContent("Status", value: prefs.isUnlocked ? "Entsperrt" : "Aktiv")
+                Button("PIN ändern", systemImage: "key") {
+                    pinAction = .change
+                    if prefs.isUnlocked { showsPINSetup = true } else { asksPIN = true }
+                }
+                Button("Kindersicherung ausschalten", systemImage: "lock.open", role: .destructive) {
+                    pinAction = .remove
+                    if prefs.isUnlocked { prefs.setPIN(nil) } else { asksPIN = true }
+                }
+                if prefs.isUnlocked {
+                    Button("Jetzt wieder sperren", systemImage: "lock") { prefs.lock() }
+                }
+            } else {
+                Button("PIN festlegen", systemImage: "lock") { showsPINSetup = true }
+            }
+        } header: {
+            Text("Kindersicherung")
+        } footer: {
+            Text("Mit einer PIN sperrst du einzelne Kategorien unter Live TV, Filme oder Serien über „Bearbeiten“. Gesperrte Inhalte erscheinen weder in Listen noch in der Suche, bis die PIN eingegeben wurde. Beim Verlassen der App wird wieder gesperrt.")
+        }
+        .sheet(isPresented: $showsPINSetup) {
+            NavigationStack { PINSetupView() }
+        }
+        .pinPrompt(isPresented: $asksPIN) {
+            switch pinAction {
+            case .change: showsPINSetup = true
+            case .remove: prefs.setPIN(nil)
+            }
+        }
+    }
+
     /// Speicherbelegung und Verhalten der Downloads.
     @ViewBuilder
     var downloadsSection: some View {

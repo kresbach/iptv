@@ -3,6 +3,7 @@ import SwiftUI
 /// Globale Suche über Live TV, Filme und Serien (Name und Kategorie).
 struct SearchView: View {
     @Environment(PlaylistStore.self) private var store
+    @Environment(CategoryPreferences.self) private var prefs
     @Environment(\.playChannel) private var playChannel
 
     @State private var query = ""
@@ -61,9 +62,9 @@ struct SearchView: View {
             }
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
-            live = store.search(query, in: store.content.live.items)
-            movies = store.search(query, in: store.content.movies.items)
-            shows = store.searchShows(query, in: store.content.series.shows)
+            live = prefs.filter(store.search(query, in: store.content.live.items))
+            movies = prefs.filter(store.search(query, in: store.content.movies.items))
+            shows = prefs.filter(store.searchShows(query, in: store.content.series.shows))
         }
     }
 
@@ -78,7 +79,7 @@ struct SearchView: View {
                         }
                     } else {
                         Button {
-                            playChannel(channel)
+                            playChannel(channel, queue: Array(results.prefix(limit)))
                         } label: {
                             ChannelRow(channel: channel)
                         }

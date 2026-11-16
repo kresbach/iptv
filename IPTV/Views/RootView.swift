@@ -26,7 +26,7 @@ enum AppTab: Hashable {
 
 struct MainTabView: View {
     @State private var selection: AppTab = .home
-    @State private var playingChannel: Channel?
+    @State private var playing: PlaybackRequest?
 
     var body: some View {
         TabView(selection: $selection) {
@@ -54,9 +54,11 @@ struct MainTabView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .environment(\.playChannel, PlayChannelAction { playingChannel = $0 })
-        .fullScreenCover(item: $playingChannel) { channel in
-            PlayerScreen(channel: channel)
+        .environment(\.playChannel, PlayChannelAction { channel, queue in
+            playing = PlaybackRequest(channel: channel, queue: queue)
+        })
+        .fullScreenCover(item: $playing) { request in
+            PlayerScreen(request: request)
         }
     }
 }
@@ -92,12 +94,21 @@ extension View {
 
 /// Erlaubt jeder Liste, einen Eintrag abzuspielen, ohne selbst einen Player zu verwalten.
 struct PlayChannelAction {
-    let handler: @MainActor (Channel) -> Void
+    let handler: @MainActor (Channel, [Channel]) -> Void
 
+    /// - Parameter queue: Liste, aus der gestartet wurde – zum Umschalten im Player
+    ///   (Live TV) bzw. für die nächste Episode (Serien).
     @MainActor
-    func callAsFunction(_ channel: Channel) { handler(channel) }
+    func callAsFunction(_ channel: Channel, queue: [Channel] = []) { handler(channel, queue) }
+}
+
+/// Was der Player abspielen soll, samt Nachbarn zum Umschalten.
+struct PlaybackRequest: Identifiable {
+    let id = UUID()
+    let channel: Channel
+    let queue: [Channel]
 }
 
 extension EnvironmentValues {
-    @Entry var playChannel = PlayChannelAction { _ in }
+    @Entry var playChannel = PlayChannelAction { _, _ in }
 }
