@@ -67,9 +67,6 @@ struct DownloadButton: View {
         guard let item else {
             return expectedSize.map { "Herunterladen · \(DownloadManager.format($0))" } ?? "Herunterladen"
         }
-        if item.compression == .running {
-            return "Wird verkleinert … \(Int((item.compressionProgress ?? 0) * 100)) %"
-        }
         switch item.state {
         case .queued: return "In Warteschlange"
         case .paused: return "Pausiert"
@@ -264,16 +261,7 @@ private struct DownloadRow: View {
             }
         case .completed:
             HStack(spacing: 6) {
-                switch item.compression {
-                case .running?:
-                    Text("Wird verkleinert … \(Int((item.compressionProgress ?? 0) * 100)) %")
-                case .pending?:
-                    Text("\(DownloadManager.format(item.totalBytes)) · Verkleinern wartet")
-                case .done(let original)? where original > item.totalBytes:
-                    Text("\(DownloadManager.format(item.totalBytes)) (vorher \(DownloadManager.format(original)))")
-                default:
-                    Text(DownloadManager.format(item.totalBytes))
-                }
+                Text(DownloadManager.format(item.totalBytes))
                 if let progress = userData.playbackProgress(for: item.channel), !progress.isFinished, progress.position > 30 {
                     Text("· angefangen")
                 } else if userData.playbackProgress(for: item.channel)?.isFinished == true {

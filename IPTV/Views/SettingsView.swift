@@ -7,7 +7,6 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var sync
     @Environment(DownloadManager.self) private var downloads
     @State private var confirmsDeleteDownloads = false
-    @AppStorage(DownloadSettings.compressionKey) private var downloadCompression: DownloadCompression = .medium
     @AppStorage(DownloadSettings.storageLimitKey) private var storageLimitGB = 0
     @AppStorage(DownloadSettings.autoDeleteKey) private var autoDeleteWatched = false
     @Environment(\.dismiss) private var dismiss
@@ -157,9 +156,6 @@ extension SettingsView {
             LabeledContent("Frei auf dem Gerät", value: DownloadManager.format(DownloadManager.availableBytes))
             Toggle("Während der Wiedergabe pausieren", isOn: $downloads.pausesDuringPlayback)
                 .tint(Theme.orange)
-            Picker("Verkleinern", selection: $downloadCompression) {
-                ForEach(DownloadCompression.allCases) { Text($0.title).tag($0) }
-            }
             Picker("Speicherlimit", selection: $storageLimitGB) {
                 ForEach(DownloadSettings.storageLimitOptions, id: \.self) { gigabytes in
                     Text(gigabytes == 0 ? "Kein Limit" : "\(gigabytes) GB").tag(gigabytes)
@@ -177,7 +173,7 @@ extension SettingsView {
         } header: {
             Text("Downloads")
         } footer: {
-            Text("Downloads laufen auch bei gesperrtem Gerät weiter und pausieren, solange ein Stream läuft. MP4- und MKV-Dateien werden nach dem Download auf dem Gerät verkleinert; die App sollte dabei geöffnet bleiben. MKV (experimentell): nur H.264/HEVC mit AAC- oder AC-3-Ton, eingebettete Untertitel gehen verloren. Nicht unterstützte Dateien bleiben im Original.")
+            Text("Downloads laufen auch bei gesperrtem Gerät weiter und pausieren, solange ein Stream läuft. Dateien werden in Originalqualität gespeichert.")
         }
     }
 

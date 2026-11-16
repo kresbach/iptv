@@ -1,4 +1,3 @@
-@preconcurrency import AVFoundation
 import Foundation
 import Observation
 import UIKit
@@ -35,10 +34,7 @@ final class DownloadManager {
     @ObservationIgnored private var tasks: [UUID: URLSessionDownloadTask] = [:]
     @ObservationIgnored private var resumeData: [UUID: Data] = [:]
     @ObservationIgnored private var isPlaybackActive = false
-    @ObservationIgnored private var isAnyPlaybackActive = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
-    @ObservationIgnored private var compressionTask: Task<Void, Never>?
-    @ObservationIgnored private var compressingID: UUID?
     @ObservationIgnored private var knownSizes: [URL: Int64] = [:]
 
     private static let pauseKey = "downloadsPauseDuringPlayback"
@@ -137,7 +133,6 @@ final class DownloadManager {
 
     /// Bricht einen laufenden Download ab bzw. löscht einen fertigen.
     func remove(_ id: UUID) {
-        if compressingID == id { compressionTask?.cancel() }
         tasks[id]?.cancel()
         tasks[id] = nil
         resumeData[id] = nil
@@ -161,9 +156,6 @@ final class DownloadManager {
 
     /// Vom Player: Bei Streams den laufenden Download anhalten (eine Verbindung pro Konto).
     func playbackStarted(isLocalFile: Bool) {
-        isAnyPlaybackActive = true
-        // Laufendes Verkleinern anhalten (die Datei könnte gerade abgespielt werden).
-        compressionTask?.cancel()
         isPlaybackActive = !isLocalFile
         guard isPlaybackActive, pausesDuringPlayback else { return }
         for item in items where item.state == .downloading {
@@ -176,20 +168,11 @@ final class DownloadManager {
     ///   - finished: `true`, wenn er bis zum Ende angesehen wurde (für „Gesehene löschen“).
     func playbackEnded(channel: Channel? = nil, finished: Bool = false) {
         isPlaybackActive = false
-        isAnyPlaybackActive = false
         if finished, DownloadSettings.autoDeleteWatched,
            let channel, let item = item(for: channel), item.isCompleted {
             remove(item.id)
         }
         startNextIfPossible()
-        resumePendingWork()
-    }
-
-    /// Nach Rückkehr in die App oder Ende der Wiedergabe: unterbrochenes Verkleinern fortsetzen.
-    func resumePendingWork() {
-        guard compressionTask == nil, !isAnyPlaybackActive else { return }
-        guard let next = items.first(where: { $0.isCompleted && $0.compression == .pending }) else { return }
-        compressionTask = Task { await compress(next.id) }
     }
 
     // MARK: - Ablauf
@@ -285,165 +268,9 @@ final class DownloadManager {
             $0.state = .completed
             if $0.totalBytes == 0 { $0.totalBytes = $0.bytesWritten }
             $0.bytesWritten = $0.totalBytes
-            if DownloadSettings.compression != .off,
-               DownloadCompression.supportedExtensions.contains($0.fileExtension) || $0.fileExtension == "mkv" {
-                $0.compression = .pending
-            }
         }
         save()
         startNextIfPossible()
-        resumePendingWork()
-    }
-
-    // MARK: - Verkleinern (nur MP4/MOV, auf dem Gerät)
-
-    private func compress(_ id: UUID) async {
-        defer {
-            compressionTask = nil
-            compressingID = nil
-        }
-        guard let item = items.first(where: { $0.id == id }),
-              let preset = DownloadSettings.compression.preset else {
-            update(id) { $0.compression = nil }
-            return
-        }
-        var source = item.localURL
-        let originalSize = Self.fileSize(source)
-        let isMKV = item.fileExtension == "mkv"
-        // Während der Umwandlung liegen Original und Kopie gleichzeitig auf dem Gerät;
-        // bei MKV zuerst eine gleich große MP4-Kopie.
-        let needed = isMKV ? originalSize + 500_000_000 : originalSize / 2 + 500_000_000
-        guard Self.availableBytes > needed else {
-            update(id) { $0.compression = .failed("Zu wenig freier Speicher zum Verkleinern (\(Self.format(needed)) nötig).") }
-            save()
-            return
-        }
-
-        compressingID = id
-        update(id) {
-            $0.compression = .running
-            $0.compressionProgress = 0
-        }
-
-        // Kurz im Hintergrund weiterrechnen dürfen; läuft die Zeit ab, später fortsetzen.
-        let currentTask = compressionTask
-        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "DownloadCompression") {
-            currentTask?.cancel()
-        }
-        defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
-
-        // Schritt 1 (nur MKV): verlustfrei in MP4 umpacken, damit iOS die Datei lesen kann.
-        if isMKV {
-            let remuxed = Self.directory.appending(path: "\(id.uuidString)-umgepackt.mp4")
-            let mkvURL = source
-            let worker = Task.detached(priority: .utility) {
-                try await MKVRemuxer.remux(from: mkvURL, to: remuxed) { fraction in
-                    Task { @MainActor in
-                        DownloadManager.shared.setCompressionProgress(id, fraction * DownloadManager.remuxShare)
-                    }
-                }
-            }
-            do {
-                try await withTaskCancellationHandler {
-                    try await worker.value
-                } onCancel: {
-                    worker.cancel()
-                }
-                let destination = Self.fileURL(id: id, fileExtension: "mp4")
-                try? FileManager.default.removeItem(at: destination)
-                try FileManager.default.moveItem(at: remuxed, to: destination)
-                try? FileManager.default.removeItem(at: mkvURL)
-                Self.excludeFromBackup(destination)
-                update(id) {
-                    $0.fileExtension = "mp4"
-                    $0.totalBytes = Self.fileSize(destination)
-                    $0.bytesWritten = $0.totalBytes
-                }
-                save()
-                source = destination
-            } catch {
-                try? FileManager.default.removeItem(at: remuxed)
-                if Task.isCancelled || error is CancellationError {
-                    update(id) { $0.compression = .pending }
-                } else {
-                    // Original-MKV bleibt erhalten und abspielbar.
-                    update(id) { $0.compression = .failed(error.localizedDescription) }
-                }
-                save()
-                if !Task.isCancelled { resumePendingWork() }
-                return
-            }
-        }
-        let exportOffset = isMKV ? Self.remuxShare : 0
-
-        let output = Self.directory.appending(path: "\(id.uuidString)-klein.mp4")
-        try? FileManager.default.removeItem(at: output)
-        let asset = AVURLAsset(url: source)
-
-        guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
-            update(id) { $0.compression = .failed("Dieses Video kann iOS nicht umwandeln.") }
-            save()
-            return
-        }
-        session.shouldOptimizeForNetworkUse = true
-
-        let progressTask = Task { @MainActor [weak self] in
-            for await state in session.states(updateInterval: 1) {
-                if case .exporting(let progress) = state {
-                    self?.update(id) {
-                        $0.compressionProgress = exportOffset + progress.fractionCompleted * (1 - exportOffset)
-                    }
-                }
-            }
-        }
-        defer { progressTask.cancel() }
-
-        do {
-            try await session.export(to: output, as: .mp4)
-            let newSize = Self.fileSize(output)
-            if newSize > 0, newSize < originalSize {
-                let destination = Self.fileURL(id: id, fileExtension: "mp4")
-                try? FileManager.default.removeItem(at: source)
-                if destination != source { try? FileManager.default.removeItem(at: destination) }
-                try FileManager.default.moveItem(at: output, to: destination)
-                Self.excludeFromBackup(destination)
-                update(id) {
-                    $0.fileExtension = "mp4"
-                    $0.totalBytes = newSize
-                    $0.bytesWritten = newSize
-                    $0.compression = .done(originalBytes: originalSize)
-                }
-            } else {
-                // Nicht kleiner geworden: Original behalten.
-                try? FileManager.default.removeItem(at: output)
-                update(id) { $0.compression = .done(originalBytes: originalSize) }
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: output)
-            if Task.isCancelled {
-                // Unterbrochen (Wiedergabe oder Hintergrund) – später erneut.
-                update(id) { $0.compression = .pending }
-            } else {
-                update(id) { $0.compression = .failed("Verkleinern fehlgeschlagen: \(error.localizedDescription)") }
-            }
-        }
-        save()
-        if !Task.isCancelled { resumePendingWork() }
-    }
-
-    /// Anteil des Umpackens (MKV → MP4) an der Fortschrittsanzeige.
-    nonisolated static let remuxShare = 0.3
-
-    func setCompressionProgress(_ id: UUID, _ value: Double) {
-        guard compressingID == id else { return }
-        update(id) { $0.compressionProgress = value }
-    }
-
-    nonisolated static func excludeFromBackup(_ url: URL) {
-        var file = url
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true  // Videos nicht ins iCloud-Backup
-        try? file.setResourceValues(values)
     }
 
     nonisolated static func fileSize(_ url: URL) -> Int64 {

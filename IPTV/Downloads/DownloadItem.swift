@@ -23,22 +23,7 @@ struct DownloadItem: Identifiable, Codable, Hashable, Sendable {
     var bytesWritten: Int64 = 0
     var totalBytes: Int64 = 0
     let addedAt: Date
-    var fileExtension: String
-    /// Verkleinerung nach dem Download (nur MP4/MOV), `nil` = nicht vorgesehen.
-    var compression: Compression?
-    var compressionProgress: Double?
-
-    enum Compression: Codable, Hashable, Sendable {
-        case pending
-        case running
-        /// Fertig; `originalBytes` ist die Größe vor dem Verkleinern.
-        case done(originalBytes: Int64)
-        case failed(String)
-    }
-
-    var isCompressing: Bool {
-        compression == .running || compression == .pending
-    }
+    let fileExtension: String
 
     var key: String { channel.stableKey }
 
