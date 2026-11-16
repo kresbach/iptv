@@ -134,6 +134,9 @@ protocol PlaybackEngine: AnyObject {
     var failureMessage: String? { get }
     /// `true`, sobald tatsächlich Bild/Ton läuft (für den Start-Watchdog).
     var hasStartedPlayback: Bool { get }
+    /// `true`, wenn die Wiedergabe nach dem Start von selbst geendet hat
+    /// (Film zu Ende bzw. Live-Stream vom Server getrennt).
+    var hasEnded: Bool { get }
 
     /// Verfügbare Untertitel (ohne „Aus“) und die gewählte Spur (`nil` = aus).
     var subtitleTracks: [MediaTrack] { get }
@@ -173,6 +176,7 @@ final class ApplePlaybackEngine: PlaybackEngine {
     private(set) var duration: Double = 0
     private(set) var failureMessage: String?
     private(set) var hasStartedPlayback = false
+    private(set) var hasEnded = false
     private(set) var isPictureInPictureActive = false
     private(set) var subtitleTracks: [MediaTrack] = []
     private(set) var selectedSubtitle: Int?
@@ -223,8 +227,9 @@ final class ApplePlaybackEngine: PlaybackEngine {
         // Mit der ersten Qualitätsstufe beginnen statt erst die beste auszuhandeln.
         item.startsOnFirstEligibleVariant = true
         if isLive {
-            // Kleiner Vorpuffer: Live-Sender laufen schneller an.
-            item.preferredForwardBufferDuration = 4
+            // Abstand zur Live-Kante halten: Nach einem Aussetzer nicht bis ganz an die
+            // Kante vorspringen, das würde sofort den nächsten Aussetzer auslösen.
+            item.automaticallyPreservesTimeOffsetFromLive = true
         }
         pendingSeek = resumeAt
         pausedByUser = false
@@ -265,6 +270,10 @@ final class ApplePlaybackEngine: PlaybackEngine {
         set(\.duration, total.isFinite ? total.rounded() : 0)
         set(\.isPictureInPictureActive, pipController?.isPictureInPictureActive ?? false)
         if !hasStartedPlayback, status == .playing, videoVisible || mutedSince == nil { hasStartedPlayback = true }
+        // Film zu Ende (bei Live gibt es keine Länge).
+        if hasStartedPlayback, total.isFinite, total > 0, current >= total - 1, status == .paused, !pausedByUser {
+            set(\.hasEnded, true)
+        }
 
         if item.status == .readyToPlay, let target = pendingSeek {
             pendingSeek = nil

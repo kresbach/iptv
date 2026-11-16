@@ -37,6 +37,7 @@ final class GoogleAuth {
         let verifier = Self.randomVerifier()
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
 
+        let state = Self.randomVerifier()
         var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: GoogleConfig.clientID),
@@ -47,6 +48,7 @@ final class GoogleAuth {
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "access_type", value: "offline"),
             URLQueryItem(name: "prompt", value: "consent"),
+            URLQueryItem(name: "state", value: state),
         ]
         guard let authURL = components.url else { throw AuthError.invalidResponse("Ungültige Adresse") }
 
@@ -55,8 +57,12 @@ final class GoogleAuth {
             callbackURLScheme: GoogleConfig.redirectScheme,
             preferredBrowserSession: .ephemeral
         )
-        guard let code = URLComponents(url: callback, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "code" })?.value else {
+        let callbackItems = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        // Antwort muss zu genau dieser Anmeldung gehören.
+        guard callbackItems.first(where: { $0.name == "state" })?.value == state else {
+            throw AuthError.invalidResponse("Antwort passt nicht zur Anmeldung")
+        }
+        guard let code = callbackItems.first(where: { $0.name == "code" })?.value else {
             throw AuthError.invalidResponse("Kein Autorisierungscode erhalten")
         }
 

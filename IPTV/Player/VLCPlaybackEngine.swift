@@ -19,6 +19,7 @@ final class VLCPlaybackEngine: PlaybackEngine {
     private(set) var duration: Double = 0
     private(set) var failureMessage: String?
     private(set) var hasStartedPlayback = false
+    private(set) var hasEnded = false
     private(set) var subtitleTracks: [MediaTrack] = []
     private(set) var selectedSubtitle: Int?
     private(set) var audioTracks: [MediaTrack] = []
@@ -45,6 +46,9 @@ final class VLCPlaybackEngine: PlaybackEngine {
             // Live: kurzer Puffer für schnellen Start, VOD: größerer Puffer gegen Ruckler.
             "network-caching": isLive ? 1500 : 3000,
             "http-user-agent": HTTPClient.userAgent,
+            // Ungenaue Zeitstempel vieler IPTV-Streams nicht „korrigieren“ – das verursacht Ruckler.
+            "clock-jitter": 0,
+            "clock-synchro": 0,
         ])
         player.media = media
         pendingSeek = resumeAt
@@ -61,6 +65,12 @@ final class VLCPlaybackEngine: PlaybackEngine {
         let endedWithoutPlaying = sawActivity && !hasStartedPlayback && (state == .ended || state == .stopped)
         if state == .error || (wantsPlayback && endedWithoutPlaying) {
             set(\.failureMessage, "Der Stream konnte nicht geöffnet werden. Der Server hat die Verbindung abgelehnt oder der Link ist nicht mehr gültig.")
+            return
+        }
+        if hasStartedPlayback, wantsPlayback, state == .ended || state == .stopped {
+            // Film zu Ende oder Live-Stream vom Server getrennt.
+            set(\.hasEnded, true)
+            set(\.isPlaying, false)
             return
         }
         let playing = player.isPlaying

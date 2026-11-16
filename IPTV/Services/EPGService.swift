@@ -13,6 +13,8 @@ enum EPGService {
         }
     }
 
+    private static let maxUnpackedBytes = 1_500_000_000
+
     static func load(from url: URL, for channels: [Channel]) async throws -> EPGGuide {
         // Große TV-Guides (oft > 100 MB) nie komplett in den Speicher laden:
         // auf die Festplatte herunterladen, dort entpacken und gestreamt lesen.
@@ -76,8 +78,13 @@ enum EPGService {
         defer { try? writer.close() }
 
         // Apple „zlib“ = rohes DEFLATE (RFC 1951), genau der Inhalt einer gzip-Datei.
+        // Entpackte Größe begrenzen (Schutz vor „Zip-Bomben“ und vollem Speicher).
+        var written = 0
         let filter = try OutputFilter(.decompress, using: .zlib) { data in
-            if let data { try? writer.write(contentsOf: data) }
+            guard let data else { return }
+            written += data.count
+            guard written <= maxUnpackedBytes else { throw EPGError.invalidData }
+            try writer.write(contentsOf: data)
         }
         while true {
             let position = try input.offset()

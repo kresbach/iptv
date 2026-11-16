@@ -100,8 +100,9 @@ final class DownloadManager {
         guard let (_, response) = try? await URLSession.shared.data(for: request) else {
             return nil  // Netzwerkfehler: später erneut versuchen
         }
-        let http = response as? HTTPURLResponse
-        let size = (http.map { (200..<300).contains($0.statusCode) } ?? false) ? max(http?.expectedContentLength ?? 0, 0) : 0
+        // Abgelehnte Anfragen (z. B. Verbindung belegt) nicht merken, später erneut versuchen.
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
+        let size = max(http.expectedContentLength, 0)
         sizes[key] = size
         saveSizes()
         return size > 0 ? size : nil

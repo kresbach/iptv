@@ -32,7 +32,17 @@ struct MediaInfo: Hashable, Sendable {
     /// Xtream liefert meist nur die YouTube-ID, manchmal einen vollständigen Link.
     static func trailerURL(fromYouTube value: String?) -> URL? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        if value.lowercased().hasPrefix("http") { return URL(string: value) }
+        if value.lowercased().hasPrefix("http") {
+            // Nur echte YouTube-Links öffnen, keine beliebigen Adressen vom Anbieter.
+            guard let url = URL(string: value), url.scheme?.lowercased() == "https" || url.scheme?.lowercased() == "http",
+                  let host = url.host()?.lowercased(),
+                  host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com") else { return nil }
+            return url
+        }
+        // YouTube-IDs bestehen nur aus Buchstaben, Ziffern, „-“ und „_“.
+        guard value.count <= 20, value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else {
+            return nil
+        }
         return URL(string: "https://www.youtube.com/watch?v=\(value)")
     }
 

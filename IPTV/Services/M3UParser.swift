@@ -159,11 +159,14 @@ enum M3UParser {
         return result
     }
 
+    /// Nur Netzwerk-Streams zulassen – keine lokalen Dateien (`file:`) oder App-Links aus fremden Playlists.
+    private static let allowedSchemes: Set<String> = ["http", "https", "rtmp", "rtmps", "rtsp", "rtp", "udp", "mms", "srt"]
+
     /// Akzeptiert nur Stream-URLs mit Schema (http, https, rtmp, rtsp …).
     private static func makeURL(from line: String) -> URL? {
         let url = URL(string: line)
             ?? line.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed).flatMap(URL.init(string:))
-        guard let url, url.scheme != nil else { return nil }
+        guard let url, let scheme = url.scheme?.lowercased(), allowedSchemes.contains(scheme) else { return nil }
         return url
     }
 }

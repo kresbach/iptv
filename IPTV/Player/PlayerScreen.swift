@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Vollbild-Player mit eigener Steuerung für Apple-Player und VLC:
 /// Video über den ganzen Bildschirm, Bedienelemente blenden sich automatisch aus,
@@ -87,10 +88,13 @@ struct PlayerScreen: View {
         .preferredColorScheme(.dark)
         .task(id: attempt) { await runPlayback() }
         .onAppear {
+            // VLC hält den Bildschirm nicht von selbst wach (der Apple-Player schon).
+            UIApplication.shared.isIdleTimerDisabled = true
             store.playbackStarted()
             downloads.playbackStarted(isLocalFile: downloads.localURL(for: channel) != nil)
         }
         .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
             store.playbackEnded()
             downloads.playbackEnded(
                 channel: channel,
@@ -292,9 +296,68 @@ struct PlayerScreen: View {
         // Live-HLS-Sitzungen gibt der Server oft erst nach 20–60 s frei.
         let maxRetryRounds = 10
         var candidateStart = ContinuousClock.now
+        var stalledSince: ContinuousClock.Instant?
+        var reconnects = 0
+        var stableSince: ContinuousClock.Instant?
+        var lastTime = -1.0
+        var lastTimeChange = ContinuousClock.now
+        var sawTimeAdvance = false
         while !Task.isCancelled {
             if let engine {
                 engine.update()
+
+                if engine.hasStartedPlayback {
+                    // Live: Hängt das Bild länger oder trennt der Server, automatisch neu verbinden.
+                    if engine.isBuffering {
+                        stalledSince = stalledSince ?? .now
+                        stableSince = nil
+                    } else {
+                        stalledSince = nil
+                        stableSince = stableSince ?? .now
+                        // Nach einer Minute störungsfreier Wiedergabe zählt der Zähler neu.
+                        if let stable = stableSince, ContinuousClock.now - stable > .seconds(60) { reconnects = 0 }
+                    }
+                    // Eingefrorenes Bild erkennen: Player meldet „läuft“, die Zeit steht aber.
+                    if engine.isPlaying, engine.time == lastTime {
+                        // unverändert
+                    } else {
+                        if engine.isPlaying, lastTime >= 0, engine.time != lastTime { sawTimeAdvance = true }
+                        lastTime = engine.time
+                        lastTimeChange = .now
+                    }
+                    let frozen = sawTimeAdvance && ContinuousClock.now - lastTimeChange > .seconds(12)
+                    let stalled = frozen || (stalledSince.map { ContinuousClock.now - $0 > .seconds(12) } ?? false)
+
+                    if isLive, engine.hasEnded || stalled || engine.failureMessage != nil, reconnects < 15 {
+                        reconnects += 1
+                        engine.stop()
+                        self.engine = nil
+                        connectionWaitMessage = "Verbindung unterbrochen – wird wiederhergestellt …"
+                        try? await Task.sleep(for: .seconds(reconnects > 3 ? 4 : 1.5))
+                        await finishPreviousPlayback()
+                        guard !Task.isCancelled else { break }
+                        connectionWaitMessage = nil
+                        stalledSince = nil
+                        stableSince = nil
+                        lastTime = -1
+                        lastTimeChange = .now
+                        sawTimeAdvance = false
+                        startCandidate()
+                        candidateStart = .now
+                        continue
+                    }
+                    if isLive, engine.hasEnded || stalled, engine.failureMessage == nil {
+                        engine.stop()
+                        self.engine = nil
+                        errorMessage = "Die Verbindung zum Sender bricht immer wieder ab. Bitte prüfe deine Internetverbindung oder versuche es später erneut."
+                        return
+                    }
+                    if !isLive, engine.hasEnded {
+                        // Film/Episode zu Ende: Fortschritt sichern und Player schließen.
+                        close()
+                        return
+                    }
+                }
 
                 // Startet ein Versuch nicht in angemessener Zeit, direkt den nächsten probieren,
                 // statt auf das (oft sehr lange) Timeout des Players zu warten.
@@ -304,7 +367,6 @@ struct PlayerScreen: View {
                     && ContinuousClock.now - candidateStart > .seconds(isLive ? 15 : 25)
 
                 if let failure = engine.failureMessage ?? (timedOut ? "Zeitüberschreitung" : nil) {
-                    print("Wiedergabe mit \(candidates[candidateIndex].playerName) fehlgeschlagen: \(failure)")
                     let line = "\(candidates[candidateIndex].playerName): \(failure)"
                     if !attemptErrors.contains(line) { attemptErrors.append(line) }
                     engine.stop()
@@ -351,8 +413,10 @@ struct PlayerScreen: View {
                 }
             }
             ticks += 1
-            if ticks % 30 == 0 { saveProgress() }  // alle 15 Sekunden
-            try? await Task.sleep(for: .milliseconds(500))
+            // Beim Start häufiger nachsehen, damit Bild und Ton ohne Verzögerung freigegeben werden.
+            let started = engine?.hasStartedPlayback ?? false
+            if started, ticks % 30 == 0 { saveProgress() }  // etwa alle 15 Sekunden
+            try? await Task.sleep(for: .milliseconds(started ? 500 : 120))
         }
 
         // Ansicht wurde geschlossen.
@@ -456,7 +520,11 @@ struct PlayerScreen: View {
                 .disabled(isDiagnosing)
 
                 Button("Link kopieren", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = channel.url.absoluteString
+                    // Der Link enthält Zugangsdaten: nur auf diesem Gerät und nur für zwei Minuten.
+                    UIPasteboard.general.setItems(
+                        [[UTType.plainText.identifier: channel.url.absoluteString]],
+                        options: [.localOnly: true, .expirationDate: Date.now.addingTimeInterval(120)]
+                    )
                 }
             }
             .font(.footnote)
