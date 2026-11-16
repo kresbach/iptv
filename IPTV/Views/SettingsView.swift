@@ -157,7 +157,7 @@ extension SettingsView {
             LabeledContent("Frei auf dem Gerät", value: DownloadManager.format(DownloadManager.availableBytes))
             Toggle("Während der Wiedergabe pausieren", isOn: $downloads.pausesDuringPlayback)
                 .tint(Theme.orange)
-            Picker("Verkleinern (nur MP4)", selection: $downloadCompression) {
+            Picker("Verkleinern", selection: $downloadCompression) {
                 ForEach(DownloadCompression.allCases) { Text($0.title).tag($0) }
             }
             Picker("Speicherlimit", selection: $storageLimitGB) {
@@ -177,7 +177,7 @@ extension SettingsView {
         } header: {
             Text("Downloads")
         } footer: {
-            Text("Downloads laufen auch bei gesperrtem Gerät weiter und pausieren, solange ein Stream läuft. MP4-Dateien werden nach dem Download auf dem Gerät verkleinert, MKV-Dateien kann iOS nicht umwandeln und bleiben in Originalgröße.")
+            Text("Downloads laufen auch bei gesperrtem Gerät weiter und pausieren, solange ein Stream läuft. MP4- und MKV-Dateien werden nach dem Download auf dem Gerät verkleinert; die App sollte dabei geöffnet bleiben. MKV (experimentell): nur H.264/HEVC mit AAC- oder AC-3-Ton, eingebettete Untertitel gehen verloren. Nicht unterstützte Dateien bleiben im Original.")
         }
     }
 

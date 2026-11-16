@@ -49,6 +49,6 @@ enum DownloadCompression: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Nur diese Formate kann iOS umwandeln (MKV z. B. nicht).
+    /// Diese Formate kann iOS direkt umwandeln; MKV wird vorher vom `MKVRemuxer` umgepackt.
     static let supportedExtensions: Set<String> = ["mp4", "m4v", "mov"]
 }

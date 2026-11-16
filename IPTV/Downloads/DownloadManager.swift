@@ -286,7 +286,7 @@ final class DownloadManager {
             if $0.totalBytes == 0 { $0.totalBytes = $0.bytesWritten }
             $0.bytesWritten = $0.totalBytes
             if DownloadSettings.compression != .off,
-               DownloadCompression.supportedExtensions.contains($0.fileExtension) {
+               DownloadCompression.supportedExtensions.contains($0.fileExtension) || $0.fileExtension == "mkv" {
                 $0.compression = .pending
             }
         }
@@ -307,11 +307,14 @@ final class DownloadManager {
             update(id) { $0.compression = nil }
             return
         }
-        let source = item.localURL
+        var source = item.localURL
         let originalSize = Self.fileSize(source)
-        // Während der Umwandlung liegen Original und Kopie gleichzeitig auf dem Gerät.
-        guard Self.availableBytes > originalSize / 2 + 500_000_000 else {
-            update(id) { $0.compression = .failed("Zu wenig freier Speicher zum Verkleinern.") }
+        let isMKV = item.fileExtension == "mkv"
+        // Während der Umwandlung liegen Original und Kopie gleichzeitig auf dem Gerät;
+        // bei MKV zuerst eine gleich große MP4-Kopie.
+        let needed = isMKV ? originalSize + 500_000_000 : originalSize / 2 + 500_000_000
+        guard Self.availableBytes > needed else {
+            update(id) { $0.compression = .failed("Zu wenig freier Speicher zum Verkleinern (\(Self.format(needed)) nötig).") }
             save()
             return
         }
@@ -321,6 +324,57 @@ final class DownloadManager {
             $0.compression = .running
             $0.compressionProgress = 0
         }
+
+        // Kurz im Hintergrund weiterrechnen dürfen; läuft die Zeit ab, später fortsetzen.
+        let currentTask = compressionTask
+        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "DownloadCompression") {
+            currentTask?.cancel()
+        }
+        defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
+
+        // Schritt 1 (nur MKV): verlustfrei in MP4 umpacken, damit iOS die Datei lesen kann.
+        if isMKV {
+            let remuxed = Self.directory.appending(path: "\(id.uuidString)-umgepackt.mp4")
+            let mkvURL = source
+            let worker = Task.detached(priority: .utility) {
+                try await MKVRemuxer.remux(from: mkvURL, to: remuxed) { fraction in
+                    Task { @MainActor in
+                        DownloadManager.shared.setCompressionProgress(id, fraction * DownloadManager.remuxShare)
+                    }
+                }
+            }
+            do {
+                try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                let destination = Self.fileURL(id: id, fileExtension: "mp4")
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.moveItem(at: remuxed, to: destination)
+                try? FileManager.default.removeItem(at: mkvURL)
+                Self.excludeFromBackup(destination)
+                update(id) {
+                    $0.fileExtension = "mp4"
+                    $0.totalBytes = Self.fileSize(destination)
+                    $0.bytesWritten = $0.totalBytes
+                }
+                save()
+                source = destination
+            } catch {
+                try? FileManager.default.removeItem(at: remuxed)
+                if Task.isCancelled || error is CancellationError {
+                    update(id) { $0.compression = .pending }
+                } else {
+                    // Original-MKV bleibt erhalten und abspielbar.
+                    update(id) { $0.compression = .failed(error.localizedDescription) }
+                }
+                save()
+                if !Task.isCancelled { resumePendingWork() }
+                return
+            }
+        }
+        let exportOffset = isMKV ? Self.remuxShare : 0
 
         let output = Self.directory.appending(path: "\(id.uuidString)-klein.mp4")
         try? FileManager.default.removeItem(at: output)
@@ -333,17 +387,12 @@ final class DownloadManager {
         }
         session.shouldOptimizeForNetworkUse = true
 
-        // Kurz im Hintergrund weiterrechnen dürfen; läuft die Zeit ab, später fortsetzen.
-        let currentTask = compressionTask
-        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "DownloadCompression") {
-            currentTask?.cancel()
-        }
-        defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
-
         let progressTask = Task { @MainActor [weak self] in
             for await state in session.states(updateInterval: 1) {
                 if case .exporting(let progress) = state {
-                    self?.update(id) { $0.compressionProgress = progress.fractionCompleted }
+                    self?.update(id) {
+                        $0.compressionProgress = exportOffset + progress.fractionCompleted * (1 - exportOffset)
+                    }
                 }
             }
         }
@@ -357,10 +406,7 @@ final class DownloadManager {
                 try? FileManager.default.removeItem(at: source)
                 if destination != source { try? FileManager.default.removeItem(at: destination) }
                 try FileManager.default.moveItem(at: output, to: destination)
-                var file = destination
-                var values = URLResourceValues()
-                values.isExcludedFromBackup = true
-                try? file.setResourceValues(values)
+                Self.excludeFromBackup(destination)
                 update(id) {
                     $0.fileExtension = "mp4"
                     $0.totalBytes = newSize
@@ -383,6 +429,21 @@ final class DownloadManager {
         }
         save()
         if !Task.isCancelled { resumePendingWork() }
+    }
+
+    /// Anteil des Umpackens (MKV → MP4) an der Fortschrittsanzeige.
+    nonisolated static let remuxShare = 0.3
+
+    func setCompressionProgress(_ id: UUID, _ value: Double) {
+        guard compressingID == id else { return }
+        update(id) { $0.compressionProgress = value }
+    }
+
+    nonisolated static func excludeFromBackup(_ url: URL) {
+        var file = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true  // Videos nicht ins iCloud-Backup
+        try? file.setResourceValues(values)
     }
 
     nonisolated static func fileSize(_ url: URL) -> Int64 {
