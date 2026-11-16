@@ -110,6 +110,7 @@ struct TVGuideView: View {
             NavigationStack {
                 programmeDetail(item)
             }
+            .appEnvironment()
             .presentationDetents([.medium])
         }
     }

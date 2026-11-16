@@ -44,7 +44,7 @@ struct SectionView: View {
                     }
                     if kind == .live, store.epg != nil {
                         NavigationLink {
-                            TVGuideView()
+                            TVGuideView().appEnvironment()
                         } label: {
                             CategoryRow(title: "TV-Programm", count: nil, unit: "", symbol: "calendar")
                         }
@@ -111,6 +111,7 @@ struct SectionView: View {
             NavigationStack {
                 CategoryEditView(kind: kind, categories: allCategories)
             }
+            .appEnvironment()
         }
         .pinPrompt(isPresented: $asksPIN) {
             if opensEditorAfterPIN { showsEditor = true }

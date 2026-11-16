@@ -291,7 +291,7 @@ struct DownloadsShelf: View {
         if !completed.isEmpty || !downloads.activeItems.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 NavigationLink {
-                    DownloadsView()
+                    DownloadsView().appEnvironment()
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.orange)

@@ -26,7 +26,7 @@ enum AppTab: Hashable {
 
 struct MainTabView: View {
     @State private var selection: AppTab = .home
-    @State private var playing: PlaybackRequest?
+    @Bindable private var playback = PlaybackCoordinator.shared
 
     var body: some View {
         TabView(selection: $selection) {
@@ -54,11 +54,9 @@ struct MainTabView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .environment(\.playChannel, PlayChannelAction { channel, queue in
-            playing = PlaybackRequest(channel: channel, queue: queue)
-        })
-        .fullScreenCover(item: $playing) { request in
+        .fullScreenCover(item: $playback.request) { request in
             PlayerScreen(request: request)
+                .appEnvironment()
         }
     }
 }
@@ -81,13 +79,13 @@ extension View {
     /// Navigationsziele, die in allen Tabs gebraucht werden.
     func withAppDestinations() -> some View {
         navigationDestination(for: CategoryRoute.self) { route in
-            CategoryDestinationView(route: route)
+            CategoryDestinationView(route: route).appEnvironment()
         }
         .navigationDestination(for: SeriesShow.self) { show in
-            SeriesDetailView(show: show)
+            SeriesDetailView(show: show).appEnvironment()
         }
         .navigationDestination(for: Channel.self) { movie in
-            MovieDetailView(movie: movie)
+            MovieDetailView(movie: movie).appEnvironment()
         }
     }
 }
@@ -109,6 +107,32 @@ struct PlaybackRequest: Identifiable {
     let queue: [Channel]
 }
 
+/// Hält die aktuelle Wiedergabe-Anfrage. So lässt sich der Player aus jeder Ansicht
+/// starten, auch aus Blättern und eigenen Fenstern (iPad, Mac).
+@MainActor
+@Observable
+final class PlaybackCoordinator {
+    static let shared = PlaybackCoordinator()
+    var request: PlaybackRequest?
+}
+
 extension EnvironmentValues {
-    @Entry var playChannel = PlayChannelAction { _, _ in }
+    @Entry var playChannel = PlayChannelAction { channel, queue in
+        PlaybackCoordinator.shared.request = PlaybackRequest(channel: channel, queue: queue)
+    }
+}
+
+extension View {
+    /// Gibt die App-Daten ausdrücklich weiter. Blätter, Vollbild-Ansichten und
+    /// Navigationsziele erben sie nicht auf jedem Gerät zuverlässig (vor allem auf dem Mac).
+    @MainActor
+    func appEnvironment() -> some View {
+        self
+            .environment(PlaylistStore.shared)
+            .environment(UserDataStore.shared)
+            .environment(SyncService.shared)
+            .environment(DownloadManager.shared)
+            .environment(CategoryPreferences.shared)
+            .tint(Theme.orange)
+    }
 }

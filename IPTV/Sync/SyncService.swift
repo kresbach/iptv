@@ -56,6 +56,7 @@ struct SyncedSettings: Codable, Sendable {
 @MainActor
 @Observable
 final class SyncService {
+    static let shared = SyncService()
     private(set) var isSyncing = false
     private(set) var lastSync: Date?
     private(set) var lastError: String?

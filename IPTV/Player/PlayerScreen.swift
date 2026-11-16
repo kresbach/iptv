@@ -57,6 +57,41 @@ struct PlayerScreen: View {
         return queue.indices.contains(target) ? queue[target] : nil
     }
 
+    /// Tastaturkürzel (Mac und iPad mit Tastatur): Leertaste = Pause, Pfeile links/rechts =
+    /// spulen bzw. Sender wechseln, Esc = schließen.
+    private var keyboardShortcuts: some View {
+        Group {
+            Button("Wiedergabe/Pause") {
+                engine?.togglePlayPause()
+                showsControls = true
+                scheduleHide()
+            }
+            .keyboardShortcut(.space, modifiers: [])
+
+            Button("Schließen") { close() }
+                .keyboardShortcut(.escape, modifiers: [])
+
+            Button("Zurück") { arrowKey(-1) }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+
+            Button("Vor") { arrowKey(1) }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func arrowKey(_ direction: Int) {
+        if isLive {
+            if let next = neighbor(direction) { switchTo(next) }
+        } else {
+            engine?.skip(by: Double(direction) * 10)
+            showsControls = true
+            scheduleHide()
+        }
+    }
+
     /// Aktion für die Tasten „vorheriger/nächster Sender“ (nur Live TV mit Senderliste).
     private func zapAction(_ offset: Int) -> (() -> Void)? {
         guard isLive, let target = neighbor(offset) else { return nil }
@@ -141,6 +176,7 @@ struct PlayerScreen: View {
                 errorOverlay(errorMessage)
             }
         }
+        .background { keyboardShortcuts }
         .animation(.easeInOut(duration: 0.25), value: showsControls)
         .statusBarHidden(!showsControls)
         .persistentSystemOverlays(showsControls ? .automatic : .hidden)
@@ -178,8 +214,7 @@ struct PlayerScreen: View {
                     switchTo(selected)
                 }
             }
-            .environment(store)
-            .environment(userData)
+            .appEnvironment()
             .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showsSubtitleSearch) {
@@ -187,6 +222,7 @@ struct PlayerScreen: View {
                 NavigationStack {
                     SubtitleSearchView(channel: channel, engine: engine)
                 }
+                .appEnvironment()
                 .presentationDetents([.medium, .large])
             }
         }

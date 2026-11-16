@@ -53,7 +53,7 @@ struct ChannelListView: View {
             }
         }
         .sheet(item: $scheduleChannel) { channel in
-            NavigationStack { EPGScheduleView(channel: channel) }
+            NavigationStack { EPGScheduleView(channel: channel) }.appEnvironment()
         }
     }
 }

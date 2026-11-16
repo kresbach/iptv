@@ -4,11 +4,11 @@ import SwiftUI
 @main
 struct IPTVApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var store = PlaylistStore()
+    @State private var store = PlaylistStore.shared
     @State private var downloads = DownloadManager.shared
-    @State private var categoryPreferences = CategoryPreferences()
-    @State private var userData = UserDataStore()
-    @State private var sync = SyncService()
+    @State private var categoryPreferences = CategoryPreferences.shared
+    @State private var userData = UserDataStore.shared
+    @State private var sync = SyncService.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -19,12 +19,7 @@ struct IPTVApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(store)
-                .environment(userData)
-                .environment(sync)
-                .environment(downloads)
-                .environment(categoryPreferences)
-                .tint(Theme.orange)
+                .appEnvironment()
                 .task {
                     await userData.restore()
                     await store.restore()

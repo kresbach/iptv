@@ -6,6 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class PlaylistStore {
+    static let shared = PlaylistStore()
 
     enum Phase: Equatable {
         case restoring

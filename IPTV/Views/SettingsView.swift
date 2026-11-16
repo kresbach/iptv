@@ -58,7 +58,7 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink {
-                    PlaylistsView()
+                    PlaylistsView().appEnvironment()
                 } label: {
                     LabeledContent("Playlists verwalten") {
                         Text("\(store.playlists.count)")
@@ -220,7 +220,7 @@ extension SettingsView {
             Text("Mit einer PIN sperrst du einzelne Kategorien unter Live TV, Filme oder Serien über „Bearbeiten“. Gesperrte Inhalte erscheinen weder in Listen noch in der Suche, bis die PIN eingegeben wurde. Beim Verlassen der App wird wieder gesperrt.")
         }
         .sheet(isPresented: $showsPINSetup) {
-            NavigationStack { PINSetupView() }
+            NavigationStack { PINSetupView() }.appEnvironment()
         }
         .pinPrompt(isPresented: $asksPIN) {
             switch pinAction {
@@ -380,10 +380,10 @@ struct PlaylistsView: View {
             }
         }
         .sheet(isPresented: $showsAdd) {
-            NavigationStack { AddPlaylistView(isSheet: true) }
+            NavigationStack { AddPlaylistView(isSheet: true) }.appEnvironment()
         }
         .sheet(item: $editing) { playlist in
-            NavigationStack { PlaylistEditView(playlist: playlist) }
+            NavigationStack { PlaylistEditView(playlist: playlist) }.appEnvironment()
         }
         .confirmationDialog(
             "Playlist löschen?",

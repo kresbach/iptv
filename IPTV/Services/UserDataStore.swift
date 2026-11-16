@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class UserDataStore {
+    static let shared = UserDataStore()
 
     struct HistoryEntry: Codable, Hashable, Sendable {
         let key: String

@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class CategoryPreferences {
+    static let shared = CategoryPreferences()
     private struct Stored: Codable {
         var hidden: Set<String> = []
         var locked: Set<String> = []

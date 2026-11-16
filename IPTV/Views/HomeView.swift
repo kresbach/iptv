@@ -76,7 +76,7 @@ struct HomeView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
-                    DownloadsView()
+                    DownloadsView().appEnvironment()
                 } label: {
                     Label("Downloads", systemImage: "arrow.down.circle")
                 }
@@ -86,10 +86,10 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showsSettings) {
-            NavigationStack { SettingsView() }
+            NavigationStack { SettingsView() }.appEnvironment()
         }
         .sheet(isPresented: $showsAddPlaylist) {
-            NavigationStack { AddPlaylistView(isSheet: true) }
+            NavigationStack { AddPlaylistView(isSheet: true) }.appEnvironment()
         }
         .refreshable { await store.refresh() }
     }
