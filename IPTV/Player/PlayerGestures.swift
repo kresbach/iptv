@@ -76,7 +76,7 @@ struct PlayerGestureLayer: View {
                     if abs(value.translation.height) > abs(value.translation.width) {
                         let isLeft = value.startLocation.x < size.width / 2
                         mode = isLeft ? .brightness : .volume
-                        startLevel = isLeft ? Double(UIScreen.main.brightness) : SystemVolume.shared.level
+                        startLevel = isLeft ? SystemVolume.shared.brightness : SystemVolume.shared.level
                     } else {
                         mode = .horizontal
                     }
@@ -86,7 +86,7 @@ struct PlayerGestureLayer: View {
                 let level = min(max(startLevel + delta, 0), 1)
                 switch mode {
                 case .brightness:
-                    UIScreen.main.brightness = CGFloat(level)
+                    SystemVolume.shared.brightness = level
                     show(HUD(symbol: level > 0.5 ? "sun.max.fill" : "sun.min.fill", level: level), autoHide: false)
                 case .volume:
                     SystemVolume.shared.set(level)
@@ -145,16 +145,28 @@ final class SystemVolume {
     func set(_ level: Double) {
         slider?.value = Float(level)
     }
+
+    /// Ansicht im Player-Fenster; darüber wird der Bildschirm für die Helligkeit gefunden.
+    weak var hostView: UIView?
+
+    private var screen: UIScreen? { hostView?.window?.windowScene?.screen }
+
+    var brightness: Double {
+        get { Double(screen?.brightness ?? 0.5) }
+        set { screen?.brightness = CGFloat(newValue) }
+    }
 }
 
 private struct SystemVolumeView: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
+        SystemVolume.shared.hostView = view
         SystemVolume.shared.slider = view.subviews.compactMap { $0 as? UISlider }.first
         return view
     }
 
     func updateUIView(_ view: MPVolumeView, context: Context) {
+        SystemVolume.shared.hostView = view
         if SystemVolume.shared.slider == nil {
             SystemVolume.shared.slider = view.subviews.compactMap { $0 as? UISlider }.first
         }
