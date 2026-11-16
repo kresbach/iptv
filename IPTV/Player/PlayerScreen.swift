@@ -45,6 +45,7 @@ struct PlayerScreen: View {
     @State private var isDiagnosing = false
     @State private var isZoomed = false
     @State private var showsChannelList = false
+    @State private var showsSubtitleSearch = false
     @State private var airPlayHint: String?
 
     /// Nachbar in der Liste, aus der gestartet wurde. Live TV läuft am Ende wieder von vorn.
@@ -181,6 +182,14 @@ struct PlayerScreen: View {
             .environment(userData)
             .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showsSubtitleSearch) {
+            if let engine {
+                NavigationStack {
+                    SubtitleSearchView(channel: channel, engine: engine)
+                }
+                .presentationDetents([.medium, .large])
+            }
+        }
     }
 
     /// AirPlay gewählt, während VLC läuft: auf den Apple-Player wechseln, denn nur er
@@ -300,7 +309,11 @@ struct PlayerScreen: View {
                 TrackMenu(
                     engine: engine,
                     onOpen: { hideTask?.cancel() },
-                    onSelect: { scheduleHide() }
+                    onSelect: { scheduleHide() },
+                    onSearchOnline: !isLive && engine.supportsExternalSubtitles ? {
+                        hideTask?.cancel()
+                        showsSubtitleSearch = true
+                    } : nil
                 )
             }
 
@@ -459,6 +472,7 @@ struct PlayerScreen: View {
         var stalledSince: ContinuousClock.Instant?
         var reconnects = 0
         var stableSince: ContinuousClock.Instant?
+        var appliedSavedSubtitle = false
         var lastTime = -1.0
         var lastTimeChange = ContinuousClock.now
         var sawTimeAdvance = false
@@ -466,6 +480,14 @@ struct PlayerScreen: View {
             if let engine {
                 engine.update()
 
+                if engine.hasStartedPlayback, !appliedSavedSubtitle {
+                    appliedSavedSubtitle = true
+                    // Früher gewählten Online-Untertitel für diesen Film wieder einblenden.
+                    if !isLive, engine.supportsExternalSubtitles,
+                       let file = SubtitleService.shared.savedSubtitle(for: channel) {
+                        engine.addSubtitle(file: file)
+                    }
+                }
                 if engine.hasStartedPlayback {
                     // Live: Hängt das Bild länger oder trennt der Server, automatisch neu verbinden.
                     if engine.isBuffering {
@@ -756,13 +778,18 @@ private struct TrackMenu: View {
     let engine: any PlaybackEngine
     let onOpen: () -> Void
     let onSelect: () -> Void
+    /// Öffnet die Online-Suche; `nil`, wenn der Player keine externen Untertitel kann.
+    var onSearchOnline: (() -> Void)?
 
     var body: some View {
         let subtitles = engine.subtitleTracks
         let audio = engine.audioTracks
 
-        if !subtitles.isEmpty || audio.count > 1 {
+        if !subtitles.isEmpty || audio.count > 1 || onSearchOnline != nil {
             Menu {
+                if let onSearchOnline {
+                    Button("Untertitel online suchen …", systemImage: "magnifyingglass", action: onSearchOnline)
+                }
                 if !subtitles.isEmpty {
                     Section("Untertitel") {
                         Button {

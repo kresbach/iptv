@@ -9,6 +9,10 @@ struct SettingsView: View {
     @State private var confirmsDeleteDownloads = false
     @Environment(CategoryPreferences.self) private var prefs
     @State private var showsPINSetup = false
+    @State private var subtitleKey = ""
+    @State private var subtitleUser = ""
+    @State private var subtitlePassword = ""
+    @State private var subtitleLanguages = ""
     @State private var asksPIN = false
     @State private var pinAction: PINAction = .change
 
@@ -124,6 +128,8 @@ struct SettingsView: View {
 
             downloadsSection
 
+            subtitleSection
+
             parentalSection
 
             Section("Verlauf") {
@@ -154,6 +160,40 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Online-Untertitel über OpenSubtitles.
+    @ViewBuilder
+    var subtitleSection: some View {
+        Section {
+            SecureField("API-Key", text: $subtitleKey)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onChange(of: subtitleKey) { _, value in SubtitleService.shared.apiKey = value }
+            TextField("Sprachen, z. B. de,en,tr", text: $subtitleLanguages)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onChange(of: subtitleLanguages) { _, value in SubtitleService.shared.languages = value }
+            TextField("Benutzername (optional)", text: $subtitleUser)
+                .textContentType(.username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onChange(of: subtitleUser) { _, value in SubtitleService.shared.username = value }
+            SecureField("Passwort (optional)", text: $subtitlePassword)
+                .textContentType(.password)
+                .onChange(of: subtitlePassword) { _, value in SubtitleService.shared.password = value }
+        } header: {
+            Text("Untertitel (OpenSubtitles)")
+        } footer: {
+            Text("Den kostenlosen API-Key erhältst du auf opensubtitles.com unter „API Consumers“. Ohne Anmeldung sind etwa 5 Downloads pro Tag möglich, mit Benutzername und Passwort etwa 20. Untertitel suchst du im Player über das Sprechblasen-Symbol (nur mit VLC).")
+        }
+        .onAppear {
+            let service = SubtitleService.shared
+            subtitleKey = service.apiKey
+            subtitleLanguages = service.languages
+            subtitleUser = service.username
+            subtitlePassword = service.password
+        }
+    }
+
     /// Kindersicherung: PIN festlegen, ändern oder entfernen.
     @ViewBuilder
     var parentalSection: some View {

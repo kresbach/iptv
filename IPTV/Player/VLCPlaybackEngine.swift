@@ -134,6 +134,21 @@ final class VLCPlaybackEngine: PlaybackEngine {
         selectedAudio = id
     }
 
+    var supportsExternalSubtitles: Bool { true }
+    private(set) var subtitleDelay: Double = 0
+
+    /// Blendet eine Untertitel-Datei ein und wählt sie aus.
+    func addSubtitle(file: URL) {
+        _ = player.addPlaybackSlave(file, type: .subtitle, enforce: true)
+        // Spurliste beim nächsten Durchlauf sofort neu einlesen.
+        lastTrackRefresh = ContinuousClock.now - .seconds(60)
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        player.currentVideoSubTitleDelay = Int(seconds * 1_000_000)  // Mikrosekunden
+        subtitleDelay = seconds
+    }
+
     /// Setzt nur bei Änderung, damit SwiftUI nicht unnötig neu zeichnet.
     private func set<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<VLCPlaybackEngine, Value>, _ value: Value) {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }

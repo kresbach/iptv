@@ -160,6 +160,13 @@ protocol PlaybackEngine: AnyObject {
     func selectSubtitle(_ id: Int?)
     func selectAudio(_ id: Int)
 
+    /// Ob der Player Untertitel aus einer Datei (z. B. .srt) einblenden kann.
+    var supportsExternalSubtitles: Bool { get }
+    /// Verschiebung der Untertitel in Sekunden (positiv = später).
+    var subtitleDelay: Double { get }
+    func addSubtitle(file: URL)
+    func setSubtitleDelay(_ seconds: Double)
+
     func start(url: URL, isLive: Bool, resumeAt: Double?)
     /// Wird regelmäßig aufgerufen und aktualisiert den Zustand.
     func update()
@@ -337,6 +344,12 @@ final class ApplePlaybackEngine: PlaybackEngine {
         item.select(option, in: group)
         selectedSubtitle = option == nil ? nil : id
     }
+
+    // Der Apple-Player kann keine externen Untertitel-Dateien einblenden.
+    var supportsExternalSubtitles: Bool { false }
+    var subtitleDelay: Double { 0 }
+    func addSubtitle(file: URL) {}
+    func setSubtitleDelay(_ seconds: Double) {}
 
     func selectAudio(_ id: Int) {
         guard let item = player.currentItem, let group = audibleGroup, group.options.indices.contains(id) else { return }
