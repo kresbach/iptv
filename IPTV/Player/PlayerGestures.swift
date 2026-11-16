@@ -23,6 +23,9 @@ struct PlayerGestureLayer: View {
         let level: Double?
     }
 
+    /// Läuft die iPad-App auf einem Mac?
+    private static let isMac = ProcessInfo.processInfo.isiOSAppOnMac
+
     @State private var mode: Mode?
     @State private var startLevel = 0.0
     @State private var hud: HUD?
@@ -35,10 +38,13 @@ struct PlayerGestureLayer: View {
                     .gesture(dragGesture(size: geometry.size))
 
                 // Unsichtbarer Systemregler: ermöglicht das Ändern der Gerätelautstärke.
-                SystemVolumeView()
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .allowsHitTesting(false)
+                // Auf dem Mac gibt es ihn nicht; dort regeln die Tasten des Macs.
+                if !Self.isMac {
+                    SystemVolumeView()
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .allowsHitTesting(false)
+                }
 
                 if let hud {
                     hudView(hud)
@@ -74,6 +80,8 @@ struct PlayerGestureLayer: View {
             .onChanged { value in
                 if mode == nil {
                     if abs(value.translation.height) > abs(value.translation.width) {
+                        // Helligkeit und Lautstärke lassen sich auf dem Mac nicht per App regeln.
+                        guard !Self.isMac else { return }
                         let isLeft = value.startLocation.x < size.width / 2
                         mode = isLeft ? .brightness : .volume
                         startLevel = isLeft ? SystemVolume.shared.brightness : SystemVolume.shared.level
