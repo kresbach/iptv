@@ -92,7 +92,9 @@ struct MediaInfo: Hashable, Sendable {
         let target = versionKey(for: movie.name)
         guard !target.name.isEmpty else { return [] }
         // Schnelle Vorauswahl über das längste Wort, damit nicht jeder Titel aufbereitet wird.
-        let anchor = target.name.split(separator: " ").max { $0.count < $1.count }.map(String.init) ?? target.name
+        let anchor = target.name
+            .components(separatedBy: " ")
+            .max { $0.count < $1.count } ?? target.name
 
         return movies.filter { candidate in
             guard candidate.id != movie.id, candidate.url != movie.url,
