@@ -21,8 +21,13 @@ struct IPTVApp: App {
             RootView()
                 .appEnvironment()
                 .task {
+                    if UITestSupport.isActive { UITestSupport.resetStorage() }
                     await userData.restore()
                     await store.restore()
+                    if UITestSupport.isActive {
+                        await UITestSupport.installSamplePlaylist(into: store)
+                        return  // im Test keine Synchronisierung
+                    }
                     // Nach lokalen Änderungen (Favoriten, Fortschritt) gebündelt abgleichen.
                     userData.onChange = { [sync, store, userData] in
                         sync.scheduleSync(store: store, userData: userData)
