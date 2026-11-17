@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Filme als Poster-Raster (Cover aus `tvg-logo` bzw. Xtream).
 struct MovieGridView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(DownloadManager.self) private var downloads
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var downloads: DownloadManager { .shared }
     @Environment(\.playChannel) private var playChannel
 
     let title: String
@@ -113,8 +113,8 @@ struct MovieGridView: View {
 
 /// Serien als Poster-Raster.
 struct SeriesGridView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
 
     let title: String
     let shows: [SeriesShow]
@@ -164,9 +164,9 @@ struct SeriesGridView: View {
 /// Serie mit Infos (Handlung, Besetzung, Trailer) sowie Staffeln und Episoden.
 /// Bei Xtream werden Infos und Episoden beim Öffnen geladen.
 struct SeriesDetailView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(DownloadManager.self) private var downloads
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var downloads: DownloadManager { .shared }
     let show: SeriesShow
 
     @State private var info: MediaInfo?
@@ -305,7 +305,7 @@ struct SeriesDetailView: View {
 }
 
 private struct EpisodeRow: View {
-    @Environment(UserDataStore.self) private var userData
+    private var userData: UserDataStore { .shared }
     @Environment(\.playChannel) private var playChannel
     let episode: SeriesShow.Episode
     let show: SeriesShow

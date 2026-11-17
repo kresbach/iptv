@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// Neue Playlist hinzufügen: per M3U-Link, Xtream-Codes-Login oder Datei aus der Dateien-App.
 /// Wird beim ersten Start gezeigt und später als Sheet wiederverwendet.
 struct AddPlaylistView: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
     @Environment(\.dismiss) private var dismiss
 
     var isSheet = false

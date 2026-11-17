@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Kategorien eines Bereichs sortieren, ausblenden und (mit PIN) sperren.
 struct CategoryEditView: View {
-    @Environment(CategoryPreferences.self) private var prefs
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.dismiss) private var dismiss
 
     let kind: ContentKind
@@ -69,7 +69,7 @@ struct CategoryEditView: View {
 
 /// Fragt die Kindersicherungs-PIN ab und gibt bei Erfolg die Sitzung frei.
 struct PINPrompt: ViewModifier {
-    @Environment(CategoryPreferences.self) private var prefs
+    private var prefs: CategoryPreferences { .shared }
     @Binding var isPresented: Bool
     let onSuccess: () -> Void
 
@@ -113,7 +113,7 @@ extension View {
 
 /// PIN festlegen oder ändern.
 struct PINSetupView: View {
-    @Environment(CategoryPreferences.self) private var prefs
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.dismiss) private var dismiss
 
     @State private var pin = ""

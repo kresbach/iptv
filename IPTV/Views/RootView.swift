@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
 
     var body: some View {
         switch store.phase {

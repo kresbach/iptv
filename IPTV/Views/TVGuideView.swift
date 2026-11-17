@@ -3,9 +3,9 @@ import SwiftUI
 /// TV-Programm als Zeitraster: Sender untereinander, Sendungen entlang der Zeitachse.
 /// Die Senderspalte bleibt beim seitlichen Scrollen stehen.
 struct TVGuideView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.playChannel) private var playChannel
 
     /// Gewählte Kategorie; `favoritesTag` steht für die Favoriten.

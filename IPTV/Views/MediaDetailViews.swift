@@ -3,9 +3,9 @@ import SwiftUI
 /// Detailansicht eines Films: Hintergrundbild, Cover, Eckdaten, Handlung,
 /// Besetzung sowie Abspielen/Weiterschauen und Trailer.
 struct MovieDetailView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(DownloadManager.self) private var downloads
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var downloads: DownloadManager { .shared }
     @Environment(\.playChannel) private var playChannel
 
     let movie: Channel

@@ -4,9 +4,9 @@ import SwiftUI
 /// davor „Alle“ und – falls vorhanden – „Favoriten“. Mit Suchfeld zum Filtern.
 /// Kategorien lassen sich sortieren, ausblenden und per PIN sperren.
 struct SectionView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     let kind: ContentKind
 
     @State private var query = ""
@@ -155,9 +155,9 @@ private struct CategoryRow: View {
 
 /// Inhalt einer Kategorie je nach Bereich: Senderliste, Film-Poster oder Serien-Poster.
 struct CategoryDestinationView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     let route: CategoryRoute
 
     var body: some View {

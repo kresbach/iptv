@@ -2,12 +2,12 @@ import AuthenticationServices
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(SyncService.self) private var sync
-    @Environment(DownloadManager.self) private var downloads
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var sync: SyncService { .shared }
+    private var downloads: DownloadManager { .shared }
     @State private var confirmsDeleteDownloads = false
-    @Environment(CategoryPreferences.self) private var prefs
+    private var prefs: CategoryPreferences { .shared }
     @State private var showsPINSetup = false
     @State private var subtitleKey = ""
     @State private var subtitleUser = ""
@@ -328,7 +328,7 @@ extension SettingsView {
 
 /// Alle Playlists: wechseln, bearbeiten, löschen, hinzufügen.
 struct PlaylistsView: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
 
     @State private var showsAdd = false
     @State private var editing: Playlist?
@@ -402,7 +402,7 @@ struct PlaylistsView: View {
 
 /// Name und EPG-Adresse einer Playlist ändern.
 struct PlaylistEditView: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
     @Environment(\.dismiss) private var dismiss
     let playlist: Playlist
 

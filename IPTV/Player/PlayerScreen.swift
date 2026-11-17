@@ -20,9 +20,9 @@ struct PlayerScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(DownloadManager.self) private var downloads
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var downloads: DownloadManager { .shared }
     @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
     @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
 

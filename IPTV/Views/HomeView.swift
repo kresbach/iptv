@@ -3,8 +3,8 @@ import SwiftUI
 /// Startbildschirm: Kacheln für Live TV, Filme und Serien, darunter
 /// „Weiterschauen“, „Zuletzt gesehen“ und „Favoriten“.
 struct HomeView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
     @Binding var selection: AppTab
 
     @State private var showsSettings = false
@@ -178,9 +178,9 @@ private struct ShelfLabelStyle: LabelStyle {
 
 /// Angefangene Filme und Episoden.
 private struct ContinueWatchingRow: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
@@ -210,9 +210,9 @@ private struct ContinueWatchingRow: View {
 
 /// Zuletzt gesehene Live-Sender.
 private struct RecentChannelsRow: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
@@ -237,9 +237,9 @@ private struct RecentChannelsRow: View {
 
 /// Favoriten aus allen Bereichen.
 private struct FavoritesRow: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
@@ -283,7 +283,7 @@ private struct FavoritesRow: View {
 
 /// Kompakte Kachel für Live-Sender mit aktueller Sendung.
 private struct ChannelTile: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
     let channel: Channel
 
     var body: some View {

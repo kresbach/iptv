@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Globale Suche über Live TV, Filme und Serien (Name und Kategorie).
 struct SearchView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(CategoryPreferences.self) private var prefs
+    private var store: PlaylistStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
     @Environment(\.playChannel) private var playChannel
 
     @State private var query = ""

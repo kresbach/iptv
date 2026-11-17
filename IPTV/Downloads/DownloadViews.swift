@@ -5,7 +5,7 @@ import SwiftUI
 struct DownloadButton: View {
     enum Style { case large, compact }
 
-    @Environment(DownloadManager.self) private var downloads
+    private var downloads: DownloadManager { .shared }
     let channel: Channel
     let title: String
     var subtitle: String?
@@ -129,7 +129,7 @@ struct DownloadStateIcon: View {
 
 /// Übersicht aller Downloads: laufende mit Fortschritt, fertige zum Abspielen.
 struct DownloadsView: View {
-    @Environment(DownloadManager.self) private var downloads
+    private var downloads: DownloadManager { .shared }
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {
@@ -210,8 +210,8 @@ struct DownloadsView: View {
 }
 
 private struct DownloadRow: View {
-    @Environment(DownloadManager.self) private var downloads
-    @Environment(UserDataStore.self) private var userData
+    private var downloads: DownloadManager { .shared }
+    private var userData: UserDataStore { .shared }
     let item: DownloadItem
 
     var body: some View {
@@ -283,7 +283,7 @@ private struct DownloadRow: View {
 
 /// Leiste „Downloads“ auf dem Startbildschirm (auch offline nutzbar).
 struct DownloadsShelf: View {
-    @Environment(DownloadManager.self) private var downloads
+    private var downloads: DownloadManager { .shared }
     @Environment(\.playChannel) private var playChannel
 
     var body: some View {

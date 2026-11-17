@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Senderliste mit Filter, aktueller Sendung (EPG) und Favoriten.
 struct ChannelListView: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
     @Environment(\.playChannel) private var playChannel
 
     let title: String
@@ -72,8 +72,8 @@ struct FavoriteButton: View {
 }
 
 struct ChannelRow: View {
-    @Environment(PlaylistStore.self) private var store
-    @Environment(UserDataStore.self) private var userData
+    private var store: PlaylistStore { .shared }
+    private var userData: UserDataStore { .shared }
 
     let channel: Channel
     var showsCategory = true
@@ -184,7 +184,7 @@ struct ChannelBadge: View {
 
 /// TV-Programm eines Senders für heute und morgen.
 struct EPGScheduleView: View {
-    @Environment(PlaylistStore.self) private var store
+    private var store: PlaylistStore { .shared }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.playChannel) private var playChannel
     let channel: Channel
