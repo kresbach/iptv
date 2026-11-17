@@ -140,12 +140,12 @@ final class VLCPlaybackEngine: PlaybackEngine {
     func setVolume(_ value: Double) {
         volume = min(max(value, 0), 1)
         isUserMuted = false
-        player.audio.volume = Int32(volume * 100)
+        player.audio?.volume = Int32(volume * 100)
     }
 
     func toggleMute() {
         isUserMuted.toggle()
-        player.audio.volume = isUserMuted ? 0 : Int32(volume * 100)
+        player.audio?.volume = isUserMuted ? 0 : Int32(volume * 100)
     }
 
     var supportsExternalSubtitles: Bool { true }
