@@ -69,8 +69,9 @@ struct AppCommands: Commands {
                 .keyboardShortcut(",")
         }
         CommandGroup(after: .newItem) {
+            // ⌘N ist für „Neues Fenster“ vom System belegt.
             Button("Playlist hinzufügen …") { AppRouter.shared.showsAddPlaylist = true }
-                .keyboardShortcut("n")
+                .keyboardShortcut("n", modifiers: [.command, .shift])
         }
         CommandMenu("Navigation") {
             Button("Start") { AppRouter.shared.selection = .home }
