@@ -7,7 +7,14 @@ import Foundation
 enum UITestSupport {
     static let argument = "-UITestSampleData"
 
-    static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
+    /// Nur im Simulator: Auf einem echten Gerät würde das Zurücksetzen deine Daten löschen.
+    static var isActive: Bool {
+        #if targetEnvironment(simulator)
+        ProcessInfo.processInfo.arguments.contains(argument)
+        #else
+        false
+        #endif
+    }
 
     /// Vor dem Laden: gespeicherte Daten und Einstellungen entfernen.
     static func resetStorage() {
