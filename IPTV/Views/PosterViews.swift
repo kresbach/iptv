@@ -52,6 +52,13 @@ struct MovieGridView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button("Direkt abspielen", systemImage: "play.fill") { playChannel(movie) }
+                        OpenInWindowButton(channel: movie)
+                        if downloads.item(for: movie) == nil {
+                            Button("Herunterladen", systemImage: "arrow.down.circle") {
+                                downloads.download(movie, title: MediaInfo.cleanTitle(movie.name))
+                            }
+                        }
+                        Divider()
                         FavoriteButton(isFavorite: userData.isFavorite(movie)) {
                             userData.toggleFavorite(movie)
                         }
@@ -306,6 +313,7 @@ struct SeriesDetailView: View {
 
 private struct EpisodeRow: View {
     private var userData: UserDataStore { .shared }
+    private var downloads: DownloadManager { .shared }
     @Environment(\.playChannel) private var playChannel
     let episode: SeriesShow.Episode
     let show: SeriesShow
@@ -352,12 +360,31 @@ private struct EpisodeRow: View {
                 style: .compact
             )
         }
+        .contextMenu {
+            Button("Abspielen", systemImage: "play.fill") { playChannel(episode.channel, queue: queue) }
+            OpenInWindowButton(channel: episode.channel, queue: queue)
+            Divider()
+            if let item = downloads.item(for: episode.channel) {
+                Button("Download löschen", systemImage: "trash", role: .destructive) { downloads.remove(item.id) }
+            } else {
+                Button("Herunterladen", systemImage: "arrow.down.circle") {
+                    downloads.download(
+                        episode.channel,
+                        title: episode.displayTitle,
+                        subtitle: SeriesDetailView.episodeSubtitle(episode, show: show),
+                        posterURL: show.posterURL,
+                        showTitle: MediaInfo.cleanTitle(show.title)
+                    )
+                }
+            }
+        }
     }
 }
 
 /// Poster im Hochformat mit orangefarbenem Platzhalter, solange (oder falls) kein Cover lädt.
 struct PosterCard: View {
-    static let columns = [GridItem(.adaptive(minimum: 110), spacing: 14)]
+    /// Passt die Spaltenzahl der Fensterbreite an; auf dem Mac etwas größere Poster.
+    static let columns = [GridItem(.adaptive(minimum: AppRouter.isMac ? 150 : 110), spacing: 14)]
 
     let title: String?
     let subtitle: String?

@@ -30,6 +30,16 @@ struct IPTVApp: App {
                     await sync.sync(store: store, userData: userData)
                 }
         }
+        .commands { AppCommands() }
+
+        // Eigenes Player-Fenster (Mac, iPad): Live TV läuft dort, während man im
+        // Hauptfenster weiter stöbert.
+        WindowGroup("Player", id: PlayerWindowRequest.windowID, for: PlayerWindowRequest.self) { $request in
+            if let request {
+                PlayerScreen(request: PlaybackRequest(channel: request.channel, queue: request.queue), isInWindow: true)
+                    .appEnvironment()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:

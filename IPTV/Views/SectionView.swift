@@ -71,6 +71,24 @@ struct SectionView: View {
                                 symbol: CategoryIcon.symbol(for: category.name, fallback: kind.symbol)
                             )
                         }
+                        .contextMenu {
+                            Button("Ausblenden", systemImage: "eye.slash") {
+                                prefs.setHidden(true, kind: kind, name: category.name)
+                            }
+                            if prefs.hasPIN {
+                                Button("Mit PIN sperren", systemImage: "lock") {
+                                    prefs.setLocked(true, kind: kind, name: category.name)
+                                }
+                            }
+                            Button("Kategorien bearbeiten …", systemImage: "slider.horizontal.3") {
+                                if prefs.hasPIN && !prefs.isUnlocked {
+                                    opensEditorAfterPIN = true
+                                    asksPIN = true
+                                } else {
+                                    showsEditor = true
+                                }
+                            }
+                        }
                     }
                 }
             } header: {

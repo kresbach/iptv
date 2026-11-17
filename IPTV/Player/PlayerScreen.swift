@@ -8,17 +8,21 @@ import UniformTypeIdentifiers
 /// Zeitleiste zum Spulen bei Filmen und Episoden, TV-Programm bei Live-Sendern.
 struct PlayerScreen: View {
     let request: PlaybackRequest
+    /// Läuft der Player in einem eigenen Fenster (Mac, iPad) statt als Vollbild-Ansicht?
+    var isInWindow = false
 
     /// Aktuell laufender Eintrag; ändert sich beim Umschalten oder bei der nächsten Episode.
     @State private var current: Channel
     private var channel: Channel { current }
 
-    init(request: PlaybackRequest) {
+    init(request: PlaybackRequest, isInWindow: Bool = false) {
         self.request = request
+        self.isInWindow = isInWindow
         _current = State(initialValue: request.channel)
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.scenePhase) private var scenePhase
     private var store: PlaylistStore { .shared }
     private var userData: UserDataStore { .shared }
@@ -76,10 +80,37 @@ struct PlayerScreen: View {
 
             Button("Vor") { arrowKey(1) }
                 .keyboardShortcut(.rightArrow, modifiers: [])
+
+            Button("Vorheriger Sender") { if let target = neighbor(-1) { switchTo(target) } }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+
+            Button("Nächster Sender") { if let target = neighbor(1) { switchTo(target) } }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+
+            Button("Lauter") { changeVolume(by: 0.1) }
+                .keyboardShortcut(.upArrow, modifiers: [])
+
+            Button("Leiser") { changeVolume(by: -0.1) }
+                .keyboardShortcut(.downArrow, modifiers: [])
+
+            Button("Stumm") {
+                engine?.toggleMute()
+                revealControls()
+            }
+            .keyboardShortcut("m", modifiers: [])
+
+            Button("Steuerung") { toggleControls() }
+                .keyboardShortcut("f", modifiers: [])
         }
         .opacity(0)
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
+    }
+
+    private func changeVolume(by delta: Double) {
+        guard let engine else { return }
+        engine.setVolume(engine.volume + delta)
+        revealControls()
     }
 
     private func arrowKey(_ direction: Int) {
@@ -139,6 +170,10 @@ struct PlayerScreen: View {
                 }
             )
             .ignoresSafeArea()
+            // Maus/Trackpad: Bewegung über dem Bild blendet die Steuerung ein.
+            .onContinuousHover { phase in
+                if case .active = phase { revealControls() }
+            }
 
             if let apple = engine as? ApplePlaybackEngine, apple.isExternalPlaybackActive {
                 VStack(spacing: 10) {
@@ -341,6 +376,10 @@ struct PlayerScreen: View {
                 ) { isZoomed.toggle() }
             }
 
+            if let engine, engine.isUserMuted || engine.volume < 1 {
+                VolumeBadge(engine: engine)
+            }
+
             if let engine {
                 TrackMenu(
                     engine: engine,
@@ -456,6 +495,12 @@ struct PlayerScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    /// Steuerung zeigen (z. B. bei Mausbewegung) und das Ausblenden neu starten.
+    private func revealControls() {
+        if !showsControls { showsControls = true }
+        scheduleHide()
     }
 
     private func toggleControls() {
@@ -680,7 +725,11 @@ struct PlayerScreen: View {
         saveProgress()
         engine?.stop()
         engine = nil
-        dismiss()
+        if isInWindow {
+            dismissWindow()
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: - Fehler
@@ -806,6 +855,23 @@ private struct PlayerButtonLabel: View {
             .frame(width: size, height: size)
             .background(.black.opacity(0.45), in: .circle)
             .contentShape(.circle)
+    }
+}
+
+/// Zeigt Lautstärke bzw. „stumm“ an, wenn sie im Player geändert wurde.
+private struct VolumeBadge: View {
+    let engine: any PlaybackEngine
+
+    var body: some View {
+        let symbol = engine.isUserMuted || engine.volume == 0 ? "speaker.slash.fill"
+            : engine.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill"
+        Button {
+            engine.toggleMute()
+        } label: {
+            PlayerButtonLabel(symbol: symbol, size: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(engine.isUserMuted ? "Ton einschalten" : "Stumm")
     }
 }
 

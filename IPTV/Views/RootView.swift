@@ -18,21 +18,16 @@ struct RootView: View {
     }
 }
 
-enum AppTab: Hashable {
-    case home
-    case section(ContentKind)
-    case search
-}
-
 struct MainTabView: View {
-    @State private var selection: AppTab = .home
+    @Bindable private var router = AppRouter.shared
     @Bindable private var playback = PlaybackCoordinator.shared
 
     var body: some View {
-        TabView(selection: $selection) {
+        // Auf großen Fenstern (iPad, Mac) als Seitenleiste, auf dem iPhone als Tab-Leiste.
+        TabView(selection: $router.selection) {
             Tab("Start", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack {
-                    HomeView(selection: $selection)
+                    HomeView(selection: $router.selection)
                         .withAppDestinations()
                 }
             }
@@ -46,6 +41,16 @@ struct MainTabView: View {
                 }
             }
 
+            // In der Seitenleiste immer sichtbar, in der iPhone-Tab-Leiste ausgeblendet
+            // (dort über den Startbildschirm erreichbar).
+            Tab("Downloads", systemImage: "arrow.down.circle.fill", value: AppTab.downloads) {
+                NavigationStack {
+                    DownloadsView()
+                        .withAppDestinations()
+                }
+            }
+            .defaultVisibility(.hidden, for: .tabBar)
+
             Tab(value: AppTab.search, role: .search) {
                 NavigationStack {
                     SearchView()
@@ -53,7 +58,14 @@ struct MainTabView: View {
                 }
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
         .tabBarMinimizeBehavior(.onScrollDown)
+        .sheet(isPresented: $router.showsSettings) {
+            NavigationStack { SettingsView() }.appEnvironment()
+        }
+        .sheet(isPresented: $router.showsAddPlaylist) {
+            NavigationStack { AddPlaylistView(isSheet: true) }.appEnvironment()
+        }
         .fullScreenCover(item: $playback.request) { request in
             PlayerScreen(request: request)
                 .appEnvironment()

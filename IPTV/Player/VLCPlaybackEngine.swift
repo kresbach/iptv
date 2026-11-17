@@ -134,6 +134,20 @@ final class VLCPlaybackEngine: PlaybackEngine {
         selectedAudio = id
     }
 
+    private(set) var volume = 1.0
+    private(set) var isUserMuted = false
+
+    func setVolume(_ value: Double) {
+        volume = min(max(value, 0), 1)
+        isUserMuted = false
+        player.audio.volume = Int32(volume * 100)
+    }
+
+    func toggleMute() {
+        isUserMuted.toggle()
+        player.audio.volume = isUserMuted ? 0 : Int32(volume * 100)
+    }
+
     var supportsExternalSubtitles: Bool { true }
     private(set) var subtitleDelay: Double = 0
 

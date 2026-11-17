@@ -167,6 +167,12 @@ protocol PlaybackEngine: AnyObject {
     func addSubtitle(file: URL)
     func setSubtitleDelay(_ seconds: Double)
 
+    /// Lautstärke des Players (0 … 1), unabhängig von der Gerätelautstärke.
+    var volume: Double { get }
+    var isUserMuted: Bool { get }
+    func setVolume(_ value: Double)
+    func toggleMute()
+
     func start(url: URL, isLive: Bool, resumeAt: Double?)
     /// Wird regelmäßig aufgerufen und aktualisiert den Zustand.
     func update()
@@ -343,6 +349,20 @@ final class ApplePlaybackEngine: PlaybackEngine {
         let option = id.flatMap { group.options.indices.contains($0) ? group.options[$0] : nil }
         item.select(option, in: group)
         selectedSubtitle = option == nil ? nil : id
+    }
+
+    private(set) var volume = 1.0
+    private(set) var isUserMuted = false
+
+    func setVolume(_ value: Double) {
+        volume = min(max(value, 0), 1)
+        isUserMuted = false
+        player.volume = Float(volume)
+    }
+
+    func toggleMute() {
+        isUserMuted.toggle()
+        player.volume = isUserMuted ? 0 : Float(volume)
     }
 
     // Der Apple-Player kann keine externen Untertitel-Dateien einblenden.

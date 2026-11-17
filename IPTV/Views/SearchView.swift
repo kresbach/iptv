@@ -84,6 +84,12 @@ struct SearchView: View {
                             ChannelRow(channel: channel)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Abspielen", systemImage: "play.fill") {
+                                playChannel(channel, queue: Array(results.prefix(limit)))
+                            }
+                            OpenInWindowButton(channel: channel, queue: Array(results.prefix(limit)))
+                        }
                     }
                 }
             } header: {

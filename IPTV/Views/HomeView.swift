@@ -7,8 +7,7 @@ struct HomeView: View {
     private var userData: UserDataStore { .shared }
     @Binding var selection: AppTab
 
-    @State private var showsSettings = false
-    @State private var showsAddPlaylist = false
+    private var router: AppRouter { .shared }
 
     var body: some View {
         ScrollView {
@@ -60,7 +59,7 @@ struct HomeView: View {
                 }
             }
             Divider()
-            Button("Playlist hinzufügen", systemImage: "plus") { showsAddPlaylist = true }
+            Button("Playlist hinzufügen", systemImage: "plus") { router.showsAddPlaylist = true }
         }
         .toolbar {
             if (store.isLoading || store.isLoadingEPG) && !store.content.isEmpty {
@@ -82,14 +81,8 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Einstellungen", systemImage: "gearshape.fill") { showsSettings = true }
+                Button("Einstellungen", systemImage: "gearshape.fill") { router.showsSettings = true }
             }
-        }
-        .sheet(isPresented: $showsSettings) {
-            NavigationStack { SettingsView() }.appEnvironment()
-        }
-        .sheet(isPresented: $showsAddPlaylist) {
-            NavigationStack { AddPlaylistView(isSheet: true) }.appEnvironment()
         }
         .refreshable { await store.refresh() }
     }
@@ -229,6 +222,10 @@ private struct RecentChannelsRow: View {
                         ChannelTile(channel: channel)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Abspielen", systemImage: "play.fill") { playChannel(channel, queue: recent) }
+                        OpenInWindowButton(channel: channel, queue: recent)
+                    }
                 }
             }
         }

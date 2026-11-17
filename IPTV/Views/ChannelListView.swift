@@ -10,12 +10,37 @@ struct ChannelListView: View {
     let channels: [Channel]
     var showsCategory = true
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
     @State private var scheduleChannel: Channel?
+    /// Sender, dessen Programm in der rechten Spalte steht (breites Fenster).
+    @State private var previewChannel: Channel?
+
+    private var showsSidePanel: Bool {
+        sizeClass == .regular && store.epg != nil && channels.first?.kind == .live
+    }
 
     var body: some View {
         let filtered = store.search(query, in: channels)
 
+        HStack(spacing: 0) {
+            list(filtered)
+            if showsSidePanel, let channel = previewChannel ?? filtered.first {
+                Divider()
+                ChannelSchedulePanel(channel: channel, queue: filtered)
+                    .frame(width: 340)
+            }
+        }
+        .navigationTitle(title)
+        .navigationSubtitle("\(channels.count.formatted()) Einträge")
+        .searchable(text: $query, prompt: "In \(title) suchen")
+        .refreshable { await store.refresh() }
+        .sheet(item: $scheduleChannel) { channel in
+            NavigationStack { EPGScheduleView(channel: channel) }.appEnvironment()
+        }
+    }
+
+    private func list(_ filtered: [Channel]) -> some View {
         List(filtered) { channel in
             Button {
                 playChannel(channel, queue: filtered)
@@ -23,6 +48,9 @@ struct ChannelListView: View {
                 ChannelRow(channel: channel, showsCategory: showsCategory)
             }
             .buttonStyle(.plain)
+            .onHover { inside in
+                if inside, showsSidePanel { previewChannel = channel }
+            }
             .swipeActions(edge: .trailing) {
                 FavoriteButton(isFavorite: userData.isFavorite(channel)) {
                     userData.toggleFavorite(channel)
@@ -30,6 +58,9 @@ struct ChannelListView: View {
                 .tint(Theme.orange)
             }
             .contextMenu {
+                Button("Abspielen", systemImage: "play.fill") { playChannel(channel, queue: filtered) }
+                OpenInWindowButton(channel: channel, queue: filtered)
+                Divider()
                 FavoriteButton(isFavorite: userData.isFavorite(channel)) {
                     userData.toggleFavorite(channel)
                 }
@@ -39,10 +70,6 @@ struct ChannelListView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle(title)
-        .navigationSubtitle("\(channels.count.formatted()) Einträge")
-        .searchable(text: $query, prompt: "In \(title) suchen")
-        .refreshable { await store.refresh() }
         .overlay {
             if filtered.isEmpty {
                 if query.isEmpty {
@@ -52,8 +79,43 @@ struct ChannelListView: View {
                 }
             }
         }
-        .sheet(item: $scheduleChannel) { channel in
-            NavigationStack { EPGScheduleView(channel: channel) }.appEnvironment()
+    }
+}
+
+/// Rechte Spalte im breiten Fenster: Programm des gewählten Senders.
+private struct ChannelSchedulePanel: View {
+    private var store: PlaylistStore { .shared }
+    @Environment(\.playChannel) private var playChannel
+    let channel: Channel
+    let queue: [Channel]
+
+    var body: some View {
+        let upcoming = (store.epg?.schedule(for: channel) ?? []).filter { $0.end > .now }.prefix(20)
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                ChannelBadge(channel: channel, size: 44)
+                Text(channel.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                Button {
+                    playChannel(channel, queue: queue)
+                } label: {
+                    Label("Ansehen", systemImage: "play.fill")
+                }
+                .buttonStyle(.glassProminent)
+            }
+            .padding()
+
+            if upcoming.isEmpty {
+                ContentUnavailableView("Kein Programm", systemImage: "calendar.badge.exclamationmark")
+            } else {
+                List(Array(upcoming)) { programme in
+                    ProgrammeRow(programme: programme)
+                }
+                .listStyle(.plain)
+            }
         }
     }
 }
