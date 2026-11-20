@@ -119,7 +119,7 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
-                    itemsIndexed(channels, key = { _, c -> c.stableKey + c.url }) { index, ch ->
+                    itemsIndexed(channels, key = { i, _ -> i }) { index, ch ->
                         ChannelRow(
                             number = index + 1,
                             channel = ch,

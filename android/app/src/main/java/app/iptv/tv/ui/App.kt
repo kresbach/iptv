@@ -12,6 +12,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.iptv.tv.data.Repository
 import app.iptv.tv.model.Channel
 import app.iptv.tv.model.ContentKind
@@ -88,6 +95,17 @@ fun AppRoot(onExit: () -> Unit) {
     val holder = rememberSaveableStateHolder()
     BackHandler { if (!nav.back()) onExit() }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var crash by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            app.iptv.tv.IptvApp.crashFile(context).takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull().also { f.delete() } },
+        )
+    }
+    crash?.let { text ->
+        CrashReport(text) { crash = null }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
         val screen = nav.current
         holder.SaveableStateProvider(screen.key + System.identityHashCode(screen)) {
@@ -101,6 +119,27 @@ fun AppRoot(onExit: () -> Unit) {
                 is Screen.SeriesDetail -> SeriesDetailScreen(nav, screen)
                 is Screen.Player -> PlayerScreen(nav, screen)
             }
+        }
+    }
+}
+
+/** Zeigt nach einem Absturz den Grund an (zum Abfotografieren und Weitergeben). */
+@Composable
+private fun CrashReport(text: String, onClose: () -> Unit) {
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxSize().background(AppColors.Background).padding(56.dp),
+    ) {
+        androidx.tv.material3.Text("Die App ist beim letzten Mal abgestürzt", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        androidx.tv.material3.Text(
+            "Bitte ein Foto von diesem Bildschirm machen und weitergeben – damit lässt sich der Fehler beheben.",
+            fontSize = 18.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+        )
+        androidx.tv.material3.Text(text, fontSize = 15.sp, color = AppColors.OrangeLight, modifier = Modifier.weight(1f))
+        val focus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+        AppButton("Weiter", onClose, modifier = Modifier.focusRequester(focus))
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            kotlinx.coroutines.android.awaitFrame()
+            runCatching { focus.requestFocus() }
         }
     }
 }

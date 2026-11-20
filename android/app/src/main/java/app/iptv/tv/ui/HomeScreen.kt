@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -187,7 +187,7 @@ private fun HomeContent(
 
         if (recents.isNotEmpty()) {
             homeRow("recents", "Zuletzt gesehen", memory) {
-                items(recents.take(20), key = { "r-" + it.channel.stableKey }) { entry ->
+                itemsIndexed(recents.take(20), key = { i, _ -> "r-$i" }) { _, entry ->
                     val ch = entry.channel
                     val key = "recent-${ch.stableKey}"
                     if (ch.kind == ContentKind.LIVE) {
@@ -229,7 +229,7 @@ private fun HomeContent(
         val favShows = favorites.mapNotNull { content.show(it) }
         if (favChannels.isNotEmpty() || favShows.isNotEmpty()) {
             homeRow("favorites", "Favoriten", memory) {
-                items(favChannels, key = { "f-" + it.stableKey }) { ch ->
+                itemsIndexed(favChannels, key = { i, _ -> "f-$i" }) { _, ch ->
                     val key = "fav-${ch.stableKey}"
                     if (ch.kind == ContentKind.LIVE) {
                         ChannelCard(
@@ -252,7 +252,7 @@ private fun HomeContent(
                         )
                     }
                 }
-                items(favShows, key = { "fs-" + it.favoriteKey }) { show ->
+                itemsIndexed(favShows, key = { i, _ -> "fs-$i" }) { _, show ->
                     PosterCard(
                         show.title, show.poster, initials = show.title.take(2).uppercase(),
                         onClick = { nav.push(Screen.SeriesDetail(show)) },
@@ -267,7 +267,8 @@ private fun HomeContent(
         if (content.live.isNotEmpty()) {
             homeRow("live", "Live TV", memory) {
                 val list = content.live.take(30)
-                items(list, key = { "l-" + it.stableKey }) { ch ->
+                // Index im Schlüssel: Playlists enthalten oft gleichnamige Einträge.
+                itemsIndexed(list, key = { i, _ -> "l-$i" }) { _, ch ->
                     ChannelCard(
                         ch, epg?.current(ch, now), now,
                         onClick = { nav.push(Screen.Player(content.live, content.live.indexOf(ch))) },
@@ -281,7 +282,7 @@ private fun HomeContent(
 
         if (content.movies.isNotEmpty()) {
             homeRow("movies", "Filme – neu hinzugefügt", memory) {
-                items(content.newestMovies, key = { "m-" + it.stableKey }) { ch ->
+                itemsIndexed(content.newestMovies, key = { i, _ -> "m-$i" }) { _, ch ->
                     PosterCard(
                         ch.name, ch.logo, initials = ch.initials,
                         onClick = { nav.push(Screen.MovieDetail(ch)) },
@@ -296,7 +297,7 @@ private fun HomeContent(
 
         if (content.shows.isNotEmpty()) {
             homeRow("shows", "Serien – neu", memory) {
-                items(content.newestShows, key = { "s-" + it.favoriteKey }) { show ->
+                itemsIndexed(content.newestShows, key = { i, _ -> "s-$i" }) { _, show ->
                     PosterCard(
                         show.title, show.poster, initials = show.title.take(2).uppercase(),
                         onClick = { nav.push(Screen.SeriesDetail(show)) },

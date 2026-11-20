@@ -52,6 +52,7 @@ private data class UserDataFile(
 object Repository {
     private const val TAG = "Repository"
     private const val EPG_MAX_AGE = 6 * 3600_000L
+    private const val TOO_BIG = "Die Playlist ist zu groß für den Speicher des Fernsehers."
 
     @OptIn(ExperimentalSerializationApi::class)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false }
@@ -106,7 +107,7 @@ object Repository {
     // region Playlists
 
     /** Legt eine Playlist an und lädt sie. Bei Fehlern wird nichts gespeichert (Rückgabe: Fehlermeldung). */
-    suspend fun addPlaylist(name: String, source: PlaylistSource): String? {
+    suspend fun addPlaylist(name: String, source: PlaylistSource): String? = withContext(Dispatchers.Default) {
         isLoading.value = true
         try {
             var playlist = Playlist(name = name, source = source)
@@ -115,17 +116,20 @@ object Repository {
             write(contentFile(playlist.id), PlaylistData.serializer(), data)
             playlists.value = playlists.value + playlist
             activate(playlist.id, data) // lädt auch den TV-Guide
-            return null
+            null
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "addPlaylist", e)
+            TOO_BIG
         } catch (e: Exception) {
             Log.w(TAG, "addPlaylist", e)
-            return Http.message(e)
+            Http.message(e)
         } finally {
             isLoading.value = false
         }
     }
 
-    suspend fun activate(id: String, preloaded: PlaylistData? = null) {
-        val playlist = playlists.value.firstOrNull { it.id == id } ?: return
+    suspend fun activate(id: String, preloaded: PlaylistData? = null): Unit = withContext(Dispatchers.Default) {
+        val playlist = playlists.value.firstOrNull { it.id == id } ?: return@withContext
         activeId.value = id
         seriesCache.clear()
         movieInfoCache.clear()
@@ -152,8 +156,8 @@ object Repository {
     }
 
     /** Lädt die aktive Playlist neu (Fehler werden als Statusmeldung angezeigt, Stand bleibt erhalten). */
-    suspend fun refresh() {
-        val playlist = activePlaylist ?: return
+    suspend fun refresh(): Unit = withContext(Dispatchers.Default) {
+        val playlist = activePlaylist ?: return@withContext
         isLoading.value = true
         statusMessage.value = null
         try {
@@ -167,6 +171,9 @@ object Repository {
                 it.copy(source = usedSource, detectedEpgUrl = epgUrl, lastUpdated = System.currentTimeMillis())
             }
             refreshEpg(force = true)
+        } catch (e: OutOfMemoryError) {
+            Log.w(TAG, "refresh", e)
+            statusMessage.value = TOO_BIG
         } catch (e: Exception) {
             Log.w(TAG, "refresh", e)
             statusMessage.value = "Aktualisieren fehlgeschlagen: ${Http.message(e)}"
@@ -236,7 +243,8 @@ object Repository {
                     write(epgFile(playlist.id), EpgGuide.serializer(), guide)
                     if (activeId.value == playlist.id) epg.value = guide
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "EPG", e)
             } finally {
                 tmp.delete()
@@ -330,7 +338,7 @@ object Repository {
         if (!file.exists()) return null
         return try {
             file.inputStream().buffered().use { json.decodeFromStream(serializer, it) }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "Lesen fehlgeschlagen: ${file.name}", e)
             null
         }
@@ -343,7 +351,7 @@ object Repository {
         try {
             tmp.outputStream().buffered().use { json.encodeToStream(serializer, value, it) }
             tmp.renameTo(file)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "Schreiben fehlgeschlagen: ${file.name}", e)
             tmp.delete()
         }

@@ -212,6 +212,23 @@ class XtreamClientTest {
     }
 
     @Test
+    fun streamsLists() {
+        fun count(text: String): Int {
+            var n = 0
+            client.streamList(text.byteInputStream()) { seq -> n = seq.count() }
+            return n
+        }
+        assertEquals(2, count("  \n[{\"a\":1},{\"b\":[1,2]}]"))
+        assertEquals(1, count("\uFEFF[{\"a\":1}]"))
+        assertEquals(0, count("null"))
+        assertEquals(0, count("{}"))
+        assertEquals(0, count(""))
+        // Großer Katalog: 50 000 Einträge werden einzeln verarbeitet.
+        val big = (1..50_000).joinToString(",", "[", "]") { "{\"stream_id\":$it,\"name\":\"Film $it\"}" }
+        assertEquals(50_000, count(big))
+    }
+
+    @Test
     fun minutes() {
         assertEquals(112, XtreamClient.minutes("01:52:03"))
         assertEquals(98, XtreamClient.minutes("98 min"))

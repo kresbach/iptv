@@ -129,7 +129,7 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
-                    itemsIndexed(movies, key = { _, m -> m.stableKey + m.url }) { _, m ->
+                    itemsIndexed(movies, key = { i, _ -> i }) { _, m ->
                         PosterCard(
                             m.name, m.logo, initials = m.initials,
                             onClick = { nav.push(Screen.MovieDetail(m)) },
@@ -157,7 +157,7 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                     verticalArrangement = Arrangement.spacedBy(22.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
-                    itemsIndexed(shows, key = { i, s -> "${s.xtreamSeriesId ?: ""}|${s.favoriteKey}|$i" }) { _, s ->
+                    itemsIndexed(shows, key = { i, _ -> i }) { _, s ->
                         PosterCard(
                             s.title, s.poster, initials = s.title.take(2).uppercase(),
                             onClick = { nav.push(Screen.SeriesDetail(s)) },
@@ -350,7 +350,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                             contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp, end = 8.dp),
                             modifier = Modifier.focusRestorer(),
                         ) {
-                            itemsIndexed(seasonEpisodes, key = { _, e -> e.channel.url }) { index, ep ->
+                            itemsIndexed(seasonEpisodes, key = { i, _ -> i }) { index, ep ->
                                 val p = progress[ep.channel.stableKey]
                                 FocusSurface(
                                     onClick = { play(seasonEpisodes, index) },

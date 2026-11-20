@@ -15,6 +15,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.DecodeSequenceMode
+import kotlinx.serialization.json.decodeToSequence
+import java.io.BufferedInputStream
+import java.io.InputStream
 import java.net.URLEncoder
 
 /**
@@ -27,18 +32,27 @@ class XtreamClient(val credentials: XtreamCredentials) {
 
     val xmltvUrl: String get() = endpoint("xmltv.php", emptyList())
 
-    suspend fun loadContent(): PlaylistData = coroutineScope {
+    /**
+     * Lädt Live-Sender, Filme und Serien. Die großen Listen werden gestreamt und sofort in
+     * schlanke Einträge umgewandelt – sonst reicht der Speicher eines Fernsehers bei großen
+     * Anbietern (100 000+ Filme) nicht aus.
+     */
+    suspend fun loadContent(): PlaylistData {
         val account = parse(Http.text(endpoint("player_api.php", emptyList())))
-        val liveCats = async { list("get_live_categories") }
-        val vodCats = async { list("get_vod_categories") }
-        val seriesCats = async { list("get_series_categories") }
-        val live = async { list("get_live_streams") }
-        val vod = async { list("get_vod_streams") }
-        val series = async { list("get_series") }
-        buildContent(
-            account, liveCats.await(), vodCats.await(), seriesCats.await(),
-            live.await(), vod.await(), series.await(),
-        )
+        val liveExt = checkAccount(account)
+        val (liveNames, vodNames, seriesNames) = coroutineScope {
+            val a = async { names(list("get_live_categories")) }
+            val b = async { names(list("get_vod_categories")) }
+            val c = async { names(list("get_series_categories")) }
+            Triple(a.await(), b.await(), c.await())
+        }
+        val channels = ArrayList<Channel>()
+        streamAction("get_live_streams") { seq -> seq.mapNotNullTo(channels) { liveChannel(it, liveNames, liveExt) } }
+        streamAction("get_vod_streams") { seq -> seq.mapNotNullTo(channels) { vodChannel(it, vodNames) } }
+        val shows = ArrayList<SeriesShow>()
+        streamAction("get_series") { seq -> seq.mapNotNullTo(shows) { seriesShow(it, seriesNames) } }
+        channels.trimToSize()
+        return PlaylistData(channels, shows)
     }
 
     /** Baut aus den API-Antworten die Playlist (ohne Netzwerk, testbar). */
@@ -51,6 +65,17 @@ class XtreamClient(val credentials: XtreamCredentials) {
         vodStreams: List<JsonObject>,
         series: List<JsonObject>,
     ): PlaylistData {
+        val liveExt = checkAccount(account)
+        val liveNames = names(liveCategories)
+        val vodNames = names(vodCategories)
+        val seriesNames = names(seriesCategories)
+        val channels = liveStreams.mapNotNull { liveChannel(it, liveNames, liveExt) } +
+            vodStreams.mapNotNull { vodChannel(it, vodNames) }
+        return PlaylistData(channels, series.mapNotNull { seriesShow(it, seriesNames) })
+    }
+
+    /** Prüft Login/Status und wählt das Live-Format. */
+    private fun checkAccount(account: JsonElement): String {
         val info = (account as? JsonObject)?.get("user_info") as? JsonObject
         if (info == null || info.int("auth") != 1) {
             throw UserFacingException("Anmeldung fehlgeschlagen. Bitte prüfe Benutzername und Passwort.")
@@ -63,48 +88,72 @@ class XtreamClient(val credentials: XtreamCredentials) {
         val formats = (info["allowed_output_formats"] as? JsonArray)
             ?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
         // MPEG-TS gibt die (einzige) Verbindung beim Senderwechsel sofort frei, HLS erst nach 20–60 s.
-        val liveExt = if (formats.isEmpty() || "ts" in formats) "ts" else "m3u8"
+        return if (formats.isEmpty() || "ts" in formats) "ts" else "m3u8"
+    }
 
-        val liveNames = names(liveCategories)
-        val vodNames = names(vodCategories)
-        val seriesNames = names(seriesCategories)
+    private fun liveChannel(s: JsonObject, names: Map<String, String>, ext: String): Channel? {
+        val id = s.int("stream_id") ?: return null
+        return Channel(
+            name = s.str("name")?.trim() ?: "Sender $id",
+            url = streamUrl("live", id.toString(), ext),
+            group = s.str("category_id")?.let { names[it] },
+            tvgId = s.str("epg_channel_id")?.takeIf { it.isNotEmpty() },
+            logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
+            kind = ContentKind.LIVE,
+        )
+    }
 
-        val channels = ArrayList<Channel>(liveStreams.size + vodStreams.size)
-        for (s in liveStreams) {
-            val id = s.int("stream_id") ?: continue
-            channels += Channel(
-                name = s.str("name") ?: "Sender $id",
-                url = streamUrl("live", id.toString(), liveExt),
-                group = s.str("category_id")?.let { liveNames[it] },
-                tvgId = s.str("epg_channel_id")?.takeIf { it.isNotEmpty() },
-                logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
-                kind = ContentKind.LIVE,
-            )
+    private fun vodChannel(s: JsonObject, names: Map<String, String>): Channel? {
+        val id = s.int("stream_id") ?: return null
+        return Channel(
+            name = s.str("name")?.trim() ?: "Film $id",
+            url = streamUrl("movie", id.toString(), s.str("container_extension")?.takeIf { it.isNotEmpty() } ?: "mp4"),
+            group = s.str("category_id")?.let { names[it] },
+            logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
+            kind = ContentKind.MOVIE,
+            added = s.long("added"),
+        )
+    }
+
+    private fun seriesShow(s: JsonObject, names: Map<String, String>): SeriesShow? {
+        val id = s.int("series_id") ?: return null
+        val name = s.str("name")?.trim() ?: return null
+        return SeriesShow(
+            title = name,
+            category = s.str("category_id")?.let { names[it] } ?: Channel.UNGROUPED,
+            poster = s.str("cover")?.takeIf { it.isNotEmpty() },
+            xtreamSeriesId = id,
+            added = s.long("last_modified"),
+        )
+    }
+
+    private suspend fun streamAction(action: String, consume: (Sequence<JsonObject>) -> Unit) {
+        Http.stream(endpoint("player_api.php", listOf("action" to action))) { input -> streamList(input, consume) }
+    }
+
+    /** Liest ein JSON-Array Element für Element (`null`/`{}` = leer). */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun streamList(input: InputStream, consume: (Sequence<JsonObject>) -> Unit) {
+        val buffered = BufferedInputStream(input, 64 * 1024)
+        buffered.mark(4096)
+        var c: Int
+        var skipped = 0
+        do {
+            c = buffered.read()
+            skipped++
+        } while (c != -1 && skipped < 4000 && (c.toChar().isWhitespace() || c == 0xEF || c == 0xBB || c == 0xBF))
+        buffered.reset()
+        // Leerzeichen/BOM vor dem „[“ überspringen, sonst scheitert der JSON-Leser.
+        if (c == '['.code) buffered.skip((skipped - 1).toLong())
+        if (c != '['.code) {
+            if (c == '<'.code) throw UserFacingException("Der Server hat eine Webseite statt Daten geliefert. Ist die Server-Adresse richtig?")
+            consume(emptySequence())
+            return
         }
-        for (s in vodStreams) {
-            val id = s.int("stream_id") ?: continue
-            channels += Channel(
-                name = s.str("name") ?: "Film $id",
-                url = streamUrl("movie", id.toString(), s.str("container_extension") ?: "mp4"),
-                group = s.str("category_id")?.let { vodNames[it] },
-                logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
-                kind = ContentKind.MOVIE,
-                added = s.long("added"),
-            )
-        }
-        val shows = series.mapNotNull { s ->
-            val id = s.int("series_id") ?: return@mapNotNull null
-            val name = s.str("name") ?: return@mapNotNull null
-            SeriesShow(
-                title = name,
-                category = s.str("category_id")?.let { seriesNames[it] } ?: Channel.UNGROUPED,
-                poster = s.str("cover")?.takeIf { it.isNotEmpty() },
-                plot = s.str("plot")?.takeIf { it.isNotBlank() },
-                xtreamSeriesId = id,
-                added = s.long("last_modified"),
-            )
-        }
-        return PlaylistData(channels, shows)
+        consume(
+            json.decodeToSequence(buffered, JsonElement.serializer(), DecodeSequenceMode.ARRAY_WRAPPED)
+                .mapNotNull { it as? JsonObject },
+        )
     }
 
     suspend fun movieInfo(streamId: Int): MediaInfo? {
