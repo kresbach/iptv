@@ -129,6 +129,7 @@ private fun HomeContent(
     val playlistCount = Repository.playlists.collectAsState().value.size
     val downloadCount = app.iptv.tv.data.Downloads.items.collectAsState().value.size
     val continueList = remember(progress) { Repository.continueWatching(progress).take(20) }
+    val trendRows by app.iptv.tv.data.Trends.rows.collectAsState()
 
     val saved = memory.scroll["home"]
     val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
@@ -234,42 +235,23 @@ private fun HomeContent(
             }
         }
 
-        if (recents.isNotEmpty()) {
+        // „Zuletzt gesehen“: nur Live-Sender (Filme und Serien stehen unter „Weiterschauen“).
+        val recentLive = recents.filter { it.channel.kind == ContentKind.LIVE }.take(20)
+        if (recentLive.isNotEmpty()) {
             homeRow("recents", "Zuletzt gesehen", memory) {
-                itemsIndexed(recents.take(20), key = { i, _ -> "r-$i" }) { _, entry ->
+                itemsIndexed(recentLive, key = { i, _ -> "r-$i" }) { _, entry ->
                     val ch = entry.channel
-                    val key = "recent-${ch.stableKey}"
-                    if (ch.kind == ContentKind.LIVE) {
-                        ChannelCard(
-                            ch, epg?.current(ch, now), now,
-                            onClick = {
-                                val list = content.live.ifEmpty { listOf(ch) }
-                                val idx = list.indexOfFirst { it.stableKey == ch.stableKey }
-                                nav.push(if (idx >= 0) Screen.Player(list, idx) else Screen.Player(listOf(ch), 0))
-                            },
-                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
-                            isFavorite = ch.stableKey in favorites,
-                            modifier = Modifier.rememberFocus(memory, key),
-                        )
-                    } else {
-                        val p = progress[ch.stableKey]
-                        PosterCard(
-                            title = ch.name,
-                            image = ch.logo,
-                            initials = ch.initials,
-                            progress = p?.let { it.position.toFloat() / it.duration },
-                            onClick = {
-                                val show = entry.showKey?.let { content.show(it) }
-                                when {
-                                    show != null -> nav.push(Screen.SeriesDetail(show))
-                                    ch.kind == ContentKind.MOVIE -> nav.push(Screen.MovieDetail(ch))
-                                    else -> nav.push(Screen.Player(listOf(ch), 0, p?.position ?: 0, entry.showKey))
-                                }
-                            },
-                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
-                            modifier = Modifier.rememberFocus(memory, key),
-                        )
-                    }
+                    ChannelCard(
+                        ch, epg?.current(ch, now), now,
+                        onClick = {
+                            val list = content.live.ifEmpty { listOf(ch) }
+                            val idx = list.indexOfFirst { it.stableKey == ch.stableKey }
+                            nav.push(if (idx >= 0) Screen.Player(list, idx) else Screen.Player(listOf(ch), 0))
+                        },
+                        onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                        isFavorite = ch.stableKey in favorites,
+                        modifier = Modifier.rememberFocus(memory, "recent-${ch.stableKey}"),
+                    )
                 }
             }
         }
@@ -313,46 +295,38 @@ private fun HomeContent(
             }
         }
 
-        if (content.live.isNotEmpty()) {
-            homeRow("live", "Live TV", memory) {
-                val list = content.live.take(30)
-                // Index im Schlüssel: Playlists enthalten oft gleichnamige Einträge.
-                itemsIndexed(list, key = { i, _ -> "l-$i" }) { _, ch ->
-                    ChannelCard(
-                        ch, epg?.current(ch, now), now,
-                        onClick = { nav.push(Screen.Player(content.live, content.live.indexOf(ch))) },
-                        onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
-                        isFavorite = ch.stableKey in favorites,
-                        modifier = Modifier.rememberFocus(memory, "live-${ch.stableKey}"),
-                    )
-                }
+        // Trends: was bei den Streamingdiensten gerade viel geschaut wird (aus der eigenen Playlist).
+        item("trends-title") {
+            Row(Modifier.padding(start = 40.dp, top = 22.dp, end = 40.dp), verticalAlignment = Alignment.Bottom) {
+                Text("Trends", fontSize = 24.sp, fontWeight = FontWeight.Black, color = AppColors.Orange)
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    when {
+                        trendRows.isEmpty() && !app.iptv.tv.data.Trends.isConfigured ->
+                            "Für echte Trends von Netflix, Prime Video & Co.: Einstellungen → Trends (kostenloser TMDB-Schlüssel)"
+                        trendRows.any { it.fromTmdb } -> "Beliebt diese Woche – nur Titel aus deiner Playlist"
+                        app.iptv.tv.data.Trends.isConfigured -> "Wird geladen … bis dahin: neueste Titel aus den Kategorien deines Anbieters"
+                        else -> "Neueste Titel aus den Kategorien deines Anbieters · für echte Trends: Einstellungen → Trends"
+                    },
+                    fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 3.dp),
+                )
             }
         }
-
-        if (content.movies.isNotEmpty()) {
-            homeRow("movies", "Filme – neu hinzugefügt", memory) {
-                itemsIndexed(content.newestMovies, key = { i, _ -> "m-$i" }) { _, ch ->
+        trendRows.forEach { row ->
+            homeRow("trend-${row.id}", row.title, memory) {
+                itemsIndexed(row.items, key = { i, _ -> "t-${row.id}-$i" }) { _, item ->
+                    val movie = item.movie
+                    val show = item.show
                     PosterCard(
-                        ch.name, ch.logo, initials = ch.initials,
-                        onClick = { nav.push(Screen.MovieDetail(ch)) },
-                        onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
-                        isFavorite = ch.stableKey in favorites,
-                        progress = progress[ch.stableKey]?.let { it.position.toFloat() / it.duration },
-                        modifier = Modifier.rememberFocus(memory, "movie-${ch.stableKey}"),
-                    )
-                }
-            }
-        }
-
-        if (content.shows.isNotEmpty()) {
-            homeRow("shows", "Serien – neu", memory) {
-                itemsIndexed(content.newestShows, key = { i, _ -> "s-$i" }) { _, show ->
-                    PosterCard(
-                        show.title, show.poster, initials = show.title.take(2).uppercase(),
-                        onClick = { nav.push(Screen.SeriesDetail(show)) },
-                        onLongClick = { toggleFavorite(show.favoriteKey, show.title) },
-                        isFavorite = show.favoriteKey in favorites,
-                        modifier = Modifier.rememberFocus(memory, "show-${show.favoriteKey}"),
+                        item.title, item.poster, initials = item.title.take(2).uppercase(),
+                        onClick = {
+                            if (movie != null) nav.push(Screen.MovieDetail(movie))
+                            else if (show != null) nav.push(Screen.SeriesDetail(show))
+                        },
+                        onLongClick = { toggleFavorite(item.key, item.title) },
+                        isFavorite = item.key in favorites,
+                        progress = movie?.let { m -> progress[m.stableKey]?.let { it.position.toFloat() / it.duration } },
+                        modifier = Modifier.rememberFocus(memory, "trend-${row.id}-${item.key}"),
                     )
                 }
             }

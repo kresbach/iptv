@@ -271,3 +271,70 @@ class VideoFitTest {
         assertEquals(1440 to 1080, f.fit(1920, 1080, 720, 576, 16, 15))   // anamorph 4:3 (PAL)
     }
 }
+
+class TrendsTest {
+    private val content = LibraryContent(
+        app.iptv.tv.model.PlaylistData(
+            channels = listOf(
+                Channel("DE - Oppenheimer (2023) 4K", "http://x/1.mkv", "Kino", kind = ContentKind.MOVIE),
+                Channel("Barbie", "http://x/2.mkv", "Kino", kind = ContentKind.MOVIE),
+                Channel("Rebel Moon", "http://x/3.mkv", "NETFLIX FILME", kind = ContentKind.MOVIE, added = 5),
+                Channel("Glass Onion", "http://x/4.mkv", "NETFLIX FILME", kind = ContentKind.MOVIE, added = 9),
+                Channel("Sky Sport 1", "http://x/5.ts", "Sport"),
+            ),
+            shows = listOf(
+                app.iptv.tv.model.SeriesShow("DE - Wednesday", "NETFLIX SERIEN", xtreamSeriesId = 1),
+                app.iptv.tv.model.SeriesShow("The Boys", "AMAZON PRIME", xtreamSeriesId = 2),
+                app.iptv.tv.model.SeriesShow("Babylon Berlin", "Serien", xtreamSeriesId = 3),
+            ),
+        ),
+    )
+
+    @Test
+    fun parsesTmdb() {
+        val body = """{"results":[
+          {"media_type":"movie","title":"Oppenheimer","original_title":"Oppenheimer","release_date":"2023-07-19","poster_path":"/a.jpg","popularity":99.5},
+          {"media_type":"tv","name":"Wednesday","original_name":"Wednesday","first_air_date":"2022-11-23","popularity":50},
+          {"media_type":"person","name":"Jemand"}]}"""
+        val list = Trends.parse(body, tv = null)
+        assertEquals(listOf("Oppenheimer", "Wednesday"), list.map { it.title })
+        assertEquals("https://image.tmdb.org/t/p/w342/a.jpg", list[0].poster)
+        assertTrue(list[1].tv)
+        assertEquals("2023", list[0].year)
+    }
+
+    @Test
+    fun matchesPlaylistAndFallsBackToCategories() {
+        val cache = Trends.Cache(
+            fetchedAt = 1,
+            lists = mapOf(
+                "trending" to listOf(
+                    Trends.TmdbEntry("Oppenheimer", tv = false, popularity = 9.0),
+                    Trends.TmdbEntry("Gibt es nicht", tv = false),
+                    Trends.TmdbEntry("Babylon Berlin", tv = true),
+                ),
+                "netflix" to listOf(Trends.TmdbEntry("Wednesday", tv = true)),
+            ),
+        )
+        val rows = Trends.build(content, cache)
+        val trending = rows.first { it.id == "trending" }
+        assertEquals(listOf("DE - Oppenheimer (2023) 4K", "Babylon Berlin"), trending.items.map { it.title })
+        // Netflix: TMDB-Treffer zuerst, dann aufgefüllt mit den NETFLIX-Kategorien (neueste zuerst)
+        val netflix = rows.first { it.id == "netflix" }
+        assertEquals("DE - Wednesday", netflix.items.first().title)
+        assertTrue(netflix.items.map { it.title }.containsAll(listOf("Glass Onion", "Rebel Moon")))
+        assertTrue(netflix.fromTmdb)
+        // Prime nur aus der Kategorie, Sky-Live-Sender spielen keine Rolle
+        val prime = rows.first { it.id == "prime" }
+        assertEquals(listOf("The Boys"), prime.items.map { it.title })
+        assertFalse(prime.fromTmdb)
+        assertTrue(rows.none { it.id == "sky" })
+    }
+
+    @Test
+    fun withoutTmdbOnlyCategories() {
+        val rows = Trends.build(content, Trends.Cache())
+        assertEquals(listOf("netflix", "prime"), rows.map { it.id })
+        assertEquals("Glass Onion", rows[0].items.first().title) // neueste zuerst
+    }
+}

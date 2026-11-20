@@ -90,6 +90,13 @@ object Prefs {
 
     // endregion
 
+    // region Trends (TMDB)
+
+    /** TMDB-API-Schlüssel (v3) oder Lesezugriffs-Token (v4) für die Trends auf der Startseite. */
+    var tmdbKey: String get() = str("tmdbKey"); set(v) = putStr("tmdbKey", v.trim())
+
+    // endregion
+
     // region Downloads
 
     /** Speicherlimit in GB, 0 = kein Limit. */

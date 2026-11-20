@@ -40,6 +40,7 @@ sealed class Screen {
     data object GoogleDrive : Screen()
     data object SubtitleSettings : Screen()
     data object Unlock : Screen()
+    data object TrendsSettings : Screen()
     data class EditPlaylist(val id: String) : Screen() {
         override val key get() = "Edit-$id"
     }
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
         app.iptv.tv.data.Downloads.start(applicationContext)
         app.iptv.tv.data.Subtitles.cacheDir = applicationContext.filesDir
         app.iptv.tv.data.GoogleSync.start()
+        app.iptv.tv.data.Trends.start(applicationContext)
         setContent {
             AppTheme {
                 AppRoot(onExit = { finish() })
@@ -146,6 +148,7 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.GoogleDrive -> GoogleDriveScreen(nav)
                 Screen.SubtitleSettings -> SubtitleSettingsScreen(nav)
                 Screen.Unlock -> UnlockScreen(nav)
+                Screen.TrendsSettings -> TrendsSettingsScreen(nav)
                 is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
                 is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)
                 is Screen.Live -> LiveScreen(nav, screen)

@@ -109,6 +109,16 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Startseite und Trends
+
+- **Weiterschauen**: angefangene Filme und Episoden. **Zuletzt gesehen**: nur Live-Sender.
+- **Trends**: je Streamingdienst (Netflix, Prime Video, Disney+, Apple TV+, Paramount+, Sky/WOW, RTL+,
+  Joyn, MagentaTV) und „Trends in Deutschland“ – was gerade beliebt ist, aber nur Titel aus der eigenen
+  Playlist. Quelle: TMDB (themoviedb.org). Kostenlosen Schlüssel holen: auf themoviedb.org registrieren →
+  Einstellungen → API → API-Schlüssel anfordern; dann am Fernseher **Einstellungen → Trends** (per QR-Code
+  vom Handy). Ohne Schlüssel: neueste Titel aus passend benannten Kategorien des Anbieters
+  („NETFLIX“, „AMAZON PRIME“ …). Die Listen werden alle 12 Stunden aktualisiert.
+
 ## Ruckeln beim Live-TV
 
 - **Bildwiederholrate anpassen** (Einstellungen, Standard: an): Deutsches TV hat 50 Bilder/s.

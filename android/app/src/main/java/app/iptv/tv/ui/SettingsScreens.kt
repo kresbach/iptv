@@ -112,6 +112,10 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Kindersicherung", if (Prefs.hasPin) "PIN aktiv" else "Aus",
             modifier = Modifier.rememberFocus(memory, "parental")) { nav.push(Screen.Parental) }
 
+        SettingRow("Trends (Netflix, Prime Video …)", if (app.iptv.tv.data.Trends.isConfigured) "TMDB eingerichtet" else "ohne TMDB",
+            "Was bei den Streamingdiensten gerade beliebt ist – kostenloser Schlüssel von themoviedb.org",
+            modifier = Modifier.rememberFocus(memory, "trends")) { nav.push(Screen.TrendsSettings) }
+
         SettingsHeader("Wiedergabe")
         SettingRow("Player für Live TV", Prefs.playerLive.title, "Automatisch = VLC (auf Sony-TVs flüssiger, setzt 1080i zusammen) · OK = wechseln",
             modifier = Modifier.rememberFocus(memory, "pLive")) {
@@ -499,6 +503,70 @@ fun ParentalScreen(nav: Navigator) {
                     Toast.makeText(context, "Kindersicherung ausgeschaltet", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+}
+
+// endregion
+
+
+// region Trends
+
+@Composable
+fun TrendsSettingsScreen(nav: Navigator) {
+    val context = LocalContext.current
+    Prefs.version.collectAsState().value
+    val loading by app.iptv.tv.data.Trends.loading.collectAsState()
+    val status by app.iptv.tv.data.Trends.status.collectAsState()
+    val cache by app.iptv.tv.data.Trends.cache.collectAsState()
+    val rows by app.iptv.tv.data.Trends.rows.collectAsState()
+    var key by remember { mutableStateOf(Prefs.tmdbKey) }
+    val memory = remember { ScreenMemory() }
+
+    fun save() {
+        Prefs.tmdbKey = key
+        Toast.makeText(context, "Gespeichert – Trends werden geladen", Toast.LENGTH_SHORT).show()
+        app.iptv.tv.data.Trends.refresh(force = true)
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 64.dp, end = 32.dp, top = 32.dp, bottom = 32.dp)) {
+            ScreenTitle(
+                "Trends",
+                "Zeigt auf der Startseite je Streamingdienst (Netflix, Prime Video, Disney+, Apple TV+, Paramount+, Sky/WOW, RTL+, " +
+                    "Joyn, MagentaTV), was in Deutschland gerade beliebt ist – aber nur Titel, die es in deiner Playlist gibt. " +
+                    "Die Daten kommen von TMDB (themoviedb.org). Ohne Schlüssel nutzt die App die Kategorien deines Anbieters.",
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.widthIn(max = 720.dp)) {
+                TvTextField(key, { key = it }, "TMDB-API-Schlüssel oder Lesezugriffs-Token", keyboardType = KeyboardType.Text,
+                    modifier = Modifier.rememberFocus(memory, "key", isDefault = true))
+                Text(
+                    "So bekommst du den Schlüssel (kostenlos, ca. 3 Minuten): auf themoviedb.org registrieren → Einstellungen → API → " +
+                        "„API-Schlüssel anfordern“ (Zweck: privat). Den „API-Schlüssel“ oder das „Lesezugriffs-Token“ per QR-Code rechts senden.",
+                    fontSize = 14.sp, color = AppColors.TextSecondary, lineHeight = 20.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppButton("Speichern", { save() }, icon = AppIcons.Check)
+                    AppButton(if (loading) "Lade …" else "Jetzt aktualisieren", { app.iptv.tv.data.Trends.refresh(force = true) },
+                        icon = AppIcons.Refresh, primary = false)
+                    if (loading) Spinner(size = 28.dp)
+                }
+                val stand = cache.fetchedAt.takeIf { it > 0 }?.let { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it)) }
+                Text(
+                    (stand?.let { "Stand: $it · " } ?: "") + "${rows.size} Reihen auf der Startseite, " +
+                        "${rows.count { it.fromTmdb }} davon mit TMDB-Beliebtheit",
+                    fontSize = 15.sp, color = AppColors.OrangeLight,
+                )
+                status?.let { Text(it, color = Color(0xFFFF6B5A), fontSize = 15.sp) }
+            }
+        }
+        PhoneFormPanel(
+            PhoneInputServer.Form(
+                "TMDB-Schlüssel", "API-Schlüssel (v3) oder Lesezugriffs-Token (v4) von themoviedb.org → Einstellungen → API.",
+                listOf(PhoneInputServer.Field("key", "Schlüssel", key)),
+            ),
+        ) { v ->
+            v["key"]?.takeIf { it.isNotBlank() }?.let { key = it.trim(); save() }
         }
     }
 }

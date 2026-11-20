@@ -63,7 +63,7 @@ class TvSimulationTest {
         app.iptv.tv.data.CategoryPrefs.setPin(null)
         val now = System.currentTimeMillis()
         val live = (1..30).map { Channel(if (it % 10 == 0) "Sky Sport 1" else "Sender $it HD", "http://x/live/u/p/$it.ts", if (it <= 15) "Nachrichten" else "Sport", tvgId = "s$it") }
-        val movies = (1..40).map { Channel("Film Nummer $it", "http://x/movie/u/p/$it.mkv", if (it % 2 == 0) "Action" else "Drama", kind = ContentKind.MOVIE, added = it.toLong()) } +
+        val movies = (1..40).map { Channel("Film Nummer $it", "http://x/movie/u/p/$it.mkv", if (it % 2 == 0) "Action" else if (it % 5 == 0) "NETFLIX Filme" else "Drama", kind = ContentKind.MOVIE, added = it.toLong()) } +
             Channel("Film Nummer 1", "http://x/movie/u/p/999.mkv", "Drama", kind = ContentKind.MOVIE)
         val episodes = (1..6).map { Channel("Dark S01 E0$it", "http://x/series/u/p/$it.mp4", "Serien", kind = ContentKind.SERIES) }
         val shows = (1..12).map { SeriesShow("Serie $it", "Drama", xtreamSeriesId = it) }
@@ -73,6 +73,7 @@ class TvSimulationTest {
         Repository.content.value = content
         Repository.visible.value = content
         Repository.restored.value = true
+        app.iptv.tv.data.Trends.rows.value = app.iptv.tv.data.Trends.build(content, app.iptv.tv.data.Trends.Cache())
         Repository.epg.value = EpgGuide(
             live.associate { c ->
                 c.tvgId!! to (0..6).map { i ->
@@ -140,10 +141,18 @@ class TvSimulationTest {
 
     @Test
     fun startseite() {
+        // „Zuletzt gesehen“ nur mit Live-Sendern, Filme stehen unter „Weiterschauen“
+        Repository.recents.value = listOf(
+            app.iptv.tv.data.RecentEntry(Repository.content.value.live[2], 2),
+            app.iptv.tv.data.RecentEntry(Repository.content.value.movies[4], 1),
+        )
         start()
         shot("01-startseite")
-        down(2)
-        shot("02-startseite-unten")
+        down(4) // Weiterschauen → Zuletzt gesehen → Favoriten → erste Trend-Reihe
+        expect("Trends")
+        expect("Netflix")
+        check(rule.onAllNodesWithText("Filme – neu hinzugefügt").fetchSemanticsNodes().isEmpty())
+        shot("02-startseite-trends")
     }
 
     @Test
@@ -339,7 +348,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(9)
+        down(10)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")
