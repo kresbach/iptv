@@ -243,3 +243,15 @@ class DisplayRateTest {
         assertNull(d.snapFps(0f))
     }
 }
+
+class FrameRateMeasureTest {
+    @Test
+    fun measuresDespiteDroppedFrames() {
+        val d = app.iptv.tv.player.DisplayRate
+        // 50-fps-Sender, bei dem viele Bilder verworfen werden: Abstände 20, 40, 60 ms gemischt
+        val deltas = List(48) { i -> if (i % 3 == 0) 20_000L else if (i % 3 == 1) 40_000L else 60_000L }
+        assertEquals(50f, d.snapFps(1_000_000f / d.frameIntervalUs(deltas)))
+        // 25 fps ohne Verluste
+        assertEquals(25f, d.snapFps(1_000_000f / d.frameIntervalUs(List(48) { 40_000L })))
+    }
+}

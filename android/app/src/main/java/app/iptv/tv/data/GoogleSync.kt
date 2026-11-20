@@ -545,7 +545,9 @@ object GoogleSync {
             progress = Repository.progress.value.mapNotNull { (k, p) ->
                 p.channel?.let { k to SyncProgress(redactor.redact(it), p.position / 1000.0, p.duration / 1000.0, p.updated) }
             }.toMap(),
-            settings = SyncSettings(Prefs.playerLive.raw, Prefs.playerVod.raw, Prefs.settingsChangedAt),
+            // Player-Einstellungen nicht zwischen iPhone und Fernseher abgleichen: die passende Wahl hängt
+            // vom Gerät ab (iPhone: Apple-Player, Sony-TV: VLC). Die Werte des iPhones bleiben unverändert.
+            settings = null,
             playlists = if (Prefs.syncPlaylists) playlists else null,
             deletedPlaylists = if (Prefs.syncPlaylists) Repository.deletedPlaylists.value else null,
         )
@@ -566,13 +568,7 @@ object GoogleSync {
                 Progress((p.position * 1000).toLong(), (p.duration * 1000).toLong(), p.updated, ch, old[k]?.showKey ?: Repository.showKeyFor(ch))
             },
         )
-        merged.settings?.let { s ->
-            if (s.changedAt > Prefs.settingsChangedAt) {
-                Prefs.playerLive = PlayerChoice.from(s.playerLive, PlayerChoice.AUTOMATIC)
-                Prefs.playerVod = PlayerChoice.from(s.playerVod, PlayerChoice.AUTOMATIC)
-                Prefs.settingsChangedAt = s.changedAt
-            }
-        }
+
     }
 
     // endregion

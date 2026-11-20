@@ -12,7 +12,7 @@ import java.security.MessageDigest
 
 /** Welcher Player verwendet wird (Werte wie in der iOS-App, damit der Sync passt). */
 enum class PlayerChoice(val raw: String, val title: String) {
-    AUTOMATIC("automatic", "Automatisch"),
+    AUTOMATIC("automatic", "Automatisch (Live: VLC)"),
     SYSTEM("apple", "ExoPlayer (System)"),
     VLC("vlc", "VLC");
 
@@ -77,7 +77,7 @@ object Prefs {
      * Deinterlacing für Live TV (1080i-Sender): "off", "bob" (schonend) oder "yadif2x" (beste Qualität).
      * Nutzt VLC, da ExoPlayer Halbbilder nicht zu 50 Vollbildern zusammensetzt.
      */
-    var deinterlace: String get() = str("deinterlace", "off"); set(v) = putStr("deinterlace", v)
+    var deinterlace: String get() = str("deinterlace", "yadif2x"); set(v) = putStr("deinterlace", v)
 
     // endregion
 

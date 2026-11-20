@@ -113,7 +113,7 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
             modifier = Modifier.rememberFocus(memory, "parental")) { nav.push(Screen.Parental) }
 
         SettingsHeader("Wiedergabe")
-        SettingRow("Player für Live TV", Prefs.playerLive.title, "OK = wechseln",
+        SettingRow("Player für Live TV", Prefs.playerLive.title, "Automatisch = VLC (auf Sony-TVs flüssiger, setzt 1080i zusammen) · OK = wechseln",
             modifier = Modifier.rememberFocus(memory, "pLive")) {
             Prefs.playerLive = PlayerChoice.entries[(Prefs.playerLive.ordinal + 1) % PlayerChoice.entries.size]
             GoogleSync.scheduleSync()

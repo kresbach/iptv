@@ -13,6 +13,17 @@ import kotlin.math.roundToInt
 object DisplayRate {
     private val standardRates = listOf(23.976f, 24f, 25f, 29.97f, 30f, 50f, 59.94f, 60f)
 
+    /**
+     * Bildabstand aus gemessenen Zeitstempel-Abständen. Verworfene Bilder erzeugen Lücken (doppelte,
+     * dreifache Abstände), deshalb zählt der kleinste Abstand, der mehrfach vorkommt.
+     */
+    fun frameIntervalUs(deltas: List<Long>): Long {
+        val sorted = deltas.filter { it in 5_000..200_000 }.sorted()
+        if (sorted.isEmpty()) return 40_000
+        // 20-%-Quantil: robust gegen einzelne Ausreißer nach unten, ignoriert die Lücken nach oben.
+        return sorted[(sorted.size * 0.2).toInt().coerceAtMost(sorted.lastIndex)]
+    }
+
     /** Gemessene Bildrate auf übliche Werte runden (z. B. 24,98 → 25). */
     fun snapFps(raw: Float): Float? {
         if (raw <= 0f || raw.isNaN()) return null

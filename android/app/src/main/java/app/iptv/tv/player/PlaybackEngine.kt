@@ -117,6 +117,7 @@ class PlaybackEngine(private val context: Context) {
     private val watchdog = object : Runnable {
         override fun run() {
             val st = status.value
+            if (vlc != null && videoInfo.value.fps == 0f) readVlcVideoTrack()
             if (channel != null && st.buffering && !st.failed && (exo != null || vlc != null)) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (bufferingSince == 0L) bufferingSince = now
@@ -154,8 +155,9 @@ class PlaybackEngine(private val context: Context) {
             app.iptv.tv.data.PlayerChoice.VLC -> Backend.VLC
             app.iptv.tv.data.PlayerChoice.AUTOMATIC -> when {
                 UrlTools.extension(channel.url) in vlcExtensions -> Backend.VLC
-                // Deinterlacing gewünscht → Live über VLC (ExoPlayer kann das nicht).
-                channel.kind == ContentKind.LIVE && deinterlaceMode != null -> Backend.VLC
+                // Live TV: VLC läuft auf Fernsehern wie Sony (MediaTek) deutlich flüssiger und setzt
+                // 1080i-Halbbilder zusammen; ExoPlayer verwirft dort bei 1080 sehr viele Bilder.
+                channel.kind == ContentKind.LIVE -> Backend.VLC
                 else -> Backend.EXO
             }
         }
@@ -178,7 +180,7 @@ class PlaybackEngine(private val context: Context) {
         start()
     }
 
-    val backendName: String get() = if (backend == Backend.EXO) "ExoPlayer" else "VLC"
+    val backendName: String get() = if (backend == Backend.EXO || !vlcAvailable) "ExoPlayer" else "VLC"
 
     // region Spuren
 
@@ -302,6 +304,16 @@ class PlaybackEngine(private val context: Context) {
     val duration: Long
         get() = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: vlc?.length?.takeIf { it > 0 } ?: 0L
 
+    /** Auflösung und Bildrate von VLC lesen (die Bildrate steht oft erst nach einigen Sekunden fest). */
+    private fun readVlcVideoTrack() {
+        val t = runCatching { vlc?.currentVideoTrack }.getOrNull() ?: return
+        val fps = if (t.frameRateDen > 0) t.frameRateNum.toFloat() / t.frameRateDen else 0f
+        videoInfo.value = videoInfo.value.copy(
+            width = t.width, height = t.height, decoder = "VLC",
+            fps = DisplayRate.snapFps(fps) ?: videoInfo.value.fps,
+        )
+    }
+
     /** VLC: verlorene Bilder laut VLC-Statistik (für die Wiedergabe-Info). */
     fun refreshVlcStats() {
         val lost = runCatching {
@@ -335,6 +347,7 @@ class PlaybackEngine(private val context: Context) {
 
     private fun start() {
         val ch = channel ?: return
+        if (backend == Backend.VLC && !vlcAvailable) backend = Backend.EXO
         // Erst starten, wenn der vorherige VLC-Player die Verbindung wirklich geschlossen hat.
         if (releasing.get() > 0) {
             val gen = generation
@@ -471,7 +484,12 @@ class PlaybackEngine(private val context: Context) {
         frameDeltas.clear()
         lastFrameUs = -1L
         // Bildrate aus den Zeitstempeln der ersten Bilder bestimmen (viele Live-Streams nennen sie nicht).
-        player.setVideoFrameMetadataListener { presentationTimeUs, _, format, _ ->
+        player.setVideoFrameMetadataListener { presentationTimeUs, _, format, mediaFormat ->
+            if (videoInfo.value.fps == 0f) {
+                // Manche Decoder nennen die Bildrate im Ausgabeformat.
+                runCatching { mediaFormat?.getFloat(android.media.MediaFormat.KEY_FRAME_RATE) }.getOrNull()
+                    ?.let { DisplayRate.snapFps(it) }?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
+            }
             if (format.frameRate > 0 && videoInfo.value.fps == 0f) {
                 DisplayRate.snapFps(format.frameRate)?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
             }
@@ -479,9 +497,10 @@ class PlaybackEngine(private val context: Context) {
             if (lastFrameUs >= 0 && presentationTimeUs > lastFrameUs) frameDeltas += presentationTimeUs - lastFrameUs
             lastFrameUs = presentationTimeUs
             if (frameDeltas.size >= 48) {
-                val median = frameDeltas.sorted()[frameDeltas.size / 2]
+                // Verworfene Bilder erzeugen größere Lücken – der kleinste häufige Abstand ist der Bildabstand.
+                val interval = DisplayRate.frameIntervalUs(frameDeltas)
                 frameDeltas.clear()
-                DisplayRate.snapFps(1_000_000f / median)?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
+                DisplayRate.snapFps(1_000_000f / interval)?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
             }
         }
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
@@ -570,6 +589,17 @@ class PlaybackEngine(private val context: Context) {
     // region VLC
 
     private var libVlc: LibVLC? = null
+
+    /**
+     * Sind VLCs Programmteile für diesen Prozessor vorhanden? LibVLC beendet sonst beim Laden den
+     * ganzen Prozess. Fehlen sie, wird ExoPlayer verwendet.
+     */
+    private val vlcAvailable: Boolean by lazy {
+        runCatching {
+            val dir = java.io.File(context.applicationInfo.nativeLibraryDir ?: return@runCatching false)
+            java.io.File(dir, "libvlc.so").exists() || java.io.File(dir, "libvlcjni.so").exists()
+        }.getOrDefault(false)
+    }
     private var libVlcDeinterlace: String? = null
 
     /** Gewähltes Deinterlacing ("bob"/"yadif2x") oder null. */
@@ -610,13 +640,7 @@ class PlaybackEngine(private val context: Context) {
             if (gen != generation) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> onPlaying()
-                MediaPlayer.Event.Vout -> player.currentVideoTrack?.let { t ->
-                    val fps = if (t.frameRateDen > 0) t.frameRateNum.toFloat() / t.frameRateDen else 0f
-                    videoInfo.value = videoInfo.value.copy(
-                        width = t.width, height = t.height, decoder = "VLC",
-                        fps = DisplayRate.snapFps(fps) ?: 0f,
-                    )
-                }
+                MediaPlayer.Event.Vout -> readVlcVideoTrack()
                 MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> refreshTracks()
                 MediaPlayer.Event.Buffering ->
                     status.value = status.value.copy(buffering = event.buffering < 100f)
