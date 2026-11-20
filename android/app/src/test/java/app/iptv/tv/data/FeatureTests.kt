@@ -206,3 +206,22 @@ class PhoneFormTest {
         }
     }
 }
+
+class EpgRobustnessTest {
+    @Test
+    fun unknownEntitiesDoNotStopParsing() {
+        val now = EpgParser.parseDate("20240101120000 +0000")!!
+        val xml = """<?xml version="1.0"?>
+            <!DOCTYPE tv SYSTEM "xmltv.dtd">
+            <tv><channel id="a"><display-name>A</display-name></channel>
+            <programme start="20240101110000 +0000" stop="20240101123000 +0000" channel="a"><title>Erste&nbsp;Sendung</title></programme>
+            <programme start="20240101123000 +0000" stop="20240101130000 +0000" channel="a"><title>Zweite</title><desc>${"x".repeat(1000)}</desc></programme>
+            </tv>"""
+        val parser = org.kxml2.io.KXmlParser()
+        val guide = EpgParser.parse(xml.byteInputStream(), listOf(Channel("A", "http://x/1.ts", tvgId = "a")), parser, now = now)
+        val list = guide.programmes.getValue("a")
+        assertEquals(2, list.size)
+        assertEquals("Zweite", list[1].title)
+        assertEquals(400, list[1].description!!.length)
+    }
+}

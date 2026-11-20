@@ -92,6 +92,9 @@ fun PlayerOptions(
             }
             "diag" -> {
                 busy = true
+                // Stream anhalten: bei nur einer erlaubten Verbindung würde die Prüfung sonst kollidieren.
+                engine.suspendConnection()
+                kotlinx.coroutines.delay(1_500)
                 findings = Diagnostics.run(channel, Repository.activePlaylist?.source)
                 busy = false
             }
@@ -134,7 +137,7 @@ fun PlayerOptions(
                     if (!isLive) row("search", "Untertitel suchen (OpenSubtitles)", if (Subtitles.isConfigured) null else "nicht eingerichtet") { onPage("search") }
                     row("engine", "Player", "${engine.backendName} · ${(if (isLive) Prefs.playerLive else Prefs.playerVod).title}") { onPage("engine") }
                     if (isLive) row("fav", if (isFavorite) "Aus Favoriten entfernen" else "Zu Favoriten hinzufügen") { onToggleFavorite() }
-                    row("diag", "Verbindung prüfen", "Diagnose") { onPage("diag") }
+                    row("diag", "Verbindung prüfen", "hält den Stream kurz an") { onPage("diag") }
                     row("close", "Schließen") { onClose() }
                 }
                 "audio" -> {
@@ -204,7 +207,6 @@ fun PlayerOptions(
                     }
                     if (findings != null) {
                         row("retry", "Stream neu starten", first = true) { engine.retryNow(); onClose() }
-                        row("back", "Zurück") { onPage("main") }
                     }
                 }
                 "engine" -> {

@@ -62,13 +62,11 @@ class LibraryContent(val data: PlaylistData) {
     fun channel(key: String) = channelsByKey[key]
     fun show(key: String) = showsByKey[key]
 
-    /** Neueste Filme (Xtream `added`), sonst Playlist-Reihenfolge. */
-    val newestMovies: List<Channel> by lazy {
+    /** Neueste Filme (Xtream `added`), sonst Playlist-Reihenfolge – im Hintergrund vorberechnet. */
+    val newestMovies: List<Channel> =
         if (movies.any { it.added != null }) movies.sortedByDescending { it.added ?: 0 }.take(30) else movies.take(30)
-    }
-    val newestShows: List<SeriesShow> by lazy {
+    val newestShows: List<SeriesShow> =
         if (shows.any { it.added != null }) shows.sortedByDescending { it.added ?: 0 }.take(30) else shows.take(30)
-    }
 
     companion object {
         val EMPTY = LibraryContent(PlaylistData())

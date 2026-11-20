@@ -176,6 +176,9 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                     engine.stop()
                     playingIndex = -1
                     stopped = true
+                    // Verbindung ist frei: Downloads und Aktualisierung dürfen weiterlaufen.
+                    Repository.playbackActive = false
+                    app.iptv.tv.data.Downloads.resume()
                 }
                 Lifecycle.Event.ON_START -> if (stopped) {
                     startPosition = Repository.progress.value[items[index].stableKey]?.position ?: 0
@@ -212,6 +215,19 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             showInfo && !isLive && status.playing -> showInfo = false
             else -> close()
         }
+    }
+
+    // Sicherheitsnetz: kommt das Loslassen von OK nie an, Zustand nach kurzer Zeit zurücksetzen.
+    LaunchedEffect(okLong) {
+        if (okLong) {
+            delay(1_500)
+            okLong = false
+        }
+    }
+
+    // Nach „Verbindung prüfen“: beim Schließen des Menüs automatisch weiterspielen.
+    LaunchedEffect(options) {
+        if (options == null && engine.isSuspended) engine.retryNow()
     }
 
     LaunchedEffect(showList, options) {
@@ -283,7 +299,8 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                     else -> false
                 }
             }
-            .focusable(),
+            // Solange Senderliste oder Menü offen sind, darf der Fokus nicht „hinter“ sie springen.
+            .focusable(enabled = okLong || (!showList && options == null)),
     ) {
         AndroidView(factory = { engine.container }, modifier = Modifier.fillMaxSize())
 

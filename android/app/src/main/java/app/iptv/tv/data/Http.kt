@@ -20,7 +20,8 @@ object Http {
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            // Manche Panels erzeugen große Listen erst auf Anfrage (> 1 Minute bis zur ersten Antwort).
+            .readTimeout(150, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .addInterceptor { chain ->

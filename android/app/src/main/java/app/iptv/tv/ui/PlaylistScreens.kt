@@ -83,7 +83,7 @@ fun PlaylistsScreen(nav: Navigator, memory: ScreenMemory) {
                 modifier = Modifier.rememberFocus(memory, "add", isDefault = true),
             )
             AppButton(
-                "Aktive aktualisieren", { scope.launch { Repository.refresh() } }, icon = AppIcons.Refresh, primary = false,
+                "Aktive aktualisieren", { Repository.refreshInBackground() }, icon = AppIcons.Refresh, primary = false,
                 modifier = Modifier.rememberFocus(memory, "refresh"),
             )
             if (loading) Spinner(size = 30.dp)

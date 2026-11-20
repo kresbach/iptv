@@ -86,6 +86,14 @@ fun Modifier.rememberFocus(memory: ScreenMemory, key: String, isDefault: Boolean
             if (runCatching { requester.requestFocus() }.isSuccess) memory.restored = true
         }
     }
+    // Gemerkter Eintrag existiert nicht mehr (gelöscht, ausgeblendet …) → Standard-Eintrag fokussieren,
+    // damit die Fernbedienung nie „ins Leere“ zeigt.
+    if (isDefault) {
+        LaunchedEffect(Unit) {
+            repeat(3) { awaitFrame() }
+            if (!memory.restored && runCatching { requester.requestFocus() }.isSuccess) memory.restored = true
+        }
+    }
     return this
         .focusRequester(requester)
         .onFocusChanged { if (it.isFocused) memory.focusedKey = key }

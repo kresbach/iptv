@@ -62,10 +62,16 @@ class PhoneInputServer(
     val port: Int get() = socket?.localPort ?: 0
 
     /** Startet den Server (bevorzugt Port 8686) und liefert den Port. */
+    @Volatile private var closed = false
+
+    @Synchronized
     fun start(preferredPort: Int = 8686): Int {
+        // Bildschirm schon wieder geschlossen? Dann nicht mehr starten (sonst bliebe der Server offen).
+        check(!closed) { "Server bereits beendet" }
         if (socket != null) return port
+        // reuseAddress: Port direkt nach dem Schließen eines vorherigen Servers wieder nutzbar.
         val server = try {
-            ServerSocket(preferredPort)
+            ServerSocket().apply { reuseAddress = true; bind(java.net.InetSocketAddress(preferredPort)) }
         } catch (e: Exception) {
             ServerSocket(0)
         }
@@ -83,7 +89,9 @@ class PhoneInputServer(
         return server.localPort
     }
 
+    @Synchronized
     fun stop() {
+        closed = true
         runCatching { socket?.close() }
         socket = null
     }

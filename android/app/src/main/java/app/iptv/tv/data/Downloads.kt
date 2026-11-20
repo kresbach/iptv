@@ -97,6 +97,7 @@ object Downloads {
     }
 
     fun retry(item: DownloadItem) {
+        failures.remove(item.id)
         update { list -> list.map { if (it.id == item.id) it.copy(state = DownloadState.QUEUED, error = null) else it } }
         kick()
     }
@@ -123,6 +124,10 @@ object Downloads {
     private fun set(id: String, change: (DownloadItem) -> DownloadItem) =
         update { list -> list.map { if (it.id == id) change(it) else it } }
 
+    /** Netzwerkfehler in Folge je Download (danach: fehlgeschlagen, statt endlos zu versuchen). */
+    private val failures = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    @Synchronized
     private fun kick() {
         if (worker?.isActive == true) return
         worker = scope.launch {
@@ -186,12 +191,15 @@ object Downloads {
                 }
                 if (total > 0 && written < total) throw java.io.IOException("Verbindung abgebrochen")
                 part.renameTo(file(item))
+                failures.remove(item.id)
                 set(item.id) { it.copy(state = DownloadState.COMPLETED, bytesWritten = written, totalBytes = written) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Download ${item.title}", e)
             val retryable = e is java.io.IOException && e !is Http.StatusException
-            if (retryable && (items.value.firstOrNull { it.id == item.id }?.state == DownloadState.DOWNLOADING)) {
+            val count = (failures[item.id] ?: 0) + 1
+            failures[item.id] = count
+            if (retryable && count <= 5 && (items.value.firstOrNull { it.id == item.id }?.state == DownloadState.DOWNLOADING)) {
                 // Netzwerkfehler: kurz warten und fortsetzen.
                 set(item.id) { it.copy(state = DownloadState.PAUSED, error = Http.message(e)) }
                 delay(10_000)

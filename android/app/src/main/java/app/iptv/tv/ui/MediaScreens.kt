@@ -77,6 +77,11 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
     }
     var selected by remember { mutableStateOf(memory.selection ?: ALL) }
 
+    // Gemerkte Kategorie gibt es nicht mehr (ausgeblendet, gesperrt, letzte Favorit entfernt) → „Alle“.
+    LaunchedEffect(categories) {
+        if (categories.none { it.first == selected }) { selected = ALL; memory.selection = null }
+    }
+
     Row(Modifier.fillMaxSize()) {
         Column(
             Modifier.width(260.dp).fillMaxHeight().background(AppColors.Surface.copy(alpha = 0.5f)).padding(top = 32.dp),
@@ -222,7 +227,10 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
     val downloads by app.iptv.tv.data.Downloads.items.collectAsState()
     val download = downloads.firstOrNull { it.key == movie.stableKey }
     val all by Repository.content.collectAsState()
-    val versions = remember(movie, all) { MediaInfo.versions(movie, all.movies).take(8) }
+    // Im Hintergrund suchen: bei sehr großen Filmlisten sonst spürbar langsam.
+    val versions by androidx.compose.runtime.produceState(emptyList<app.iptv.tv.model.Channel>(), movie, all) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { MediaInfo.versions(movie, all.movies).take(8) }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Backdrop(info?.backdrop)

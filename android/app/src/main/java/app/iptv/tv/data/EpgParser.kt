@@ -34,7 +34,7 @@ object EpgParser {
         parser: XmlPullParser,
         now: Long = System.currentTimeMillis(),
         pastMs: Long = 2 * 3600_000L,
-        futureMs: Long = 36 * 3600_000L,
+        futureMs: Long = 26 * 3600_000L,
     ): EpgGuide {
         val wantedIds = HashSet<String>()
         val wantedNames = HashSet<String>()
@@ -50,6 +50,8 @@ object EpgParser {
         val programmes = HashMap<String, MutableList<Programme>>()
 
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+        // Tolerant gegenüber unbekannten Zeichen-Entities wie &nbsp; (sonst bricht das Lesen ab).
+        runCatching { parser.setFeature("http://xmlpull.org/v1/doc/features.html#relaxed", true) }
         parser.setInput(maybeGunzip(input), null)
 
         var channelId: String? = null
@@ -100,8 +102,9 @@ object EpgParser {
                             }
                         }
                         "channel" -> channelId = null
-                        "title" -> if (progChannel != null && title == null) title = value
-                        "desc" -> if (progChannel != null && desc == null) desc = value
+                        "title" -> if (progChannel != null && title == null) title = value.take(200)
+                        // Beschreibungen kürzen: spart bei tausenden Sendern viel Speicher.
+                        "desc" -> if (progChannel != null && desc == null) desc = value.take(400)
                         "programme" -> {
                             val ch = progChannel
                             if (ch != null) {

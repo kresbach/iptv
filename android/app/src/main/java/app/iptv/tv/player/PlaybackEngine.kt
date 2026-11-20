@@ -73,6 +73,9 @@ class PlaybackEngine(private val context: Context) {
     var preferredBackend: app.iptv.tv.data.PlayerChoice = app.iptv.tv.data.PlayerChoice.AUTOMATIC
     val container = FrameLayout(context).apply {
         keepScreenOn = true
+        // Die Videofläche darf den Fokus der Fernbedienung nicht übernehmen (Tasten steuert Compose).
+        isFocusable = false
+        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         setBackgroundColor(android.graphics.Color.BLACK)
     }
 
@@ -88,17 +91,42 @@ class PlaybackEngine(private val context: Context) {
     private var everPlayed = false
     private var resumePosition = 0L
     private var generation = 0
+    /** Live-Links ohne Endung, die sich als HLS entpuppen: als HLS erzwingen. */
+    private var forceHls = false
+    /** VLC wird im Hintergrund freigegeben (kann bei hängendem Netz blockieren); bis dahin nicht neu starten. */
+    private val releasing = java.util.concurrent.atomic.AtomicInteger(0)
+    private var bufferingSince = 0L
 
+    /** Wächter: hängt der Stream ohne Fehlermeldung beim Laden, wird neu verbunden. */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            val st = status.value
+            if (channel != null && st.buffering && !st.failed && (exo != null || vlc != null)) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (bufferingSince == 0L) bufferingSince = now
+                else if (now - bufferingSince > STALL_TIMEOUT_MS) {
+                    bufferingSince = 0L
+                    handleFailure("keine Daten vom Server")
+                }
+            } else {
+                bufferingSince = 0L
+            }
+            main.postDelayed(this, 2_000)
+        }
+    }
     private val isLive get() = channel?.kind == ContentKind.LIVE
 
     /**
      * @param localFile heruntergeladene Datei (spielt offline, ohne Verbindung zum Anbieter).
      */
     fun play(channel: Channel, startPositionMs: Long = 0, localFile: java.io.File? = null, subtitle: java.io.File? = null) {
+        main.removeCallbacksAndMessages(null)
         releasePlayers()
         generation++
         this.channel = channel
         attempts = 0
+        forceHls = false
+        bufferingSince = 0L
         everPlayed = false
         resumePosition = startPositionMs
         subtitleFile = subtitle
@@ -115,7 +143,7 @@ class PlaybackEngine(private val context: Context) {
 
     /** Externen Untertitel setzen (Wiedergabe startet an der aktuellen Stelle neu). */
     fun setSubtitleFile(file: java.io.File?) {
-        val ch = channel ?: return
+        if (channel == null) return
         val pos = position
         val url = currentUrl
         val b = backend
@@ -210,8 +238,26 @@ class PlaybackEngine(private val context: Context) {
 
     // endregion
 
+    /**
+     * Verbindung freigeben, ohne den Sender zu vergessen (z. B. für die Diagnose, damit sie
+     * bei nur einer erlaubten Verbindung nicht mit dem laufenden Stream kollidiert).
+     * `retryNow()` startet wieder.
+     */
+    var isSuspended = false
+        private set
+
+    fun suspendConnection() {
+        isSuspended = true
+        generation++
+        main.removeCallbacksAndMessages(null)
+        if (!isLive) position.takeIf { it > 0 }?.let { resumePosition = it }
+        releasePlayers()
+        status.value = PlayerStatus(buffering = false, message = "Wiedergabe für die Prüfung angehalten")
+    }
+
     /** Gibt Player und Netzwerkverbindung vollständig frei. */
     fun stop() {
+        main.removeCallbacks(watchdog)
         generation++
         main.removeCallbacksAndMessages(null)
         releasePlayers()
@@ -220,8 +266,13 @@ class PlaybackEngine(private val context: Context) {
 
     fun release() {
         stop()
-        libVlc?.release()
+        val lib = libVlc ?: return
         libVlc = null
+        // LibVLC erst freigeben, wenn alle Player im Hintergrund beendet sind.
+        Thread({
+            while (releasing.get() > 0) Thread.sleep(50)
+            runCatching { lib.release() }
+        }, "vlc-lib-release").start()
     }
 
     val position: Long
@@ -250,6 +301,16 @@ class PlaybackEngine(private val context: Context) {
 
     private fun start() {
         val ch = channel ?: return
+        // Erst starten, wenn der vorherige VLC-Player die Verbindung wirklich geschlossen hat.
+        if (releasing.get() > 0) {
+            val gen = generation
+            main.postDelayed({ if (gen == generation) start() }, 100)
+            return
+        }
+        main.removeCallbacks(watchdog)
+        main.postDelayed(watchdog, 2_000)
+        bufferingSince = 0L
+        isSuspended = false
         status.value = PlayerStatus(
             buffering = true,
             message = if (attempts == 0) null else retryMessage(),
@@ -277,6 +338,16 @@ class PlaybackEngine(private val context: Context) {
         // Film kann ExoPlayer nicht dekodieren → VLC versuchen.
         if (!isLive && backend == Backend.EXO && exoError != null && isFormatProblem(exoError)) {
             backend = Backend.VLC
+            attempts = 0
+        }
+        // Live-Link ohne erkennbares Format: erst als HLS versuchen, dann mit VLC.
+        if (isLive && backend == Backend.EXO && exoError != null && isFormatProblem(exoError)) {
+            if (!forceHls && UrlTools.extension(currentUrl) != "m3u8") {
+                forceHls = true
+            } else {
+                backend = Backend.VLC
+                forceHls = false
+            }
             attempts = 0
         }
         // Xtream-Live: nach mehreren Fehlschlägen mit TS das HLS-Format probieren (und umgekehrt).
@@ -392,7 +463,7 @@ class PlaybackEngine(private val context: Context) {
 
         val ext = UrlTools.extension(url)
         val mime = when {
-            ext == "m3u8" || url.contains("m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
+            forceHls || ext == "m3u8" || url.contains("m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
             ext == "ts" -> MimeTypes.VIDEO_MP2T
             else -> null
         }
@@ -466,11 +537,21 @@ class PlaybackEngine(private val context: Context) {
             it.release()
         }
         exo = null
-        vlc?.let {
-            it.setEventListener(null)
-            it.stop()
-            it.detachViews()
-            it.release()
+        vlc?.let { player ->
+            player.setEventListener(null)
+            player.detachViews()
+            // stop()/release() können bei hängendem Netz blockieren → im Hintergrund.
+            releasing.incrementAndGet()
+            Thread({
+                try {
+                    player.stop()
+                    player.release()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "VLC freigeben", e)
+                } finally {
+                    releasing.decrementAndGet()
+                }
+            }, "vlc-release").start()
         }
         vlc = null
         vlcLayout = null
@@ -481,6 +562,7 @@ class PlaybackEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "PlaybackEngine"
+        private const val STALL_TIMEOUT_MS = 30_000L
         private val vlcExtensions = setOf("avi", "wmv", "flv", "mpg", "mpeg", "divx", "rmvb", "3gp", "vob", "ogm", "asf", "m2ts", "mts")
     }
 }

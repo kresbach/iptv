@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -372,7 +373,12 @@ object GoogleSync {
     fun start() {
         signedIn.value = Prefs.googleRefreshToken.isNotEmpty()
         Repository.onChange = { scheduleSync() }
-        if (signedIn.value) scope.launch { delay(5_000); sync() }
+        // Erst abgleichen, wenn die eigenen Daten geladen sind (sonst würde ein leerer Stand verglichen).
+        if (signedIn.value) scope.launch {
+            Repository.restored.first { it }
+            delay(5_000)
+            sync()
+        }
     }
 
     // region Anmeldung

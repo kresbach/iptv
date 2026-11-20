@@ -84,6 +84,11 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
         }
     }
     var category by remember { mutableStateOf(memory.selection ?: ALL) }
+
+    // Gemerkte Kategorie gibt es nicht mehr (ausgeblendet, gesperrt, letzte Favorit entfernt) → „Alle“.
+    LaunchedEffect(categories) {
+        if (categories.none { it.first == category }) { category = ALL; memory.selection = null }
+    }
     val channels = remember(content, category, favorites, guide) {
         liveChannels(content, category, favorites).filter { guide.schedule(it).isNotEmpty() }.take(300)
     }

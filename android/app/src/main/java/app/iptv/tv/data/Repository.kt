@@ -72,6 +72,10 @@ object Repository {
     @OptIn(ExperimentalSerializationApi::class)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Nutzerdaten der Reihe nach schreiben, damit kein älterer Stand einen neueren überschreibt. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val serialIo = Dispatchers.IO.limitedParallelism(1)
+    private const val PROGRESS_LIMIT = 300
     private lateinit var dir: File
     private lateinit var cacheDir: File
     private var started = false
@@ -99,8 +103,8 @@ object Repository {
 
     @Volatile var playbackActive = false
     private var refreshJob: Job? = null
-    private val seriesCache = HashMap<String, Pair<MediaInfo?, List<Episode>>>()
-    private val movieInfoCache = HashMap<String, MediaInfo?>()
+    private val seriesCache = java.util.Collections.synchronizedMap(HashMap<String, Pair<MediaInfo?, List<Episode>>>())
+    private val movieInfoCache = java.util.Collections.synchronizedMap(HashMap<String, MediaInfo?>())
 
     val activePlaylist: Playlist? get() = playlists.value.firstOrNull { it.id == activeId.value }
 
@@ -168,6 +172,9 @@ object Repository {
             playlists.value = playlists.value + playlist
             activate(playlist.id, data) // lädt auch den TV-Guide
             null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            sourceFile(playlist.id).delete()
+            throw e
         } catch (e: OutOfMemoryError) {
             Log.w(TAG, "addPlaylist", e)
             sourceFile(playlist.id).delete()
@@ -197,6 +204,7 @@ object Repository {
     /** Name, Quelle bzw. TV-Guide-Adresse ändern; bei geänderter Quelle neu laden. */
     suspend fun editPlaylist(id: String, name: String, source: PlaylistSource, customEpg: String?, importFile: File? = null) {
         val old = playlists.value.firstOrNull { it.id == id } ?: return
+        statusMessage.value = null
         if (importFile != null) withContext(Dispatchers.IO) { importFile.copyTo(sourceFile(id), overwrite = true) }
         val epgChanged = (customEpg?.takeIf { it.isNotBlank() }) != old.customEpgUrl
         updatePlaylist(id) { it.copy(name = name, source = source, customEpgUrl = customEpg?.takeIf { e -> e.isNotBlank() }) }
@@ -258,6 +266,8 @@ object Repository {
                 it.copy(source = usedSource, detectedEpgUrl = epgUrl, lastUpdated = System.currentTimeMillis())
             }
             refreshEpg(force = true)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: OutOfMemoryError) {
             Log.w(TAG, "refresh", e)
             statusMessage.value = TOO_BIG
@@ -387,6 +397,11 @@ object Repository {
         map.values.filter { it.channel != null && it.position >= 30_000 && it.position < it.duration * 0.95 }
             .sortedByDescending { it.updated }
 
+    /** Höchstens die 300 zuletzt geänderten Einträge behalten (wie iOS). */
+    private fun trimProgress(map: Map<String, Progress>): Map<String, Progress> =
+        if (map.size <= PROGRESS_LIMIT) map
+        else map.entries.sortedByDescending { it.value.updated }.take(PROGRESS_LIMIT).associate { it.key to it.value }
+
     fun clearHistory() {
         recents.value = emptyList()
         progress.value = emptyMap()
@@ -398,7 +413,7 @@ object Repository {
         favorites.value = favs
         favoriteChanges = changes
         recents.value = history.take(40)
-        progress.value = prog
+        progress.value = trimProgress(prog)
         saveUserData(notify = false)
     }
 
@@ -422,7 +437,7 @@ object Repository {
         // Fast zu Ende geschaut: Fortschritt löschen.
         if (position > duration * 0.95 || position < 10_000) map.remove(key)
         else map[key] = Progress(position, duration, System.currentTimeMillis(), channel, showKey)
-        progress.value = map
+        progress.value = trimProgress(map)
         saveUserData()
     }
 
@@ -437,7 +452,7 @@ object Repository {
 
     private fun saveUserData(notify: Boolean = true) {
         val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges)
-        scope.launch(Dispatchers.IO) { write(File(dir, "userdata.json"), UserDataFile.serializer(), snapshot) }
+        scope.launch(serialIo) { write(File(dir, "userdata.json"), UserDataFile.serializer(), snapshot) }
         if (notify) onChange?.invoke()
     }
 

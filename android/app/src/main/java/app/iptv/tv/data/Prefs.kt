@@ -124,7 +124,7 @@ object CategoryPrefs {
     )
 
     private val json = Json { ignoreUnknownKeys = true }
-    private var stored = Stored()
+    @Volatile private var stored = Stored()
 
     /** Erhöht sich bei jeder Änderung (löst Neuberechnung der sichtbaren Inhalte aus). */
     val version = MutableStateFlow(0)

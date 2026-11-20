@@ -58,6 +58,9 @@ class TvSimulationTest {
     @Before
     fun setUp() {
         Repository.attachStorage(ApplicationProvider.getApplicationContext())
+        // Zustand aus anderen Tests zurücksetzen (Objekte leben im selben Prozess weiter).
+        app.iptv.tv.data.Downloads.items.value = emptyList()
+        app.iptv.tv.data.CategoryPrefs.setPin(null)
         val now = System.currentTimeMillis()
         val live = (1..30).map { Channel(if (it % 10 == 0) "Sky Sport 1" else "Sender $it HD", "http://x/live/u/p/$it.ts", if (it <= 15) "Nachrichten" else "Sport", tvgId = "s$it") }
         val movies = (1..40).map { Channel("Film Nummer $it", "http://x/movie/u/p/$it.mkv", if (it % 2 == 0) "Action" else "Drama", kind = ContentKind.MOVIE, added = it.toLong()) } +
@@ -122,7 +125,9 @@ class TvSimulationTest {
         rule.runOnUiThread {
             val w = rule.activity.window
             w.superDispatchKeyEvent(android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_DOWN, c, 0))
-            w.superDispatchKeyEvent(android.view.KeyEvent(0, 500, android.view.KeyEvent.ACTION_DOWN, c, 1))
+            // Wie Android bei echtem langem Drücken: Wiederholung mit FLAG_LONG_PRESS
+            w.superDispatchKeyEvent(android.view.KeyEvent(0, 500, android.view.KeyEvent.ACTION_DOWN, c, 1, 0,
+                android.view.KeyCharacterMap.VIRTUAL_KEYBOARD, 0, android.view.KeyEvent.FLAG_LONG_PRESS))
             w.superDispatchKeyEvent(android.view.KeyEvent(0, 550, android.view.KeyEvent.ACTION_DOWN, c, 2))
         }
         settle(300)
@@ -278,5 +283,85 @@ class TvSimulationTest {
         shot("64-playlists")
         ok() // Playlist hinzufügen
         shot("65-playlist-hinzufuegen")
+    }
+
+    @Test
+    fun ersterStartOhnePlaylist() {
+        Repository.playlists.value = emptyList()
+        Repository.activeId.value = null
+        Repository.content.value = LibraryContent.EMPTY
+        Repository.visible.value = LibraryContent.EMPTY
+        start()
+        expect("Willkommen")
+        shot("70-willkommen")
+        ok() // Playlist hinzufügen
+        expect("Playlist hinzufügen")
+        back()
+        expect("Willkommen")
+    }
+
+    @Test
+    fun favoritPerLangemOkUndWeiterschauen() {
+        start()
+        ok() // Live TV
+        right()
+        down(4) // vom Sender auf Höhe der Kategorie (Sender 2) vier weiter → Sender 6
+        longOk()
+        check(Repository.favorites.value.contains(Repository.content.value.live[5].stableKey)) { "Favorit nicht gesetzt" }
+        shot("71-favorit-gesetzt")
+        back()
+        down() // Reihe „Weiterschauen“
+        ok() // Film fortsetzen
+        expect("Film Nummer 5")
+        shot("72-weiterschauen-player")
+        back()
+        back()
+        expect("Weiterschauen")
+    }
+
+    @Test
+    fun downloadsUndSync() {
+        app.iptv.tv.data.Downloads.items.value = listOf(
+            app.iptv.tv.data.DownloadItem(channel = Repository.content.value.movies[0], title = "Film Nummer 1", state = app.iptv.tv.data.DownloadState.DOWNLOADING, bytesWritten = 500_000_000, totalBytes = 1_500_000_000),
+            app.iptv.tv.data.DownloadItem(channel = Repository.content.value.movies[1], title = "Film Nummer 2", state = app.iptv.tv.data.DownloadState.FAILED, error = "HTTP 403"),
+        )
+        start()
+        right(4) // Downloads-Kachel
+        ok()
+        expect("Lädt 33 %")
+        expect("Fehlgeschlagen: HTTP 403")
+        shot("73-downloads")
+        back()
+        right()
+        ok() // Einstellungen
+        down(5)
+        ok() // Untertitel
+        expect("API-Key")
+        shot("76-untertitel")
+        back()
+        down(6) // Google Drive
+        shot("74-einstellungen-unten")
+        ok()
+        expect("Google-Zugang einrichten")
+        shot("75-google-drive")
+    }
+
+    @Test
+    fun playlistLoeschen() {
+        start()
+        right(4)
+        ok() // Einstellungen
+        ok() // Playlists verwalten
+        down() // Playlist-Zeile
+        right(2) // „Löschen“
+        ok()
+        expect("Wirklich löschen?")
+        ok()
+        settle(1500)
+        check(Repository.playlists.value.isEmpty())
+        back()
+        back()
+        expect("Willkommen")
+        shot("77-nach-loeschen")
     }
 }

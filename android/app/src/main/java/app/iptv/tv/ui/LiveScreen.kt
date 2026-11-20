@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,11 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: screen.startCategory ?: categories.firstOrNull { it.first != FAVORITES }?.first ?: ALL) }
+
+    // Gemerkte Kategorie gibt es nicht mehr (ausgeblendet, gesperrt, letzte Favorit entfernt) → „Alle“.
+    LaunchedEffect(categories) {
+        if (categories.none { it.first == selected }) { selected = ALL; memory.selection = null }
+    }
     val channels = remember(content, selected, favorites) { liveChannels(content, selected, favorites) }
 
     Row(Modifier.fillMaxSize()) {
