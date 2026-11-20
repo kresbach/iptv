@@ -337,7 +337,7 @@ private fun LazyListScope.homeRow(
 ) {
     item(id) {
         Column {
-            if (title != null) SectionTitle(title) else Spacer(Modifier.height(24.dp))
+            if (title != null) SectionTitle(title) else Spacer(Modifier.height(14.dp))
             val saved = memory.scroll[id]
             val state = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
             DisposableEffect(Unit) {
@@ -345,8 +345,8 @@ private fun LazyListScope.homeRow(
             }
             LazyRow(
                 state = state,
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(horizontal = 40.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 content = content,
             )
         }

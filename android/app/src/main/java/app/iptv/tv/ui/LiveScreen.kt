@@ -63,18 +63,18 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
         // Kategorien
         Column(
             Modifier
-                .width(320.dp)
+                .width(260.dp)
                 .fillMaxHeight()
                 .background(AppColors.Surface.copy(alpha = 0.5f))
                 .padding(top = 32.dp),
         ) {
-            Text("Live TV", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 28.dp, bottom = 12.dp))
+            Text("Live TV", fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 28.dp, bottom = 12.dp))
             val catState = rememberLazyListState(memory.scroll["cats"]?.first ?: 0)
             DisposableEffect(Unit) { onDispose { memory.scroll["cats"] = catState.firstVisibleItemIndex to 0 } }
             LazyColumn(
                 state = catState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.focusRestorer(),
             ) {
                 itemsIndexed(categories, key = { _, c -> c.first }) { _, (id, title, count) ->
@@ -116,7 +116,7 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(start = 24.dp, end = 40.dp, top = 4.dp, bottom = 40.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
                     itemsIndexed(channels, key = { i, _ -> i }) { index, ch ->

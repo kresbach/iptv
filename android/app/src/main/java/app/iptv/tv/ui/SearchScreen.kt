@@ -150,8 +150,8 @@ private fun LazyListScope.resultRow(id: String, title: String, memory: ScreenMem
             DisposableEffect(Unit) { onDispose { memory.scroll[id] = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset } }
             LazyRow(
                 state = state,
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(horizontal = 40.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 content = content,
             )
         }

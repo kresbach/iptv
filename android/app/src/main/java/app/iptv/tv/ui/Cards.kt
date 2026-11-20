@@ -40,17 +40,17 @@ fun TileCard(
     modifier: Modifier = Modifier,
     highlighted: Boolean = true,
 ) {
-    FocusSurface(onClick = onClick, modifier = modifier.width(230.dp).height(130.dp), color = AppColors.Surface) {
+    FocusSurface(onClick = onClick, modifier = modifier.width(180.dp).height(96.dp), color = AppColors.Surface) {
         Box(
             Modifier
                 .fillMaxSize()
                 .then(if (highlighted) Modifier.background(AppColors.Gradient) else Modifier)
-                .padding(18.dp),
+                .padding(12.dp),
         ) {
-            Icon(icon, null, tint = Color.White, modifier = Modifier.size(34.dp).align(Alignment.TopStart))
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp).align(Alignment.TopStart))
             Column(Modifier.align(Alignment.BottomStart)) {
-                Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                if (subtitle != null) Text(subtitle, fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f))
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
             }
         }
     }
@@ -67,28 +67,28 @@ fun ChannelCard(
     modifier: Modifier = Modifier,
     isFavorite: Boolean = false,
 ) {
-    FocusSurface(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(240.dp)) {
+    FocusSurface(onClick = onClick, onLongClick = onLongClick, modifier = modifier.width(176.dp)) {
         Column {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(110.dp)
+                    .height(76.dp)
                     .background(Color(0xFF14141A)),
             ) {
-                RemoteImage(channel.logo, channel.initials, Modifier.fillMaxSize().padding(16.dp))
+                RemoteImage(channel.logo, channel.initials, Modifier.fillMaxSize().padding(10.dp))
                 if (isFavorite) FavoriteBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(channel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Text(channel.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     programme?.title ?: " ",
-                    fontSize = 13.sp,
+                    fontSize = 11.sp,
                     color = AppColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
-                ProgressLine(programme?.progress(now) ?: 0f, Modifier.fillMaxWidth(), 3.dp)
+                Spacer(Modifier.height(4.dp))
+                ProgressLine(programme?.progress(now) ?: 0f, Modifier.fillMaxWidth(), 2.dp)
             }
         }
     }
@@ -106,7 +106,7 @@ fun PosterCard(
     isFavorite: Boolean = false,
     initials: String = "",
 ) {
-    Column(modifier.width(150.dp)) {
+    Column(modifier.width(112.dp)) {
         FocusSurface(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
             Box(Modifier.fillMaxSize().background(Color(0xFF14141A))) {
                 RemoteImage(image, initials, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -118,8 +118,9 @@ fun PosterCard(
         }
         Text(
             title,
-            modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp),
-            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 5.dp, start = 2.dp, end = 2.dp),
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             color = AppColors.TextPrimary,
@@ -131,12 +132,12 @@ fun PosterCard(
 fun FavoriteBadge(modifier: Modifier = Modifier) {
     Box(
         modifier
-            .size(26.dp)
-            .clip(RoundedCornerShape(13.dp))
+            .size(20.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(AppColors.Orange),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(AppIcons.Star, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        Icon(AppIcons.Star, null, tint = Color.White, modifier = Modifier.size(12.dp))
     }
 }
 
@@ -162,24 +163,24 @@ fun ChannelRow(
         shape = RoundedCornerShape(10.dp),
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("$number", fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.width(40.dp))
+            Text("$number", fontSize = 13.sp, color = AppColors.TextSecondary, modifier = Modifier.width(34.dp))
             Box(
                 Modifier
-                    .size(width = 72.dp, height = 44.dp)
+                    .size(width = 54.dp, height = 32.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(Color(0xFF14141A)),
             ) {
-                RemoteImage(channel.logo, channel.initials, Modifier.fillMaxSize().padding(4.dp))
+                RemoteImage(channel.logo, channel.initials, Modifier.fillMaxSize().padding(3.dp))
             }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         channel.name,
-                        fontSize = 17.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -193,13 +194,13 @@ fun ChannelRow(
                 if (programme != null) {
                     Text(
                         "${clock(programme.start)}  ${programme.title}",
-                        fontSize = 14.sp,
+                        fontSize = 12.sp,
                         color = AppColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(4.dp))
-                    ProgressLine(programme.progress(now), Modifier.fillMaxWidth(0.6f), 3.dp)
+                    Spacer(Modifier.height(3.dp))
+                    ProgressLine(programme.progress(now), Modifier.fillMaxWidth(0.6f), 2.dp)
                 }
             }
         }

@@ -165,8 +165,8 @@ fun AppButton(
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
-        modifier = modifier.padding(start = 48.dp, top = 20.dp, bottom = 10.dp),
-        fontSize = 22.sp,
+        modifier = modifier.padding(start = 40.dp, top = 12.dp, bottom = 4.dp),
+        fontSize = 18.sp,
         fontWeight = FontWeight.Bold,
         color = AppColors.TextPrimary,
     )
@@ -181,7 +181,7 @@ fun RemoteImage(
     contentScale: ContentScale = ContentScale.Fit,
 ) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        Text(placeholder, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AppColors.Orange.copy(alpha = 0.8f))
+        Text(placeholder, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AppColors.Orange.copy(alpha = 0.8f))
         if (!url.isNullOrBlank()) {
             AsyncImage(model = url, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
         }
@@ -288,19 +288,19 @@ fun CategoryItem(
         shape = RoundedCornerShape(10.dp),
     ) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 name,
                 modifier = Modifier.weight(1f),
-                fontSize = 17.sp,
+                fontSize = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             )
             if (count != null) {
-                Text("$count", fontSize = 14.sp, color = AppColors.TextSecondary, textAlign = TextAlign.End)
+                Text("$count", fontSize = 12.sp, color = AppColors.TextSecondary, textAlign = TextAlign.End)
             }
         }
     }

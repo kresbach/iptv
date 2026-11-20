@@ -74,11 +74,11 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
 
     Row(Modifier.fillMaxSize()) {
         Column(
-            Modifier.width(320.dp).fillMaxHeight().background(AppColors.Surface.copy(alpha = 0.5f)).padding(top = 32.dp),
+            Modifier.width(260.dp).fillMaxHeight().background(AppColors.Surface.copy(alpha = 0.5f)).padding(top = 32.dp),
         ) {
             Text(
                 if (isMovies) "Filme" else "Serien",
-                fontSize = 28.sp, fontWeight = FontWeight.Bold,
+                fontSize = 22.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 28.dp, bottom = 12.dp),
             )
             val catState = rememberLazyListState(memory.scroll["cats"]?.first ?: 0)
@@ -86,7 +86,7 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
             LazyColumn(
                 state = catState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.focusRestorer(),
             ) {
                 items(categories, key = { it.first }) { (id, title, count) ->
@@ -122,11 +122,11 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                 }
                 if (movies.isEmpty()) EmptyHint("Keine Filme in dieser Kategorie.")
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
+                    columns = GridCells.Adaptive(112.dp),
                     state = gridState,
                     contentPadding = PaddingValues(start = 28.dp, end = 40.dp, top = 12.dp, bottom = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
                     itemsIndexed(movies, key = { i, _ -> i }) { _, m ->
@@ -150,11 +150,11 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                 }
                 if (shows.isEmpty()) EmptyHint("Keine Serien in dieser Kategorie.")
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
+                    columns = GridCells.Adaptive(112.dp),
                     state = gridState,
                     contentPadding = PaddingValues(start = 28.dp, end = 40.dp, top = 12.dp, bottom = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
                     itemsIndexed(shows, key = { i, _ -> i }) { _, s ->
