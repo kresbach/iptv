@@ -35,6 +35,9 @@ import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 
+/** Eine Ton- oder Untertitelspur zur Auswahl. */
+data class TrackOption(val id: String, val label: String, val selected: Boolean)
+
 data class PlayerStatus(
     val buffering: Boolean = true,
     val playing: Boolean = false,
@@ -59,6 +62,15 @@ class PlaybackEngine(private val context: Context) {
     private enum class Backend { EXO, VLC }
 
     val status = MutableStateFlow(PlayerStatus())
+    val audioTracks = MutableStateFlow<List<TrackOption>>(emptyList())
+    val textTracks = MutableStateFlow<List<TrackOption>>(emptyList())
+
+    /** Externe Untertiteldatei (.srt), z. B. von OpenSubtitles. */
+    private var subtitleFile: java.io.File? = null
+    private var localFile: java.io.File? = null
+    val isLocal: Boolean get() = localFile != null
+    /** Erzwingt einen Player (aus den Einstellungen bzw. dem Player-Menü). */
+    var preferredBackend: app.iptv.tv.data.PlayerChoice = app.iptv.tv.data.PlayerChoice.AUTOMATIC
     val container = FrameLayout(context).apply {
         keepScreenOn = true
         setBackgroundColor(android.graphics.Color.BLACK)
@@ -79,17 +91,124 @@ class PlaybackEngine(private val context: Context) {
 
     private val isLive get() = channel?.kind == ContentKind.LIVE
 
-    fun play(channel: Channel, startPositionMs: Long = 0) {
+    /**
+     * @param localFile heruntergeladene Datei (spielt offline, ohne Verbindung zum Anbieter).
+     */
+    fun play(channel: Channel, startPositionMs: Long = 0, localFile: java.io.File? = null, subtitle: java.io.File? = null) {
         releasePlayers()
         generation++
         this.channel = channel
         attempts = 0
         everPlayed = false
         resumePosition = startPositionMs
-        currentUrl = channel.url
-        backend = if (UrlTools.extension(channel.url) in vlcExtensions) Backend.VLC else Backend.EXO
+        subtitleFile = subtitle
+        this.localFile = localFile
+        currentUrl = localFile?.let { Uri.fromFile(it).toString() } ?: channel.url
+        backend = when (preferredBackend) {
+            app.iptv.tv.data.PlayerChoice.SYSTEM -> Backend.EXO
+            app.iptv.tv.data.PlayerChoice.VLC -> Backend.VLC
+            app.iptv.tv.data.PlayerChoice.AUTOMATIC ->
+                if (UrlTools.extension(channel.url) in vlcExtensions) Backend.VLC else Backend.EXO
+        }
         start()
     }
+
+    /** Externen Untertitel setzen (Wiedergabe startet an der aktuellen Stelle neu). */
+    fun setSubtitleFile(file: java.io.File?) {
+        val ch = channel ?: return
+        val pos = position
+        val url = currentUrl
+        val b = backend
+        releasePlayers()
+        generation++
+        subtitleFile = file
+        resumePosition = pos
+        currentUrl = url
+        backend = b
+        attempts = 0
+        start()
+    }
+
+    val backendName: String get() = if (backend == Backend.EXO) "ExoPlayer" else "VLC"
+
+    // region Spuren
+
+    private fun refreshTracks() {
+        exo?.let { p ->
+            val audio = ArrayList<TrackOption>()
+            val text = ArrayList<TrackOption>()
+            p.currentTracks.groups.forEachIndexed { gi, g ->
+                for (ti in 0 until g.length) {
+                    if (!g.isTrackSupported(ti)) continue
+                    val f = g.getTrackFormat(ti)
+                    val label = trackLabel(f.label, f.language, f.channelCount.takeIf { g.type == C.TRACK_TYPE_AUDIO }, audio.size + text.size + 1)
+                    val opt = TrackOption("$gi:$ti", label, g.isTrackSelected(ti))
+                    when (g.type) {
+                        C.TRACK_TYPE_AUDIO -> audio += opt
+                        C.TRACK_TYPE_TEXT -> text += opt
+                    }
+                }
+            }
+            audioTracks.value = audio
+            textTracks.value = text
+        }
+        vlc?.let { p ->
+            val currentA = p.audioTrack
+            audioTracks.value = (p.audioTracks ?: emptyArray()).filter { it.id >= 0 }
+                .map { TrackOption(it.id.toString(), it.name ?: "Spur ${it.id}", it.id == currentA) }
+            val currentS = p.spuTrack
+            textTracks.value = (p.spuTracks ?: emptyArray()).filter { it.id >= 0 }
+                .map { TrackOption(it.id.toString(), it.name ?: "Untertitel ${it.id}", it.id == currentS) }
+        }
+    }
+
+    private fun trackLabel(label: String?, language: String?, channels: Int?, n: Int): String {
+        val lang = language?.takeIf { it.isNotEmpty() && it != "und" }?.let {
+            java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.GERMAN).ifEmpty { it }
+        }
+        val parts = listOfNotNull(label?.takeIf { it.isNotBlank() }, lang?.takeIf { label == null || !label.contains(it, true) })
+        val base = parts.joinToString(" · ").ifEmpty { "Spur $n" }
+        return when (channels) {
+            null, -1, 0 -> base
+            1 -> "$base (Mono)"
+            2 -> "$base (Stereo)"
+            6 -> "$base (5.1)"
+            8 -> "$base (7.1)"
+            else -> "$base ($channels Kanäle)"
+        }
+    }
+
+    fun selectAudio(id: String) {
+        exo?.let { p ->
+            val (gi, ti) = id.split(':').map { it.toInt() }
+            val group = p.currentTracks.groups.getOrNull(gi) ?: return
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, ti))
+                .build()
+        }
+        vlc?.let { it.audioTrack = id.toInt() }
+        main.postDelayed({ refreshTracks() }, 300)
+    }
+
+    /** `null` = Untertitel aus. */
+    fun selectText(id: String?) {
+        exo?.let { p ->
+            val b = p.trackSelectionParameters.buildUpon()
+            if (id == null) {
+                b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            } else {
+                val (gi, ti) = id.split(':').map { it.toInt() }
+                val group = p.currentTracks.groups.getOrNull(gi) ?: return
+                b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, ti))
+            }
+            p.trackSelectionParameters = b.build()
+        }
+        vlc?.let { it.spuTrack = id?.toInt() ?: -1 }
+        main.postDelayed({ refreshTracks() }, 300)
+    }
+
+    // endregion
 
     /** Gibt Player und Netzwerkverbindung vollständig frei. */
     fun stop() {
@@ -172,7 +291,7 @@ class PlaybackEngine(private val context: Context) {
             status.value = PlayerStatus(
                 buffering = false,
                 failed = true,
-                message = "Der Stream lässt sich nicht abspielen. ($reason)\nOK = erneut versuchen",
+                message = "Der Stream lässt sich nicht abspielen. ($reason)\nOK = erneut versuchen · OK lange drücken = Verbindung prüfen",
             )
             return
         }
@@ -185,7 +304,7 @@ class PlaybackEngine(private val context: Context) {
     /** Nach endgültigem Fehler: OK drückt erneut. */
     fun retryNow() {
         val ch = channel ?: return
-        play(ch, resumePosition)
+        play(ch, resumePosition, localFile, subtitleFile)
     }
 
     private fun isFormatProblem(e: PlaybackException) = e.errorCode in listOf(
@@ -203,6 +322,7 @@ class PlaybackEngine(private val context: Context) {
         everPlayed = true
         attempts = 0
         status.value = status.value.copy(buffering = false, playing = true, message = null, failed = false)
+        refreshTracks()
     }
 
     // endregion
@@ -259,6 +379,10 @@ class PlaybackEngine(private val context: Context) {
                 if (gen == generation) status.value = status.value.copy(playing = isPlaying)
             }
 
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                if (gen == generation) refreshTracks()
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 if (gen != generation) return
                 val code = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
@@ -272,7 +396,20 @@ class PlaybackEngine(private val context: Context) {
             ext == "ts" -> MimeTypes.VIDEO_MP2T
             else -> null
         }
-        player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(mime).build())
+        val item = MediaItem.Builder().setUri(url).setMimeType(mime)
+        subtitleFile?.let { f ->
+            item.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(f))
+                        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                        .setLanguage("und")
+                        .setLabel("Heruntergeladen")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT or C.SELECTION_FLAG_FORCED)
+                        .build(),
+                ),
+            )
+        }
+        player.setMediaItem(item.build())
         if (!isLive && resumePosition > 0) player.seekTo(resumePosition)
         player.playWhenReady = true
         player.prepare()
@@ -291,13 +428,14 @@ class PlaybackEngine(private val context: Context) {
         vlcLayout = layout
         val player = MediaPlayer(lib)
         vlc = player
-        player.attachViews(layout, null, false, false)
+        player.attachViews(layout, null, true, false)
 
         val gen = generation
         player.setEventListener { event ->
             if (gen != generation) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> onPlaying()
+                MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> refreshTracks()
                 MediaPlayer.Event.Buffering ->
                     status.value = status.value.copy(buffering = event.buffering < 100f)
                 MediaPlayer.Event.Paused -> status.value = status.value.copy(playing = false)
@@ -316,6 +454,7 @@ class PlaybackEngine(private val context: Context) {
         }
         player.media = media
         media.release()
+        subtitleFile?.let { player.addSlave(org.videolan.libvlc.interfaces.IMedia.Slave.Type.Subtitle, Uri.fromFile(it), true) }
         player.play()
     }
 
@@ -336,6 +475,8 @@ class PlaybackEngine(private val context: Context) {
         vlc = null
         vlcLayout = null
         container.removeAllViews()
+        audioTracks.value = emptyList()
+        textTracks.value = emptyList()
     }
 
     companion object {

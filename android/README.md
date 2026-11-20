@@ -56,6 +56,8 @@ Auf dem Fernseher **Playlists → Playlist hinzufügen** öffnen (bzw. beim erst
 3. Link einfügen (oder auf „Xtream-Login“ tippen und Server/Benutzer/Passwort eingeben).
 4. **An Fernseher senden** – der Fernseher lädt die Playlist sofort, das Handy zeigt an, wann sie fertig ist.
 
+Über das Handy lassen sich auch eine **M3U-Datei** hochladen und eine eigene **TV-Guide-Adresse** eintragen.
+
 Die Eingabeseite ist nur erreichbar, solange „Playlist hinzufügen“ auf dem Fernseher offen ist,
 und nur mit dem Zufalls-Code aus dem QR-Code.
 
@@ -118,9 +120,42 @@ echo "sdk.dir=/pfad/zum/android-sdk" > local.properties
 ./gradlew testDebugUnitTest    # Unit-Tests (Parser, Xtream, TV-Guide)
 ```
 
-## Noch nicht enthalten (spätere Stufen)
+## Weitere Funktionen (seit Version 2.0)
 
-- Google-Drive-Sync mit der iOS-App
-- Kindersicherung
-- TV-Programm als Raster (EPG-Grid)
-- Audio-/Untertitelspur-Auswahl, M3U-Datei-Import
+- **Optionen im Player** (OK lange drücken, bei Filmen auch ▼): Tonspur, Untertitel,
+  Untertitel-Suche (OpenSubtitles), Player wählen (Automatisch / ExoPlayer / VLC),
+  **Verbindung prüfen** (Kontostatus, belegte Verbindungen, Ablaufdatum, Antwort des Servers),
+  Favorit.
+- **TV-Programm als Raster** (Kachel „TV-Programm“): ◀ ▶ blättert durch die Zeit, OK auf einer
+  laufenden Sendung schaltet um.
+- **Weiterschauen** als eigene Reihe auf der Startseite.
+- **Kategorien bearbeiten** (Einstellungen): ausblenden, sortieren, mit PIN sperren.
+- **Kindersicherung**: PIN festlegen; gesperrte Kategorien sind erst nach PIN-Eingabe sichtbar
+  (in der Kategorienliste „🔒 Gesperrte freischalten“), bis die App verlassen wird.
+- **Filme**: Trailer (YouTube-App), weitere Fassungen desselben Films (SD/HD/4K).
+- **Downloads** von Filmen und Episoden zum Offline-Schauen, mit Speicherlimit,
+  „Gesehene automatisch löschen“ und Pause während der Wiedergabe (eine Verbindung).
+  Downloads laufen, solange die App geöffnet ist.
+- **Playlists bearbeiten** (Name, Zugang, eigene TV-Guide-Adresse) und **M3U-Datei** vom Handy hochladen.
+- **Verlauf und Fortschritt löschen** (Einstellungen).
+- **Google-Drive-Sync** mit der iPhone-App (Favoriten, Weiterschauen, Verlauf,
+  Player-Einstellungen, optional Playlists) – dieselbe Datei im versteckten App-Ordner.
+
+### Google-Drive-Sync einrichten (einmalig)
+
+Der Fernseher meldet sich wie YouTube per Code an. Dafür braucht es einen zweiten
+OAuth-Client im **selben Google-Cloud-Projekt** wie die iPhone-App:
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → Projekt der iPhone-App öffnen.
+2. **APIs & Dienste → Anmeldedaten → Anmeldedaten erstellen → OAuth-Client-ID**.
+3. Anwendungstyp **„Fernseher und Geräte mit begrenzter Eingabe“**, Name z. B. „IPTV TV“.
+4. Am Fernseher: **Einstellungen → Google Drive → Google-Zugang einrichten**, QR-Code mit dem
+   Handy scannen und Client-ID sowie Clientschlüssel senden.
+5. **Mit Google anmelden**: Der Fernseher zeigt einen Code, den du am Handy unter
+   google.com/device eingibst (dasselbe Google-Konto wie auf dem iPhone).
+
+### Untertitel (OpenSubtitles) einrichten
+
+Kostenlosen API-Key auf opensubtitles.com unter „API Consumers“ anlegen, dann
+**Einstellungen → Untertitel** (geht auch per QR-Code vom Handy). Suchen im Player:
+OK lange drücken → „Untertitel suchen“.

@@ -33,6 +33,19 @@ sealed class Screen {
     data object Playlists : Screen()
     data object AddPlaylist : Screen()
     data object Search : Screen()
+    data object Settings : Screen()
+    data object Downloads : Screen()
+    data object EpgGrid : Screen()
+    data object Parental : Screen()
+    data object GoogleDrive : Screen()
+    data object SubtitleSettings : Screen()
+    data object Unlock : Screen()
+    data class EditPlaylist(val id: String) : Screen() {
+        override val key get() = "Edit-$id"
+    }
+    data class CategoryEdit(val kind: ContentKind = ContentKind.LIVE) : Screen() {
+        override val key get() = "Cat-$kind"
+    }
     data class Live(val startCategory: String? = null) : Screen()
     data class Grid(val kind: ContentKind) : Screen() {
         override val key get() = "Grid-$kind"
@@ -79,9 +92,18 @@ class Navigator {
 }
 
 class MainActivity : ComponentActivity() {
+    override fun onStop() {
+        super.onStop()
+        // Gesperrte Kategorien wieder sperren, sobald die App verlassen wird.
+        app.iptv.tv.data.CategoryPrefs.lock()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Repository.start(applicationContext)
+        app.iptv.tv.data.Downloads.start(applicationContext)
+        app.iptv.tv.data.Subtitles.cacheDir = applicationContext.filesDir
+        app.iptv.tv.data.GoogleSync.start()
         setContent {
             AppTheme {
                 AppRoot(onExit = { finish() })
@@ -115,6 +137,15 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.Playlists -> PlaylistsScreen(nav, screen.memory)
                 Screen.AddPlaylist -> AddPlaylistScreen(nav)
                 Screen.Search -> SearchScreen(nav, Screen.Search)
+                Screen.Settings -> SettingsScreen(nav, screen.memory)
+                Screen.Downloads -> DownloadsScreen(nav, screen.memory)
+                Screen.EpgGrid -> EpgGridScreen(nav, screen.memory)
+                Screen.Parental -> ParentalScreen(nav)
+                Screen.GoogleDrive -> GoogleDriveScreen(nav)
+                Screen.SubtitleSettings -> SubtitleSettingsScreen(nav)
+                Screen.Unlock -> UnlockScreen(nav)
+                is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
+                is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)
                 is Screen.Live -> LiveScreen(nav, screen)
                 is Screen.Grid -> GridScreen(nav, screen)
                 is Screen.MovieDetail -> MovieDetailScreen(nav, screen)

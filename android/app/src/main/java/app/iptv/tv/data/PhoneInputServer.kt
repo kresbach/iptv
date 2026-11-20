@@ -20,16 +20,31 @@ import kotlin.concurrent.thread
  * mit der Fernbedienung. Ein Zufalls-Code in der Adresse verhindert, dass andere Geräte
  * im Netz unbemerkt etwas senden.
  */
-class PhoneInputServer {
+class PhoneInputServer(
+    /** Statt der Playlist-Seite ein einfaches Formular mit diesen Feldern anzeigen. */
+    private val form: Form? = null,
+    private val uploadDir: java.io.File? = null,
+) {
+    data class Field(val name: String, val label: String, val value: String = "", val password: Boolean = false, val hint: String = "")
+    data class Form(val title: String, val intro: String, val fields: List<Field>)
+
     data class Input(
         val name: String = "",
         val link: String = "",
         val server: String = "",
         val user: String = "",
         val pass: String = "",
+        val epg: String = "",
+        /** Hochgeladene M3U-Datei (temporär) samt Originalname. */
+        val file: java.io.File? = null,
+        val fileName: String = "",
     ) {
-        val isXtream: Boolean get() = link.isBlank() && server.isNotBlank()
+        val isFile: Boolean get() = file != null
+        val isXtream: Boolean get() = !isFile && link.isBlank() && server.isNotBlank()
     }
+
+    /** Bei Formular-Modus: die gesendeten Werte. */
+    val receivedForm = MutableStateFlow<Map<String, String>?>(null)
 
     /** Zuletzt vom Handy empfangene Eingabe (die Oberfläche übernimmt sie). */
     val received = MutableStateFlow<Input?>(null)
@@ -81,16 +96,21 @@ class PhoneInputServer {
                 s.soTimeout = 15_000
                 val input = BufferedInputStream(s.getInputStream())
                 val requestLine = readLine(input) ?: return
-                var contentLength = 0
+                var contentLength = 0L
                 while (true) {
                     val header = readLine(input) ?: break
                     if (header.isEmpty()) break
                     if (header.startsWith("content-length:", ignoreCase = true)) {
-                        contentLength = header.substringAfter(':').trim().toIntOrNull() ?: 0
+                        contentLength = header.substringAfter(':').trim().toLongOrNull() ?: 0
                     }
                 }
-                val body = if (contentLength in 1..MAX_BODY) readBytes(input, contentLength) else ""
-                val (code, type, content) = respond(requestLine, body)
+                val path = requestLine.split(' ').getOrNull(1) ?: ""
+                val (code, type, content) = if (path.startsWith("/$token/upload") && uploadDir != null) {
+                    receiveUpload(path, input, contentLength)
+                } else {
+                    val body = if (contentLength in 1..MAX_BODY) readBytes(input, contentLength.toInt()) else ""
+                    respond(requestLine, body)
+                }
                 val bytes = content.toByteArray(Charsets.UTF_8)
                 val out = s.getOutputStream()
                 out.write(
@@ -109,7 +129,13 @@ class PhoneInputServer {
         val method = parts.getOrNull(0) ?: ""
         val path = parts.getOrNull(1)?.substringBefore('?') ?: ""
         return when {
-            method == "GET" && path == "/$token" -> Triple("200 OK", "text/html", page())
+            method == "GET" && path == "/$token" -> Triple("200 OK", "text/html", form?.let(::formPage) ?: page())
+            method == "POST" && path == "/$token/form" && form != null -> {
+                val values = parseForm(body).filterKeys { k -> form.fields.any { it.name == k } }
+                status = "Übertragen ✓ – Fertig"
+                receivedForm.value = values
+                Triple("200 OK", "text/plain", "ok")
+            }
             method == "GET" && path == "/$token/status" -> Triple("200 OK", "text/plain", status)
             method == "POST" && path == "/$token/send" -> {
                 val form = parseForm(body)
@@ -119,6 +145,7 @@ class PhoneInputServer {
                     server = form["server"].orEmpty().trim(),
                     user = form["user"].orEmpty().trim(),
                     pass = form["pass"].orEmpty().trim(),
+                    epg = form["epg"].orEmpty().trim(),
                 )
                 if (input.link.isBlank() && (input.server.isBlank() || input.user.isBlank() || input.pass.isBlank())) {
                     Triple("400 Bad Request", "text/plain", "Bitte einen Link oder Server, Benutzername und Passwort eingeben.")
@@ -132,10 +159,42 @@ class PhoneInputServer {
         }
     }
 
-    private fun page(): String = PAGE.replace("{{BASE}}", "/$token")
+    private fun page(): String = PAGE.replace("{{BASE}}", "/$token").replace("{{UPLOAD}}", if (uploadDir != null) "" else "hidden")
+
+    /** Nimmt eine M3U-Datei entgegen (roher Inhalt im Body) und speichert sie in eine Datei. */
+    private fun receiveUpload(path: String, input: InputStream, length: Long): Triple<String, String, String> {
+        if (length <= 0 || length > MAX_UPLOAD) return Triple("400 Bad Request", "text/plain", "Die Datei ist leer oder zu groß (max. 200 MB).")
+        val query = parseForm(path.substringAfter('?', ""))
+        val target = java.io.File(uploadDir, "upload-${System.nanoTime()}.m3u")
+        target.outputStream().use { out ->
+            val buffer = ByteArray(64 * 1024)
+            var left = length
+            while (left > 0) {
+                val n = input.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                if (n < 0) break
+                out.write(buffer, 0, n)
+                left -= n
+            }
+        }
+        status = "Übertragen – der Fernseher lädt die Playlist …"
+        received.value = Input(name = query["name"].orEmpty(), epg = query["epg"].orEmpty(), file = target, fileName = query["file"].orEmpty().ifEmpty { "playlist.m3u" })
+        return Triple("200 OK", "text/plain", "ok")
+    }
+
+    private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;")
+
+    private fun formPage(f: Form): String {
+        val fields = f.fields.joinToString("\n") { fl ->
+            "<label>${esc(fl.label)}</label><input name=\"${fl.name}\" value=\"${esc(fl.value)}\"" +
+                (if (fl.password) " type=\"password\"" else "") + " autocapitalize=\"off\" autocorrect=\"off\" spellcheck=\"false\">" +
+                (if (fl.hint.isNotEmpty()) "<div class=\"hint\">${esc(fl.hint)}</div>" else "")
+        }
+        return FORM_PAGE.replace("{{BASE}}", "/$token").replace("{{TITLE}}", esc(f.title)).replace("{{INTRO}}", esc(f.intro)).replace("{{FIELDS}}", fields)
+    }
 
     companion object {
         private const val MAX_BODY = 64 * 1024
+        private const val MAX_UPLOAD = 200L * 1024 * 1024
 
         fun parseForm(body: String): Map<String, String> =
             body.split('&').filter { it.isNotEmpty() }.associate { pair ->
@@ -184,6 +243,36 @@ class PhoneInputServer {
             }.map { (_, a) -> (a as InetAddress).hostAddress }.firstOrNull()
         }
 
+        private val FORM_PAGE = """
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IPTV – {{TITLE}}</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0E0E12;color:#F5F5F7}
+ header{background:linear-gradient(135deg,#FFA81A,#F55200);padding:22px 20px;font-size:22px;font-weight:800}
+ main{padding:20px;max-width:560px;margin:auto}
+ p{color:#B4B4BE;line-height:1.4}
+ label{display:block;margin:14px 0 6px;color:#B4B4BE;font-size:14px}
+ input{width:100%;box-sizing:border-box;padding:14px;border-radius:12px;border:1px solid #333;background:#1B1B23;color:#fff;font-size:16px}
+ input:focus{outline:2px solid #FF7A00;border-color:#FF7A00}
+ .hint{color:#B4B4BE;font-size:13px;margin-top:6px}
+ .send{margin-top:22px;width:100%;padding:16px;border:0;border-radius:28px;background:linear-gradient(90deg,#FFA81A,#F55200);color:#fff;font-size:18px;font-weight:700}
+ #msg{margin-top:18px;padding:14px;border-radius:12px;background:#1B1B23;display:none}
+</style></head><body>
+<header>IPTV · {{TITLE}}</header>
+<main><p>{{INTRO}}</p>
+<form id="f">{{FIELDS}}<button class="send" type="submit">An Fernseher senden</button></form><div id="msg"></div></main>
+<script>
+var f=document.getElementById('f'),msg=document.getElementById('msg');
+f.onsubmit=function(e){e.preventDefault();msg.style.display='block';msg.textContent='Sende …';
+ fetch('{{BASE}}/form',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(new FormData(f)).toString()})
+ .then(function(r){msg.textContent=r.ok?'Übertragen ✓ – du kannst diese Seite schließen.':'Fehler beim Senden.';})
+ .catch(function(err){msg.textContent='Fehler: '+err.message;});};
+</script></body></html>
+"""
+
         private val PAGE = """
 <!doctype html>
 <html lang="de"><head>
@@ -208,7 +297,7 @@ class PhoneInputServer {
 </style></head><body>
 <header>IPTV · Playlist an Fernseher senden</header>
 <main>
- <div class="tabs"><button id="t1" class="on" type="button">M3U-Link</button><button id="t2" type="button">Xtream-Login</button></div>
+ <div class="tabs"><button id="t1" class="on" type="button">M3U-Link</button><button id="t2" type="button">Xtream-Login</button><button id="t3" type="button" class="{{UPLOAD}}">M3U-Datei</button></div>
  <form id="f">
   <label>Name (optional)</label><input name="name" placeholder="z. B. Mein IPTV">
   <div id="m3u"><label>M3U-Link</label>
@@ -219,18 +308,28 @@ class PhoneInputServer {
    <label>Benutzername</label><input name="user" autocapitalize="off" autocorrect="off">
    <label>Passwort</label><input name="pass" type="password">
   </div>
+  <div id="fi" class="hidden"><label>M3U-Datei vom Handy</label><input id="file" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/x-mpegurl,text/plain,*/*">
+   <div class="hint">Die Datei wird auf den Fernseher übertragen und dort gespeichert.</div></div>
+  <label>TV-Guide-Adresse (optional)</label><input name="epg" placeholder="http://…/epg.xml.gz" autocapitalize="off" autocorrect="off">
+  <div class="hint">Nur nötig, wenn der Anbieter keinen TV-Guide mitliefert.</div>
   <button class="send" type="submit">An Fernseher senden</button>
  </form>
  <div id="msg"></div>
 </main>
 <script>
-var xt=false,f=document.getElementById('f'),msg=document.getElementById('msg');
-function mode(x){xt=x;document.getElementById('t1').className=x?'':'on';document.getElementById('t2').className=x?'on':'';
- document.getElementById('m3u').className=x?'hidden':'';document.getElementById('xt').className=x?'':'hidden';}
-document.getElementById('t1').onclick=function(){mode(false)};document.getElementById('t2').onclick=function(){mode(true)};
+var md=0,f=document.getElementById('f'),msg=document.getElementById('msg');
+function $(i){return document.getElementById(i)}
+function mode(m){md=m;$('t1').className=m==0?'on':'';$('t2').className=m==1?'on':'';if($('t3').className!='hidden')$('t3').className=m==2?'on':'';
+ $('m3u').className=m==0?'':'hidden';$('xt').className=m==1?'':'hidden';$('fi').className=m==2?'':'hidden';}
+$('t1').onclick=function(){mode(0)};$('t2').onclick=function(){mode(1)};$('t3').onclick=function(){mode(2)};
 function show(t){msg.style.display='block';msg.textContent=t;}
 f.onsubmit=function(e){e.preventDefault();var d=new URLSearchParams(new FormData(f));
- if(xt)d.set('link','');else{d.set('server','');d.set('user','');d.set('pass','');}
+ if(md==2){var file=$('file').files[0];if(!file){show('Bitte eine Datei auswählen.');return;}
+  show('Übertrage Datei …');
+  fetch('{{BASE}}/upload?file='+encodeURIComponent(file.name)+'&name='+encodeURIComponent(d.get('name')||'')+'&epg='+encodeURIComponent(d.get('epg')||''),
+   {method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file})
+  .then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t);poll();})}).catch(function(err){show('Fehler: '+err.message);});return;}
+ if(md==1)d.set('link','');else{d.set('server','');d.set('user','');d.set('pass','');}
  show('Sende …');
  fetch('{{BASE}}/send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:d.toString()})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t);poll();})})

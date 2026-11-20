@@ -54,20 +54,25 @@ import coil.compose.AsyncImage
 @Composable
 fun GridScreen(nav: Navigator, screen: Screen.Grid) {
     val memory = screen.memory
-    val content by Repository.content.collectAsState()
+    val content by Repository.visible.collectAsState()
+    val catVersion = app.iptv.tv.data.CategoryPrefs.version.collectAsState().value
     val favorites by Repository.favorites.collectAsState()
     val progress by Repository.progress.collectAsState()
     val toggleFavorite = rememberFavoriteToggle()
     val isMovies = screen.kind == ContentKind.MOVIE
     remember { memory.restored = false; 0 }
 
-    val categories = remember(content, favorites) {
-        val cats = if (isMovies) content.movieCategories else content.showCategories
+    val categories = remember(content, favorites, catVersion) {
+        val cats = app.iptv.tv.data.CategoryPrefs.arranged(
+            if (isMovies) content.movieCategories else content.showCategories,
+            screen.kind,
+        )
         val hasFav = if (isMovies) content.movies.any { it.stableKey in favorites } else content.shows.any { it.favoriteKey in favorites }
         buildList {
             if (hasFav) add(Triple(FAVORITES, "★ Favoriten", null as Int?))
             add(Triple(ALL, if (isMovies) "Alle Filme" else "Alle Serien", if (isMovies) content.movies.size else content.shows.size))
             cats.forEach { add(Triple(it.name, it.name, it.count)) }
+            if (app.iptv.tv.data.CategoryPrefs.hasLocked && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: ALL) }
@@ -93,13 +98,13 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                     CategoryItem(
                         title, count, id == selected,
                         onFocus = {
-                            if (selected != id) {
+                            if (selected != id && id != UNLOCK) {
                                 selected = id
                                 memory.selection = id
                                 memory.scroll.remove("grid")
                             }
                         },
-                        onClick = { selected = id },
+                        onClick = { if (id == UNLOCK) nav.push(Screen.Unlock) else selected = id },
                         modifier = Modifier.rememberFocus(memory, "cat-$id", isDefault = id == selected && memory.focusedKey == null),
                     )
                 }
@@ -213,6 +218,11 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
         loading = false
     }
     val p = progress[movie.stableKey]
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val downloads by app.iptv.tv.data.Downloads.items.collectAsState()
+    val download = downloads.firstOrNull { it.key == movie.stableKey }
+    val all by Repository.content.collectAsState()
+    val versions = remember(movie, all) { MediaInfo.versions(movie, all.movies).take(8) }
 
     Box(Modifier.fillMaxSize()) {
         Backdrop(info?.backdrop)
@@ -249,6 +259,34 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                         icon = AppIcons.Star, primary = false, modifier = Modifier.rememberFocus(memory, "fav"),
                     )
                 }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppButton("Trailer", { openTrailer(context, info?.trailerUrl, movie.name, info?.year) }, primary = false,
+                        modifier = Modifier.rememberFocus(memory, "trailer"))
+                    AppButton(
+                        when {
+                            download == null -> "Herunterladen"
+                            download.state == app.iptv.tv.data.DownloadState.COMPLETED -> "Download löschen"
+                            else -> "Download abbrechen"
+                        },
+                        {
+                            if (download == null) app.iptv.tv.data.Downloads.enqueue(movie, movie.name, movie.category, info?.poster ?: movie.logo)
+                            else app.iptv.tv.data.Downloads.remove(download)
+                        },
+                        icon = AppIcons.Download, primary = false, modifier = Modifier.rememberFocus(memory, "dl"),
+                    )
+                    download?.let { Text(downloadStatus(it), fontSize = 14.sp, color = AppColors.OrangeLight) }
+                }
+                if (versions.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("Weitere Fassungen", fontSize = 15.sp, color = AppColors.TextSecondary)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+                        items(versions.size) { i ->
+                            val v = versions[i]
+                            SmallButton(v.name, Modifier.rememberFocus(memory, "v-${v.url}")) { nav.replace(Screen.MovieDetail(v)) }
+                        }
+                    }
+                }
                 if (p != null) {
                     Spacer(Modifier.height(14.dp))
                     ProgressLine(p.position.toFloat() / p.duration, Modifier.width(420.dp))
@@ -277,6 +315,8 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
     var episodes by remember { mutableStateOf(show.episodes) }
     var loading by remember { mutableStateOf(show.needsEpisodeLoading) }
     var error by remember { mutableStateOf<String?>(null) }
+    val downloads by app.iptv.tv.data.Downloads.items.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     remember { memory.restored = false; 0 }
 
     LaunchedEffect(show) {
@@ -317,6 +357,8 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                     if (fav) "Favorit ✓" else "Zu Favoriten", { toggleFavorite(show.favoriteKey, show.title) },
                     icon = AppIcons.Star, primary = false, modifier = Modifier.rememberFocus(memory, "fav"),
                 )
+                Spacer(Modifier.height(10.dp))
+                AppButton("Trailer", { openTrailer(context, info?.trailerUrl, show.title, info?.year) }, primary = false)
             }
             Spacer(Modifier.width(40.dp))
             Column(Modifier.weight(1f)) {
@@ -352,9 +394,11 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                         ) {
                             itemsIndexed(seasonEpisodes, key = { i, _ -> i }) { index, ep ->
                                 val p = progress[ep.channel.stableKey]
+                                val dl = downloads.firstOrNull { it.key == ep.channel.stableKey }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 FocusSurface(
                                     onClick = { play(seasonEpisodes, index) },
-                                    modifier = Modifier.fillMaxWidth().rememberFocus(memory, "ep-${ep.channel.url}", isDefault = index == 0),
+                                    modifier = Modifier.weight(1f).rememberFocus(memory, "ep-${ep.channel.url}", isDefault = index == 0),
                                     scale = 1.02f,
                                     shape = RoundedCornerShape(10.dp),
                                 ) {
@@ -370,7 +414,15 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                                             }
                                         }
                                         if (p != null) Text("Weiter bei ${formatTime(p.position)}", fontSize = 14.sp, color = AppColors.OrangeLight)
+                                        if (dl != null) Text("  ⬇ " + downloadStatus(dl).substringBefore(" ·"), fontSize = 12.sp, color = AppColors.TextSecondary)
                                     }
+                                }
+                                SmallButton(if (dl == null) "⬇" else "✕") {
+                                    if (dl == null) app.iptv.tv.data.Downloads.enqueue(
+                                        ep.channel, show.title, ep.displayTitle + (ep.season?.let { " · Staffel $it" } ?: ""),
+                                        show.poster ?: ep.channel.logo, show.favoriteKey,
+                                    ) else app.iptv.tv.data.Downloads.remove(dl)
+                                }
                                 }
                             }
                         }
@@ -381,3 +433,28 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
     }
 }
 
+
+
+/** Öffnet den Trailer in der YouTube-App (oder sucht dort nach „Titel Trailer“). */
+fun openTrailer(context: android.content.Context, url: String?, title: String, year: String?) {
+    val query = listOfNotNull(MediaInfo.cleanTitle(title), year, "Trailer").joinToString(" ")
+    val id = url?.let { u -> Regex("(?:v=|youtu\\.be/)([A-Za-z0-9_-]{6,20})").find(u)?.groupValues?.get(1) }
+    val intents = buildList {
+        if (id != null) {
+            add(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("vnd.youtube:$id")))
+            add(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/watch?v=$id")))
+        }
+        for (pkg in listOf("com.google.android.youtube.tv", "com.google.android.youtube")) {
+            add(android.content.Intent(android.content.Intent.ACTION_SEARCH).setPackage(pkg).putExtra("query", query))
+        }
+        add(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(query, "UTF-8"))))
+    }
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (_: Exception) {
+        }
+    }
+    android.widget.Toast.makeText(context, "YouTube ist auf diesem Gerät nicht verfügbar.", android.widget.Toast.LENGTH_SHORT).show()
+}

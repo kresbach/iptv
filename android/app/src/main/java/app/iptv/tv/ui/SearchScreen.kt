@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SearchScreen(nav: Navigator, screen: Screen.Search) {
     val memory = screen.memory
-    val content by Repository.content.collectAsState()
+    val content by Repository.visible.collectAsState()
     val epg by Repository.epg.collectAsState()
     val favorites by Repository.favorites.collectAsState()
     val progress by Repository.progress.collectAsState()

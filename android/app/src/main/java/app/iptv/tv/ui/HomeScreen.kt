@@ -51,7 +51,7 @@ fun rememberNow(): Long {
 fun HomeScreen(nav: Navigator, memory: ScreenMemory) {
     val restored by Repository.restored.collectAsState()
     val playlists by Repository.playlists.collectAsState()
-    val content by Repository.content.collectAsState()
+    val content by Repository.visible.collectAsState()
     val loading by Repository.isLoading.collectAsState()
     val status by Repository.statusMessage.collectAsState()
     remember { memory.restored = false; 0 }
@@ -127,6 +127,8 @@ private fun HomeContent(
     val now = rememberNow()
     val active = Repository.activePlaylist
     val playlistCount = Repository.playlists.collectAsState().value.size
+    val downloadCount = app.iptv.tv.data.Downloads.items.collectAsState().value.size
+    val continueList = remember(progress) { Repository.continueWatching(progress).take(20) }
 
     val saved = memory.scroll["home"]
     val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
@@ -183,13 +185,52 @@ private fun HomeContent(
                     modifier = Modifier.rememberFocus(memory, "tile-series"),
                 )
             }
-            item("playlists") {
+            item("epg") {
                 TileCard(
-                    "Playlists", "${playlistCount} gespeichert", AppIcons.Playlist,
-                    onClick = { nav.push(Screen.Playlists) },
-                    modifier = Modifier.rememberFocus(memory, "tile-playlists"),
+                    "TV-Programm", "Raster", AppIcons.History,
+                    onClick = { nav.push(Screen.EpgGrid) },
+                    modifier = Modifier.rememberFocus(memory, "tile-epg"),
                     highlighted = false,
                 )
+            }
+            if (downloadCount > 0) {
+                item("downloads") {
+                    TileCard(
+                        "Downloads", "$downloadCount Einträge", AppIcons.Download,
+                        onClick = { nav.push(Screen.Downloads) },
+                        modifier = Modifier.rememberFocus(memory, "tile-downloads"),
+                        highlighted = false,
+                    )
+                }
+            }
+            item("settings") {
+                TileCard(
+                    "Einstellungen", "${playlistCount} Playlist(s)", AppIcons.Settings,
+                    onClick = { nav.push(Screen.Settings) },
+                    modifier = Modifier.rememberFocus(memory, "tile-settings"),
+                    highlighted = false,
+                )
+            }
+        }
+
+        if (continueList.isNotEmpty()) {
+            homeRow("continue", "Weiterschauen", memory) {
+                itemsIndexed(continueList, key = { i, _ -> "c-$i" }) { _, p ->
+                    val ch = p.channel!!
+                    PosterCard(
+                        title = ch.name,
+                        image = ch.logo ?: p.showKey?.let { content.show(it)?.poster },
+                        initials = ch.initials,
+                        progress = p.position.toFloat() / p.duration,
+                        onClick = { nav.push(Screen.Player(listOf(ch), 0, p.position, p.showKey)) },
+                        onLongClick = {
+                            val show = p.showKey?.let { content.show(it) }
+                            if (show != null) nav.push(Screen.SeriesDetail(show))
+                            else if (ch.kind == ContentKind.MOVIE) nav.push(Screen.MovieDetail(ch))
+                        },
+                        modifier = Modifier.rememberFocus(memory, "cont-${ch.stableKey}"),
+                    )
+                }
             }
         }
 
@@ -319,7 +360,7 @@ private fun HomeContent(
 
         item("hint") {
             Text(
-                "Tipp: OK lange drücken = Favorit hinzufügen/entfernen",
+                "Tipp: OK lange drücken = Favorit hinzufügen/entfernen · bei „Weiterschauen“ = Details öffnen",
                 modifier = Modifier.padding(start = 48.dp, top = 24.dp),
                 fontSize = 14.sp,
                 color = AppColors.TextSecondary,

@@ -156,6 +156,28 @@ class XtreamClient(val credentials: XtreamCredentials) {
         )
     }
 
+    data class AccountStatus(
+        val authenticated: Boolean,
+        val status: String?,
+        val activeConnections: Int?,
+        val maxConnections: Int?,
+        val expires: Long?,
+        val formats: List<String>,
+    )
+
+    /** Kontostatus für die Diagnose (aktive/erlaubte Verbindungen, Ablaufdatum). */
+    suspend fun accountStatus(): AccountStatus {
+        val info = (parse(Http.text(endpoint("player_api.php", emptyList()))) as? JsonObject)?.get("user_info") as? JsonObject
+        return AccountStatus(
+            authenticated = info?.int("auth") == 1,
+            status = info?.str("status"),
+            activeConnections = info?.int("active_cons"),
+            maxConnections = info?.int("max_connections"),
+            expires = info?.long("exp_date")?.takeIf { it > 0 }?.let { it * 1000 },
+            formats = (info?.get("allowed_output_formats") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList(),
+        )
+    }
+
     suspend fun movieInfo(streamId: Int): MediaInfo? {
         val root = parse(Http.text(endpoint("player_api.php", listOf("action" to "get_vod_info", "vod_id" to "$streamId"))))
         return mediaInfo((root as? JsonObject)?.get("info") as? JsonObject)
@@ -210,6 +232,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
                 ?: minutes(value("duration")) ?: minutes(value("episode_run_time")),
             backdrop = backdrop,
             poster = value("movie_image", "cover_big", "cover"),
+            trailerUrl = MediaInfo.trailerUrl(value("youtube_trailer", "trailer")),
         )
         return info.takeUnless { it.isEmpty }
     }

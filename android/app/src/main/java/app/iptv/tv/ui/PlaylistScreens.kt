@@ -72,7 +72,7 @@ fun PlaylistsScreen(nav: Navigator, memory: ScreenMemory) {
     Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp)) {
         Text("Playlists", fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Text(
-            "OK = verwenden · Aktualisieren lädt Sender, Filme, Serien und TV-Guide neu.",
+            "OK = verwenden · Bearbeiten: Name, Zugang und TV-Guide-Adresse · Aktualisieren lädt alles neu.",
             fontSize = 16.sp,
             color = AppColors.TextSecondary,
         )
@@ -118,6 +118,8 @@ fun PlaylistsScreen(nav: Navigator, memory: ScreenMemory) {
                             }
                         }
                     }
+                    AppButton("Bearbeiten", { nav.push(Screen.EditPlaylist(p.id)) }, primary = false,
+                        modifier = Modifier.rememberFocus(memory, "e-${p.id}"))
                     val confirming = confirmDelete == p.id
                     AppButton(
                         if (confirming) "Wirklich löschen?" else "Löschen",
@@ -138,20 +140,26 @@ fun PlaylistsScreen(nav: Navigator, memory: ScreenMemory) {
 }
 
 @Composable
-fun AddPlaylistScreen(nav: Navigator) {
-    var xtreamMode by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var link by rememberSaveable { mutableStateOf("") }
-    var server by rememberSaveable { mutableStateOf("") }
-    var user by rememberSaveable { mutableStateOf("") }
-    var pass by rememberSaveable { mutableStateOf("") }
+fun AddPlaylistScreen(nav: Navigator, editId: String? = null) {
+    val editing = remember(editId) { editId?.let { id -> Repository.playlists.value.firstOrNull { it.id == id } } }
+    val initial = editing?.source
+    // 0 = M3U-Link, 1 = Xtream, 2 = M3U-Datei
+    var mode by rememberSaveable { mutableStateOf(when (initial) { is PlaylistSource.Xtream -> 1; is PlaylistSource.File -> 2; else -> 0 }) }
+    var name by rememberSaveable { mutableStateOf(editing?.name ?: "") }
+    var link by rememberSaveable { mutableStateOf((initial as? PlaylistSource.M3u)?.url ?: "") }
+    var server by rememberSaveable { mutableStateOf((initial as? PlaylistSource.Xtream)?.credentials?.server ?: "") }
+    var user by rememberSaveable { mutableStateOf((initial as? PlaylistSource.Xtream)?.credentials?.username ?: "") }
+    var pass by rememberSaveable { mutableStateOf((initial as? PlaylistSource.Xtream)?.credentials?.password ?: "") }
+    var epg by rememberSaveable { mutableStateOf(editing?.customEpgUrl ?: "") }
+    var uploaded by remember { mutableStateOf<Pair<java.io.File, String>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val loading by Repository.isLoading.collectAsState()
     val scope = rememberCoroutineScope()
     val memory = remember { ScreenMemory() }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Eingabe per Handy: kleiner Web-Server im Heimnetz, solange dieser Bildschirm offen ist.
-    val phone = remember { PhoneInputServer() }
+    val phone = remember { PhoneInputServer(uploadDir = context.cacheDir) }
     val phoneUrl by produceState<String?>(null) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -165,33 +173,54 @@ fun AddPlaylistScreen(nav: Navigator) {
 
     fun save() {
         error = null
-        val source: PlaylistSource = if (xtreamMode) {
-            val s = UrlTools.normalizedServer(server)
-            if (s == null || user.isBlank() || pass.isBlank()) {
-                error = "Bitte Server, Benutzername und Passwort eingeben."
-                phone.status = "Fehler: $error"
-                return
+        val upload = uploaded
+        val source: PlaylistSource = when (mode) {
+            1 -> {
+                val s = UrlTools.normalizedServer(server)
+                if (s == null || user.isBlank() || pass.isBlank()) {
+                    error = "Bitte Server, Benutzername und Passwort eingeben."
+                    phone.status = "Fehler: $error"
+                    return
+                }
+                PlaylistSource.Xtream(XtreamCredentials(s, user.trim(), pass.trim()))
             }
-            PlaylistSource.Xtream(XtreamCredentials(s, user.trim(), pass.trim()))
-        } else {
-            val url = UrlTools.userInput(link)
-            if (url == null) {
-                error = "Bitte einen gültigen Link eingeben (beginnt mit http:// oder https://)."
-                phone.status = "Fehler: $error"
-                return
+            2 -> {
+                if (upload == null && initial !is PlaylistSource.File) {
+                    error = "Bitte die M3U-Datei per Handy übertragen (QR-Code rechts)."
+                    return
+                }
+                PlaylistSource.File(upload?.second ?: (initial as PlaylistSource.File).originalName)
             }
-            // get.php-Links sind Xtream-Zugänge → über die Xtream-Schnittstelle laden.
-            UrlTools.xtreamCredentials(url)?.let { PlaylistSource.Xtream(it) } ?: PlaylistSource.M3u(url)
+            else -> {
+                val url = UrlTools.userInput(link)
+                if (url == null) {
+                    error = "Bitte einen gültigen Link eingeben (beginnt mit http:// oder https://)."
+                    phone.status = "Fehler: $error"
+                    return
+                }
+                // get.php-Links sind Xtream-Zugänge → über die Xtream-Schnittstelle laden.
+                UrlTools.xtreamCredentials(url)?.let { PlaylistSource.Xtream(it) } ?: PlaylistSource.M3u(url)
+            }
         }
+        val epgUrl = epg.trim().takeIf { it.isNotEmpty() }?.let { UrlTools.userInput(it) ?: it }
         val title = name.trim().ifEmpty {
             when (source) {
                 is PlaylistSource.Xtream -> source.credentials.username + " – Xtream"
-                is PlaylistSource.M3u -> source.displayDetail
+                else -> source.displayDetail
             }
         }
         phone.status = "Der Fernseher lädt die Playlist – das kann bei großen Listen etwas dauern …"
         scope.launch {
-            val message = Repository.addPlaylist(title, source)
+            if (editing != null) {
+                Repository.editPlaylist(editing.id, title, source, epgUrl, upload?.first)
+                upload?.first?.delete()
+                val msg = Repository.statusMessage.value
+                phone.status = if (msg == null) "Fertig! Gespeichert." else "Fehler: $msg"
+                if (msg == null) nav.back() else error = msg
+                return@launch
+            }
+            val message = Repository.addPlaylist(title, source, epgUrl, upload?.first)
+            upload?.first?.delete()
             if (message == null) {
                 val c = Repository.content.value
                 phone.status = "Fertig! ${c.live.size} Sender, ${c.movies.size} Filme und ${c.shows.size} Serien geladen."
@@ -210,104 +239,101 @@ fun AddPlaylistScreen(nav: Navigator) {
             if (input == null || loading) return@collect
             phone.received.value = null
             if (input.name.isNotBlank()) name = input.name
-            xtreamMode = input.isXtream
-            if (input.isXtream) {
-                server = input.server
-                user = input.user
-                pass = input.pass
-            } else {
-                link = input.link
+            if (input.epg.isNotBlank()) epg = input.epg
+            when {
+                input.isFile -> { mode = 2; uploaded = input.file!! to input.fileName }
+                input.isXtream -> { mode = 1; server = input.server; user = input.user; pass = input.pass }
+                else -> { mode = 0; link = input.link }
             }
             save()
         }
     }
 
     Row(Modifier.fillMaxSize()) {
-    Column(
-        Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .verticalScroll(rememberScrollState())
-            .padding(start = 64.dp, end = 32.dp, top = 40.dp, bottom = 40.dp),
-    ) {
-        Text("Playlist hinzufügen", fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            AppButton(
-                "M3U-Link", { xtreamMode = false }, primary = !xtreamMode,
-                modifier = Modifier.rememberFocus(memory, "m3u", isDefault = true),
-            )
-            AppButton("Xtream-Login", { xtreamMode = true }, primary = xtreamMode)
-        }
-        Spacer(Modifier.height(24.dp))
-        Column(Modifier.widthIn(max = 820.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            TvTextField(name, { name = it }, "Name (optional)", placeholder = "z. B. Mein IPTV", keyboardType = KeyboardType.Text)
-            if (xtreamMode) {
-                TvTextField(server, { server = it }, "Server", placeholder = "http://server.de:8080")
-                TvTextField(user, { user = it }, "Benutzername", keyboardType = KeyboardType.Text)
-                TvTextField(pass, { pass = it }, "Passwort", password = true)
-            } else {
-                TvTextField(link, { link = it }, "M3U-Link", placeholder = "http://server.de/get.php?username=…&password=…")
-                Text(
-                    "Links mit „get.php?username=…&password=…“ werden automatisch als Xtream-Zugang erkannt.",
-                    fontSize = 15.sp,
-                    color = AppColors.TextSecondary,
-                )
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 64.dp, end = 32.dp, top = 36.dp, bottom = 36.dp),
+        ) {
+            Text(if (editing != null) "Playlist bearbeiten" else "Playlist hinzufügen", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppButton("M3U-Link", { mode = 0 }, primary = mode == 0, modifier = Modifier.rememberFocus(memory, "m3u", isDefault = true))
+                AppButton("Xtream-Login", { mode = 1 }, primary = mode == 1)
+                AppButton("M3U-Datei", { mode = 2 }, primary = mode == 2)
             }
-            error?.let {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .then(Modifier),
-                ) {
-                    Text(it, color = Color(0xFFFF6B5A), fontSize = 17.sp)
+            Spacer(Modifier.height(18.dp))
+            Column(Modifier.widthIn(max = 820.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                TvTextField(name, { name = it }, "Name (optional)", placeholder = "z. B. Mein IPTV", keyboardType = KeyboardType.Text)
+                when (mode) {
+                    1 -> {
+                        TvTextField(server, { server = it }, "Server", placeholder = "http://server.de:8080")
+                        TvTextField(user, { user = it }, "Benutzername", keyboardType = KeyboardType.Text)
+                        TvTextField(pass, { pass = it }, "Passwort", password = true)
+                    }
+                    2 -> Text(
+                        uploaded?.let { "Übertragen: ${it.second}" }
+                            ?: (initial as? PlaylistSource.File)?.let { "Aktuelle Datei: ${it.originalName} – zum Ersetzen neue Datei per Handy senden." }
+                            ?: "M3U-Datei mit dem Handy übertragen: QR-Code rechts scannen, „M3U-Datei“ wählen und senden.",
+                        fontSize = 17.sp, color = AppColors.TextSecondary,
+                    )
+                    else -> {
+                        TvTextField(link, { link = it }, "M3U-Link", placeholder = "http://server.de/get.php?username=…&password=…")
+                        Text(
+                            "Links mit „get.php?username=…&password=…“ werden automatisch als Xtream-Zugang erkannt.",
+                            fontSize = 14.sp,
+                            color = AppColors.TextSecondary,
+                        )
+                    }
+                }
+                TvTextField(epg, { epg = it }, "TV-Guide-Adresse (optional, XMLTV)", placeholder = "Nur nötig, wenn der Anbieter keinen mitliefert")
+                error?.let { Text(it, color = Color(0xFFFF6B5A), fontSize = 17.sp) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    AppButton(if (loading) "Lade …" else "Speichern & laden", { if (!loading) save() }, icon = AppIcons.Check)
+                    AppButton("Abbrechen", { nav.back() }, primary = false)
+                    if (loading) {
+                        Spinner(size = 30.dp)
+                        Text("Lade Sender, Filme und Serien – das kann etwas dauern.", fontSize = 15.sp, color = AppColors.TextSecondary)
+                    }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                AppButton(if (loading) "Lade …" else "Speichern & laden", { if (!loading) save() }, icon = AppIcons.Check)
-                AppButton("Abbrechen", { nav.back() }, primary = false)
-                if (loading) {
-                    Spinner(size = 30.dp)
-                    Text("Lade Sender, Filme und Serien – das kann bei großen Listen etwas dauern.", fontSize = 15.sp, color = AppColors.TextSecondary)
-                }
-            }
         }
-    }
-        PhonePanel(phoneUrl)
+        PhonePanelContent(phoneUrl, "Bequemer mit dem Handy")
     }
 }
 
 /** Rechts: QR-Code + Adresse für die Eingabe per Handy. */
 @Composable
-private fun PhonePanel(url: String?) {
+fun PhonePanelContent(url: String?, title: String) {
     Column(
         Modifier
-            .width(400.dp)
+            .width(380.dp)
             .fillMaxHeight()
             .background(AppColors.Surface.copy(alpha = 0.6f))
-            .padding(32.dp),
+            .padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Bequemer mit dem Handy", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
         if (url == null) {
             Text(
                 "Keine WLAN-/Netzwerkverbindung gefunden. Ist der Fernseher mit dem Heimnetz verbunden?",
-                fontSize = 16.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+                fontSize = 15.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
             )
             return@Column
         }
         Text(
-            "QR-Code mit der Handy-Kamera scannen (Handy im selben WLAN), Link einfügen und senden.",
-            fontSize = 16.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+            "QR-Code mit der Handy-Kamera scannen (Handy im selben WLAN), ausfüllen und senden.",
+            fontSize = 15.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(20.dp))
-        QrCode(url, Modifier.size(260.dp))
         Spacer(Modifier.height(18.dp))
-        Text("Oder im Handy-Browser öffnen:", fontSize = 14.sp, color = AppColors.TextSecondary)
-        Text(url, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OrangeLight, textAlign = TextAlign.Center)
+        QrCode(url, Modifier.size(240.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("Oder im Handy-Browser öffnen:", fontSize = 13.sp, color = AppColors.TextSecondary)
+        Text(url, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OrangeLight, textAlign = TextAlign.Center)
     }
 }
 

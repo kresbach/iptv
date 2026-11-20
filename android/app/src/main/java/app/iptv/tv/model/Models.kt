@@ -54,10 +54,15 @@ sealed class PlaylistSource {
     @Serializable
     data class Xtream(val credentials: XtreamCredentials) : PlaylistSource()
 
+    /** Importierte M3U-Datei (lokal gespeichert). */
+    @Serializable
+    data class File(val originalName: String) : PlaylistSource()
+
     val typeTitle: String
         get() = when (this) {
             is M3u -> "M3U-Link"
             is Xtream -> "Xtream Codes"
+            is File -> "M3U-Datei"
         }
 
     /** Kurzbeschreibung ohne Passwort. */
@@ -66,6 +71,7 @@ sealed class PlaylistSource {
             is M3u -> runCatching { java.net.URI(url).host }.getOrNull() ?: url
             is Xtream -> "${credentials.username} @ " +
                 (runCatching { java.net.URI(credentials.server).host }.getOrNull() ?: credentials.server)
+            is File -> originalName
         }
 }
 
@@ -161,6 +167,8 @@ data class MediaInfo(
     val durationMinutes: Int? = null,
     val backdrop: String? = null,
     val poster: String? = null,
+    /** YouTube-Link zum Trailer (nur echte YouTube-Adressen). */
+    val trailerUrl: String? = null,
 ) {
     val year: String? get() = releaseDate?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
 
@@ -178,6 +186,69 @@ data class MediaInfo(
         }
 
     val isEmpty: Boolean get() = this == MediaInfo()
+
+    companion object {
+        /** Xtream liefert meist nur die YouTube-ID, manchmal einen vollständigen Link. */
+        fun trailerUrl(value: String?): String? {
+            val v = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            if (v.lowercase().startsWith("http")) {
+                val host = runCatching { java.net.URI(v).host?.lowercase() }.getOrNull() ?: return null
+                return v.takeIf { host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com") }
+            }
+            if (v.length > 20 || !v.all { it.isLetterOrDigit() && it.code < 128 || it == '-' || it == '_' }) return null
+            return "https://www.youtube.com/watch?v=$v"
+        }
+
+        /** Entfernt Anbieter-Präfixe wie „DE - “, „[EN] “ oder „4K | “ aus Titeln. */
+        fun cleanTitle(title: String): String {
+            var r = title.trim()
+            if (r.startsWith("[")) r.indexOf(']').takeIf { it > 0 }?.let { r = r.substring(it + 1) }
+            for (sep in listOf(" - ", " | ", ": ", "|")) {
+                val i = r.indexOf(sep)
+                if (i >= 0) {
+                    val prefix = r.substring(0, i).trim()
+                    if (prefix.length in 2..4 && prefix == prefix.uppercase()) {
+                        r = r.substring(i + sep.length)
+                        break
+                    }
+                }
+            }
+            return r.trim()
+        }
+
+        private val yearRegex = Regex("\\b(19|20)\\d{2}\\b")
+        private val bracketRegex = Regex("[(\\[{][^)\\]}]*[)\\]}]")
+        private val qualityRegex = Regex(
+            "\\b(4k|8k|uhd|fhd|hd|sd|hq|lq|2160p|1080p|720p|576p|480p|hevc|h265|h264|x265|x264|hdr|hdr10|remux|bluray|webrip)\\b",
+        )
+
+        /** Vergleichsschlüssel: ohne Präfix, Klammerzusätze und Qualitätsangaben, plus Jahr. */
+        fun versionKey(title: String): Pair<String, String?> {
+            var text = cleanTitle(title).lowercase()
+            var year: String? = null
+            yearRegex.find(text)?.let { m ->
+                if (text.trim() != m.value) {
+                    year = m.value
+                    text = text.removeRange(m.range)
+                }
+            }
+            text = text.replace(bracketRegex, " ").replace(qualityRegex, " ")
+            val words = text.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+            return words.joinToString(" ") to year
+        }
+
+        /** Andere Einträge der Playlist mit demselben Film (z. B. SD, HD, 4K). */
+        fun versions(movie: Channel, movies: List<Channel>): List<Channel> {
+            val (name, year) = versionKey(movie.name)
+            if (name.isEmpty()) return emptyList()
+            val anchor = name.split(' ').maxByOrNull { it.length } ?: name
+            return movies.filter { c ->
+                if (c === movie || c.url == movie.url || !c.name.contains(anchor, ignoreCase = true)) return@filter false
+                val (n, y) = versionKey(c.name)
+                n == name && (y == null || year == null || y == year)
+            }
+        }
+    }
 }
 
 /** Eine Sendung im TV-Guide (Zeiten in Millisekunden). */

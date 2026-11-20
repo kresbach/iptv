@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -29,10 +30,22 @@ import kotlinx.serialization.json.encodeToStream
 import java.io.File
 
 @Serializable
-private data class LibraryFile(val playlists: List<Playlist> = emptyList(), val activeId: String? = null)
+private data class LibraryFile(
+    val playlists: List<Playlist> = emptyList(),
+    val activeId: String? = null,
+    /** Gelöschte Playlists (ID → Zeitpunkt), damit der Sync sie nicht wiederbringt. */
+    val deleted: Map<String, Long> = emptyMap(),
+)
 
+/** Wiedergabefortschritt (ms). `channel`/`showKey` für die Reihe „Weiterschauen“. */
 @Serializable
-data class Progress(val position: Long, val duration: Long, val updated: Long)
+data class Progress(
+    val position: Long,
+    val duration: Long,
+    val updated: Long,
+    val channel: Channel? = null,
+    val showKey: String? = null,
+)
 
 /** Eintrag in „Zuletzt gesehen“. Bei Episoden zusätzlich der Schlüssel der Serie. */
 @Serializable
@@ -43,6 +56,8 @@ private data class UserDataFile(
     val favorites: List<String> = emptyList(),
     val recents: List<RecentEntry> = emptyList(),
     val progress: Map<String, Progress> = emptyMap(),
+    /** Letzte Änderung je Favoriten-Schlüssel (auch entfernte) – für den Abgleich zwischen Geräten. */
+    val favoriteChanges: Map<String, Long> = emptyMap(),
 )
 
 /**
@@ -64,6 +79,8 @@ object Repository {
     val playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val activeId = MutableStateFlow<String?>(null)
     val content = MutableStateFlow(LibraryContent.EMPTY)
+    /** Wie `content`, aber ohne ausgeblendete bzw. gesperrte Kategorien – das sieht der Nutzer. */
+    val visible = MutableStateFlow(LibraryContent.EMPTY)
     val epg = MutableStateFlow<EpgGuide?>(null)
     /** null = noch nicht geladen (Startbildschirm zeigt Ladeanzeige). */
     val restored = MutableStateFlow(false)
@@ -73,6 +90,12 @@ object Repository {
     val favorites = MutableStateFlow<Set<String>>(emptySet())
     val recents = MutableStateFlow<List<RecentEntry>>(emptyList())
     val progress = MutableStateFlow<Map<String, Progress>>(emptyMap())
+    val deletedPlaylists = MutableStateFlow<Map<String, Long>>(emptyMap())
+    var favoriteChanges: Map<String, Long> = emptyMap()
+        private set
+
+    /** Wird nach Änderungen an Nutzerdaten/Playlists aufgerufen (Google-Drive-Sync). */
+    var onChange: (() -> Unit)? = null
 
     @Volatile var playbackActive = false
     private var refreshJob: Job? = null
@@ -86,11 +109,18 @@ object Repository {
         started = true
         dir = context.filesDir
         cacheDir = context.cacheDir
+        Prefs.init(context)
+        // Sichtbare Inhalte neu berechnen, wenn sich Playlist oder Kategorie-Einstellungen ändern.
+        scope.launch {
+            kotlinx.coroutines.flow.combine(content, CategoryPrefs.version) { c, _ -> c }
+                .collectLatest { c -> visible.value = filtered(c) }
+        }
         scope.launch {
             restoreUserData()
             read(File(dir, "library.json"), LibraryFile.serializer())?.let {
                 playlists.value = it.playlists
                 activeId.value = it.activeId ?: it.playlists.firstOrNull()?.id
+                deletedPlaylists.value = it.deleted
             }
             val active = activePlaylist
             if (active != null) {
@@ -106,11 +136,27 @@ object Repository {
 
     // region Playlists
 
-    /** Legt eine Playlist an und lädt sie. Bei Fehlern wird nichts gespeichert (Rückgabe: Fehlermeldung). */
-    suspend fun addPlaylist(name: String, source: PlaylistSource): String? = withContext(Dispatchers.Default) {
+    private fun filtered(c: LibraryContent): LibraryContent {
+        val channels = CategoryPrefs.filterChannels(c.data.channels)
+        val shows = CategoryPrefs.filterShows(c.data.shows)
+        return if (channels.size == c.data.channels.size && shows.size == c.data.shows.size) c
+        else LibraryContent(PlaylistData(channels, shows))
+    }
+
+    /**
+     * Legt eine Playlist an und lädt sie. Bei Fehlern wird nichts gespeichert (Rückgabe: Fehlermeldung).
+     * @param importFile bei M3U-Dateien: die hochgeladene Datei (wird übernommen).
+     */
+    suspend fun addPlaylist(
+        name: String,
+        source: PlaylistSource,
+        customEpg: String? = null,
+        importFile: File? = null,
+    ): String? = withContext(Dispatchers.Default) {
         isLoading.value = true
+        var playlist = Playlist(name = name, source = source, customEpgUrl = customEpg?.takeIf { it.isNotBlank() })
         try {
-            var playlist = Playlist(name = name, source = source)
+            if (importFile != null) importFile.copyTo(sourceFile(playlist.id), overwrite = true)
             val (data, epgUrl, usedSource) = fetch(playlist)
             playlist = playlist.copy(source = usedSource, detectedEpgUrl = epgUrl, lastUpdated = System.currentTimeMillis())
             write(contentFile(playlist.id), PlaylistData.serializer(), data)
@@ -119,9 +165,11 @@ object Repository {
             null
         } catch (e: OutOfMemoryError) {
             Log.w(TAG, "addPlaylist", e)
+            sourceFile(playlist.id).delete()
             TOO_BIG
         } catch (e: Exception) {
             Log.w(TAG, "addPlaylist", e)
+            sourceFile(playlist.id).delete()
             Http.message(e)
         } finally {
             isLoading.value = false
@@ -141,16 +189,50 @@ object Repository {
         Log.i(TAG, "aktiv: ${playlist.name}")
     }
 
+    /** Name, Quelle bzw. TV-Guide-Adresse ändern; bei geänderter Quelle neu laden. */
+    suspend fun editPlaylist(id: String, name: String, source: PlaylistSource, customEpg: String?, importFile: File? = null) {
+        val old = playlists.value.firstOrNull { it.id == id } ?: return
+        if (importFile != null) withContext(Dispatchers.IO) { importFile.copyTo(sourceFile(id), overwrite = true) }
+        val epgChanged = (customEpg?.takeIf { it.isNotBlank() }) != old.customEpgUrl
+        updatePlaylist(id) { it.copy(name = name, source = source, customEpgUrl = customEpg?.takeIf { e -> e.isNotBlank() }) }
+        saveLibrary()
+        onChange?.invoke()
+        if (id == activeId.value && (old.source != source || importFile != null)) refresh()
+        else if (id == activeId.value && epgChanged) withContext(Dispatchers.Default) { refreshEpg(force = true) }
+    }
+
     suspend fun delete(id: String) {
         playlists.value = playlists.value.filterNot { it.id == id }
+        deletedPlaylists.value = deletedPlaylists.value + (id to System.currentTimeMillis())
         contentFile(id).delete()
         epgFile(id).delete()
+        sourceFile(id).delete()
         if (activeId.value == id) {
             val next = playlists.value.firstOrNull()
             activeId.value = null
             content.value = LibraryContent.EMPTY
             epg.value = null
             if (next != null) activate(next.id)
+        }
+        saveLibrary()
+        onChange?.invoke()
+    }
+
+    /** Vom Google-Drive-Sync: Playlists anderer Geräte übernehmen, gelöschte entfernen. */
+    suspend fun applySyncedPlaylists(remote: List<Playlist>, deleted: Map<String, Long>) {
+        val deletedIds = deleted.keys.map { it.uppercase() }.toSet()
+        val local = playlists.value.filterNot { it.id.uppercase() in deletedIds }
+        val localIds = local.map { it.id.uppercase() }.toSet()
+        val added = remote.filter { it.id.uppercase() !in localIds && it.id.uppercase() !in deletedIds && it.source !is PlaylistSource.File }
+        deletedPlaylists.value = deletedPlaylists.value + deleted
+        if (added.isEmpty() && local.size == playlists.value.size) return
+        playlists.value = local + added
+        if (activeId.value != null && playlists.value.none { it.id == activeId.value }) {
+            playlists.value.firstOrNull()?.let { activate(it.id) } ?: run {
+                activeId.value = null; content.value = LibraryContent.EMPTY
+            }
+        } else if (activeId.value == null) {
+            playlists.value.firstOrNull()?.let { activate(it.id) }
         }
         saveLibrary()
     }
@@ -199,6 +281,12 @@ object Repository {
             is PlaylistSource.Xtream -> {
                 val client = XtreamClient(source.credentials)
                 Fetched(client.loadContent(), client.xmltvUrl, source)
+            }
+            is PlaylistSource.File -> {
+                val file = sourceFile(playlist.id)
+                if (!file.exists()) throw UserFacingException("Die M3U-Datei ist nicht mehr vorhanden. Bitte erneut hochladen.")
+                val result = file.bufferedReader().use { M3UParser.parse(it) }
+                Fetched(PlaylistData(result.channels), result.epgUrl, source)
             }
             is PlaylistSource.M3u -> {
                 // get.php-Links lieber über die (zuverlässigere) Xtream-Schnittstelle laden.
@@ -284,22 +372,51 @@ object Repository {
     fun toggleFavorite(key: String): Boolean {
         val now = key !in favorites.value
         favorites.value = if (now) favorites.value + key else favorites.value - key
+        favoriteChanges = favoriteChanges + (key to System.currentTimeMillis())
         saveUserData()
         return now
     }
 
-    fun addRecent(channel: Channel, showKey: String? = null) {
+    /** „Weiterschauen“: angefangene Filme/Episoden (mind. 30 s, noch nicht fertig), neueste zuerst. */
+    fun continueWatching(map: Map<String, Progress>): List<Progress> =
+        map.values.filter { it.channel != null && it.position >= 30_000 && it.position < it.duration * 0.95 }
+            .sortedByDescending { it.updated }
+
+    fun clearHistory() {
+        recents.value = emptyList()
+        progress.value = emptyMap()
+        saveUserData()
+    }
+
+    /** Vom Sync: zusammengeführte Nutzerdaten übernehmen (ohne erneuten Sync auszulösen). */
+    fun applySyncedUserData(favs: Set<String>, changes: Map<String, Long>, history: List<RecentEntry>, prog: Map<String, Progress>) {
+        favorites.value = favs
+        favoriteChanges = changes
+        recents.value = history.take(40)
+        progress.value = prog
+        saveUserData(notify = false)
+    }
+
+    fun addRecent(channel: Channel, showKey: String? = showKeyFor(channel)) {
         val list = recents.value.filterNot { it.channel.stableKey == channel.stableKey }
         recents.value = (listOf(RecentEntry(channel, System.currentTimeMillis(), showKey)) + list).take(40)
         saveUserData()
     }
 
-    fun saveProgress(key: String, position: Long, duration: Long) {
+    /** Schlüssel der Serie zu einer Episode („series|Kategorie|Titel“). */
+    fun showKeyFor(channel: Channel): String? {
+        if (channel.kind != app.iptv.tv.model.ContentKind.SERIES) return null
+        val title = EpisodeParser.parse(channel.name)?.showTitle ?: return null
+        return "series|${channel.category}|$title"
+    }
+
+    fun saveProgress(channel: Channel, position: Long, duration: Long, showKey: String? = showKeyFor(channel)) {
+        val key = channel.stableKey
         if (duration <= 0) return
         val map = progress.value.toMutableMap()
         // Fast zu Ende geschaut: Fortschritt löschen.
         if (position > duration * 0.95 || position < 10_000) map.remove(key)
-        else map[key] = Progress(position, duration, System.currentTimeMillis())
+        else map[key] = Progress(position, duration, System.currentTimeMillis(), channel, showKey)
         progress.value = map
         saveUserData()
     }
@@ -309,12 +426,14 @@ object Repository {
             favorites.value = it.favorites.toSet()
             recents.value = it.recents
             progress.value = it.progress
+            favoriteChanges = it.favoriteChanges
         }
     }
 
-    private fun saveUserData() {
-        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value)
+    private fun saveUserData(notify: Boolean = true) {
+        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges)
         scope.launch(Dispatchers.IO) { write(File(dir, "userdata.json"), UserDataFile.serializer(), snapshot) }
+        if (notify) onChange?.invoke()
     }
 
     // endregion
@@ -327,11 +446,12 @@ object Repository {
     }
 
     private suspend fun saveLibrary() = withContext(Dispatchers.IO) {
-        write(File(dir, "library.json"), LibraryFile.serializer(), LibraryFile(playlists.value, activeId.value))
+        write(File(dir, "library.json"), LibraryFile.serializer(), LibraryFile(playlists.value, activeId.value, deletedPlaylists.value))
     }
 
     private fun contentFile(id: String) = File(dir, "content-$id.json")
     private fun epgFile(id: String) = File(dir, "epg-$id.json")
+    private fun sourceFile(id: String) = File(dir, "source-$id.m3u")
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun <T> read(file: File, serializer: KSerializer<T>): T? {

@@ -93,6 +93,9 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var stopped by remember { mutableStateOf(false) }
+    /** Optionsmenü (OK lange drücken): null = zu, sonst Seite. */
+    var options by remember { mutableStateOf<String?>(null) }
+    var okLong by remember { mutableStateOf(false) }
 
     val channel = items[index]
     val isLive = channel.kind == ContentKind.LIVE
@@ -101,7 +104,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     fun saveProgress() {
         if (playingIndex < 0) return
         val ch = items[playingIndex]
-        if (ch.kind != ContentKind.LIVE) Repository.saveProgress(ch.stableKey, engine.position, engine.duration)
+        if (ch.kind != ContentKind.LIVE) Repository.saveProgress(ch, engine.position, engine.duration, screen.showKey ?: Repository.showKeyFor(ch))
     }
 
     fun zap(delta: Int) {
@@ -120,8 +123,12 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         val ch = items[index]
         val start = if (playingIndex < 0) startPosition else Repository.progress.value[ch.stableKey]?.position ?: 0
         playingIndex = index
-        engine.play(ch, start)
-        Repository.addRecent(ch, screen.showKey)
+        engine.preferredBackend = if (ch.kind == ContentKind.LIVE) app.iptv.tv.data.Prefs.playerLive else app.iptv.tv.data.Prefs.playerVod
+        val local = app.iptv.tv.data.Downloads.localFile(ch)
+        engine.play(ch, start, local, if (ch.kind != ContentKind.LIVE) app.iptv.tv.data.Subtitles.saved(ch) else null)
+        // Offline-Wiedergabe belegt keine Verbindung – Downloads dürfen weiterlaufen.
+        Repository.playbackActive = local == null
+        Repository.addRecent(ch, screen.showKey ?: Repository.showKeyFor(ch))
     }
 
     // Laufzeit für Filme aktualisieren und regelmäßig den Fortschritt speichern.
@@ -147,8 +154,9 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     LaunchedEffect(status.ended) {
         if (status.ended) {
             saveProgress()
+            if (!isLive) app.iptv.tv.data.Downloads.watched(items[index])
             if (!isLive && index < items.lastIndex) {
-                Repository.saveProgress(items[index].stableKey, 0, 1)
+                Repository.saveProgress(items[index], 0, 1)
                 index++
             } else {
                 nav.back()
@@ -182,19 +190,21 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             saveProgress()
             engine.release()
             Repository.playbackActive = false
+            app.iptv.tv.data.Downloads.resume()
         }
     }
 
     BackHandler {
         when {
+            options != null -> options = if (options == "main") null else "main"
             showList -> showList = false
             showInfo && !isLive && status.playing -> showInfo = false
             else -> nav.back()
         }
     }
 
-    LaunchedEffect(showList) {
-        if (!showList) {
+    LaunchedEffect(showList, options) {
+        if (!showList && options == null) {
             awaitFrame()
             runCatching { focus.requestFocus() }
         }
@@ -206,15 +216,39 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             .background(Color.Black)
             .focusRequester(focus)
             .onKeyEvent { event ->
-                if (showList) return@onKeyEvent false
+                val code = event.key.nativeKeyCode
+                val isOk = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
+                // Langes OK: Tastenwiederholungen und das Loslassen schlucken, damit im Menü nichts ungewollt ausgelöst wird.
+                if (isOk && okLong) {
+                    if (event.type == KeyEventType.KeyUp) okLong = false
+                    return@onKeyEvent true
+                }
+                if (showList || options != null) return@onKeyEvent false
+                // OK lange drücken → Optionen; kurzes OK wird beim Loslassen ausgewertet.
+                if (isOk && event.type == KeyEventType.KeyDown) {
+                    if (event.nativeKeyEvent.repeatCount > 0 && !okLong) {
+                        okLong = true
+                        options = "main"
+                    }
+                    return@onKeyEvent true
+                }
+                if (isOk && event.type == KeyEventType.KeyUp) {
+                    when {
+                        status.failed -> engine.retryNow()
+                        isLive -> { showInfo = !showInfo; infoTick++ }
+                        showInfo -> { engine.togglePause(); infoTick++ }
+                        else -> { showInfo = true; infoTick++ }
+                    }
+                    return@onKeyEvent true
+                }
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key.nativeKeyCode) {
+                when (code) {
                     KeyEvent.KEYCODE_DPAD_UP -> {
                         if (isLive) zap(-1) else { showInfo = true; infoTick++ }
                         true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        if (isLive) zap(1) else { showInfo = true; infoTick++ }
+                        if (isLive) zap(1) else options = "main"
                         true
                     }
                     KeyEvent.KEYCODE_CHANNEL_UP -> { zap(1); true }
@@ -229,19 +263,12 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                     }
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { engine.seekBy(-30_000); showInfo = true; infoTick++; true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { engine.seekBy(60_000); showInfo = true; infoTick++; true }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                        when {
-                            status.failed -> engine.retryNow()
-                            isLive -> { showInfo = !showInfo; infoTick++ }
-                            showInfo -> { engine.togglePause(); infoTick++ }
-                            else -> { showInfo = true; infoTick++ }
-                        }
-                        true
-                    }
                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                         engine.togglePause(); showInfo = true; infoTick++; true
                     }
-                    KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> { showInfo = !showInfo; infoTick++; true }
+                    KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { options = "main"; true }
+                    KeyEvent.KEYCODE_INFO -> { showInfo = !showInfo; infoTick++; true }
+                    KeyEvent.KEYCODE_CAPTIONS -> { options = "text"; true }
                     else -> false
                 }
             }
@@ -311,7 +338,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                                 Text("Danach: ${clock(it.start)}  ${it.title}", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
                             }
                             Text(
-                                "▲▼ Sender wechseln   ◀ Senderliste   OK Info   Zurück = Schließen",
+                                "▲▼ Sender wechseln   ◀ Senderliste   OK Info   OK lange = Optionen   Zurück = Schließen",
                                 fontSize = 13.sp, color = AppColors.TextSecondary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 12.dp),
                             )
                         }
@@ -330,12 +357,40 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                             Text(if (duration > 0) formatTime(duration) else "--:--", fontSize = 18.sp)
                         }
                         Text(
-                            "OK Pause/Weiter   ◀ 10 s zurück   ▶ 30 s vor   Zurück = Schließen",
+                            "OK Pause/Weiter   ◀ 10 s zurück   ▶ 30 s vor   ▼ Optionen (Ton, Untertitel)   Zurück = Schließen",
                             fontSize = 13.sp, color = AppColors.TextSecondary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 12.dp),
                         )
                     }
                 }
             }
+        }
+
+        // Optionen rechts
+        AnimatedVisibility(
+            visible = options != null,
+            enter = slideInHorizontally { it } + fadeIn(),
+            exit = slideOutHorizontally { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            PlayerOptions(
+                page = options ?: "main",
+                focusReady = !okLong,
+                channel = channel,
+                engine = engine,
+                isFavorite = channel.stableKey in favorites,
+                onPage = { options = it },
+                onClose = { options = null },
+                onToggleFavorite = { toggleFavorite(channel.stableKey, channel.name) },
+                onEngineChange = { choice ->
+                    if (isLive) app.iptv.tv.data.Prefs.playerLive = choice else app.iptv.tv.data.Prefs.playerVod = choice
+                    app.iptv.tv.data.GoogleSync.scheduleSync()
+                    saveProgress()
+                    val pos = if (isLive) 0L else engine.position
+                    engine.preferredBackend = choice
+                    engine.play(channel, pos, app.iptv.tv.data.Downloads.localFile(channel), if (isLive) null else app.iptv.tv.data.Subtitles.saved(channel))
+                    options = null
+                },
+            )
         }
 
         // Senderliste links

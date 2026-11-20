@@ -31,6 +31,7 @@ import app.iptv.tv.model.Channel
 
 const val ALL = "\u0000alle"
 const val FAVORITES = "\u0000favoriten"
+const val UNLOCK = "\u0000entsperren"
 
 fun liveChannels(content: LibraryContent, category: String, favorites: Set<String>): List<Channel> = when (category) {
     ALL -> content.live
@@ -42,18 +43,21 @@ fun liveChannels(content: LibraryContent, category: String, favorites: Set<Strin
 @Composable
 fun LiveScreen(nav: Navigator, screen: Screen.Live) {
     val memory = screen.memory
-    val content by Repository.content.collectAsState()
+    val content by Repository.visible.collectAsState()
+    val catVersion = app.iptv.tv.data.CategoryPrefs.version.collectAsState().value
     val epg by Repository.epg.collectAsState()
     val favorites by Repository.favorites.collectAsState()
     val toggleFavorite = rememberFavoriteToggle()
     val now = rememberNow()
     remember { memory.restored = false; 0 }
 
-    val categories = remember(content, favorites) {
+    val categories = remember(content, favorites, catVersion) {
         buildList {
             if (content.live.any { it.stableKey in favorites }) add(Triple(FAVORITES, "★ Favoriten", null as Int?))
             add(Triple(ALL, "Alle Sender", content.live.size))
-            content.liveCategories.forEach { add(Triple(it.name, it.name, it.count)) }
+            app.iptv.tv.data.CategoryPrefs.arranged(content.liveCategories, app.iptv.tv.model.ContentKind.LIVE)
+                .forEach { add(Triple(it.name, it.name, it.count)) }
+            if (app.iptv.tv.data.CategoryPrefs.hasLocked && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: screen.startCategory ?: categories.firstOrNull { it.first != FAVORITES }?.first ?: ALL) }
@@ -83,13 +87,13 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                         count = count,
                         selected = id == selected,
                         onFocus = {
-                            if (selected != id) {
+                            if (selected != id && id != UNLOCK) {
                                 selected = id
                                 memory.selection = id
                                 memory.scroll.remove("channels")
                             }
                         },
-                        onClick = { selected = id; memory.selection = id },
+                        onClick = { if (id == UNLOCK) nav.push(Screen.Unlock) else { selected = id; memory.selection = id } },
                         modifier = Modifier.rememberFocus(memory, "cat-$id", isDefault = id == selected && memory.focusedKey == null),
                     )
                 }
