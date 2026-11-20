@@ -32,6 +32,7 @@ sealed class Screen {
     data object Home : Screen()
     data object Playlists : Screen()
     data object AddPlaylist : Screen()
+    data object Search : Screen()
     data class Live(val startCategory: String? = null) : Screen()
     data class Grid(val kind: ContentKind) : Screen() {
         override val key get() = "Grid-$kind"
@@ -113,6 +114,7 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.Home -> HomeScreen(nav, screen.memory)
                 Screen.Playlists -> PlaylistsScreen(nav, screen.memory)
                 Screen.AddPlaylist -> AddPlaylistScreen(nav)
+                Screen.Search -> SearchScreen(nav, Screen.Search)
                 is Screen.Live -> LiveScreen(nav, screen)
                 is Screen.Grid -> GridScreen(nav, screen)
                 is Screen.MovieDetail -> MovieDetailScreen(nav, screen)

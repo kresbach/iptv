@@ -352,3 +352,40 @@ class PhoneInputServerTest {
         assertEquals("400 Bad Request", server.respond("POST /$t/send HTTP/1.1", "link=&server=x").first)
     }
 }
+
+class SearchTest {
+    private val content = LibraryContent(
+        app.iptv.tv.model.PlaylistData(
+            channels = listOf(
+                Channel("DE: Das Erste HD", "http://x/1.ts"),
+                Channel("ZDF HD", "http://x/2.ts"),
+                Channel("Sky Cinema Action", "http://x/3.ts"),
+                Channel("Animatrix", "http://x/8.mkv", "Anime", kind = ContentKind.MOVIE),
+                Channel("DE - The Matrix (1999)", "http://x/4.mkv", "Action", kind = ContentKind.MOVIE),
+                Channel("Matrix Reloaded", "http://x/5.mkv", "Action", kind = ContentKind.MOVIE),
+                Channel("Die Straße", "http://x/6.mkv", "Drama", kind = ContentKind.MOVIE),
+                Channel("Pokémon S01 E01", "http://x/7.mp4", "Kids", kind = ContentKind.SERIES),
+            ),
+            shows = listOf(SeriesShow("Dark", "Drama", xtreamSeriesId = 1)),
+        ),
+    )
+
+    @Test
+    fun findsAcrossAllAreas() {
+        val r = Search.search(content, "matrix")
+        // Treffer am Wortanfang zuerst, „Animatrix“ (mitten im Wort) zuletzt
+        assertEquals(listOf("DE - The Matrix (1999)", "Matrix Reloaded", "Animatrix"), r.movies.map { it.name })
+        assertTrue(r.live.isEmpty())
+        assertEquals("ZDF HD", Search.search(content, "zdf").live.single().name)
+        assertEquals("Dark", Search.search(content, "DARK").shows.single().title)
+    }
+
+    @Test
+    fun ignoresCaseAccentsAndWordOrder() {
+        assertEquals("Pokémon", Search.search(content, "pokemon").shows.single().title)
+        assertEquals("Die Straße", Search.search(content, "strasse").movies.single().name)
+        assertEquals("Sky Cinema Action", Search.search(content, "action sky").live.single().name)
+        assertTrue(Search.search(content, "  ").isEmpty)
+        assertTrue(Search.search(content, "xyz").isEmpty)
+    }
+}

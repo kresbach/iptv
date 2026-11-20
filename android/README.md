@@ -59,6 +59,13 @@ Auf dem Fernseher **Playlists → Playlist hinzufügen** öffnen (bzw. beim erst
 Die Eingabeseite ist nur erreichbar, solange „Playlist hinzufügen“ auf dem Fernseher offen ist,
 und nur mit dem Zufalls-Code aus dem QR-Code.
 
+## Suche
+
+Auf der Startseite die Kachel **Suche** wählen. Durchsucht Live TV, Filme und Serien gleichzeitig.
+Groß-/Kleinschreibung und Akzente sind egal („pokemon“ findet „Pokémon“), mehrere Wörter dürfen
+in beliebiger Reihenfolge stehen. Tipp: Auf der Bildschirmtastatur gibt es meist ein Mikrofon
+für die Spracheingabe.
+
 ## Bedienung
 
 | Wo | Taste | Wirkung |
@@ -116,4 +123,4 @@ echo "sdk.dir=/pfad/zum/android-sdk" > local.properties
 - Google-Drive-Sync mit der iOS-App
 - Kindersicherung
 - TV-Programm als Raster (EPG-Grid)
-- Suche, Audio-/Untertitelspur-Auswahl, M3U-Datei-Import
+- Audio-/Untertitelspur-Auswahl, M3U-Datei-Import

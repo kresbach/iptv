@@ -51,6 +51,11 @@ class LibraryContent(val data: PlaylistData) {
 
     val isEmpty: Boolean get() = data.channels.isEmpty() && data.shows.isEmpty()
 
+    // Vorbereitete Suchnamen (einmal berechnet, macht jede Suche schnell).
+    val searchLive: Array<String> by lazy { Array(live.size) { Search.normalize(live[it].name) } }
+    val searchMovies: Array<String> by lazy { Array(movies.size) { Search.normalize(movies[it].name) } }
+    val searchShows: Array<String> by lazy { Array(shows.size) { Search.normalize(shows[it].title) } }
+
     fun live(category: String) = liveByCategory[category].orEmpty()
     fun movies(category: String) = moviesByCategory[category].orEmpty()
     fun shows(category: String) = showsByCategory[category].orEmpty()
@@ -76,5 +81,46 @@ class LibraryContent(val data: PlaylistData) {
             if (order.remove(Channel.UNGROUPED)) order.add(Channel.UNGROUPED)
             return order.map { Category(it, grouped.getValue(it).size) } to grouped
         }
+    }
+}
+
+/** Suche über Live TV, Filme und Serien (Groß-/Kleinschreibung und Akzente egal, alle Wörter müssen passen). */
+object Search {
+    data class Results(
+        val live: List<app.iptv.tv.model.Channel> = emptyList(),
+        val movies: List<app.iptv.tv.model.Channel> = emptyList(),
+        val shows: List<SeriesShow> = emptyList(),
+    ) {
+        val isEmpty get() = live.isEmpty() && movies.isEmpty() && shows.isEmpty()
+    }
+
+    private val accents = Regex("\\p{Mn}+")
+
+    fun normalize(text: String): String =
+        java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(accents, "")
+            .replace("ß", "ss")
+
+    fun search(content: LibraryContent, query: String, limit: Int = 150): Results {
+        val words = normalize(query).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return Results()
+        fun <T> find(items: List<T>, names: Array<String>): List<T> {
+            val starts = ArrayList<T>()
+            val others = ArrayList<T>()
+            for (i in items.indices) {
+                val n = names[i]
+                if (words.all { n.contains(it) }) {
+                    // Treffer am Wortanfang zuerst
+                    if (n.startsWith(words[0]) || n.contains(" " + words[0])) starts += items[i] else others += items[i]
+                    if (starts.size >= limit) break
+                }
+            }
+            return (starts + others).take(limit)
+        }
+        return Results(
+            live = find(content.live, content.searchLive),
+            movies = find(content.movies, content.searchMovies),
+            shows = find(content.shows, content.searchShows),
+        )
     }
 }

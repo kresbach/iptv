@@ -154,6 +154,14 @@ private fun HomeContent(
         }
 
         homeRow("tiles", null, memory) {
+            item("search") {
+                TileCard(
+                    "Suche", "Sender, Filme, Serien", AppIcons.Search,
+                    onClick = { nav.push(Screen.Search) },
+                    modifier = Modifier.rememberFocus(memory, "tile-search"),
+                    highlighted = false,
+                )
+            }
             item("live") {
                 TileCard(
                     "Live TV", "${content.live.size} Sender", AppIcons.Tv,
