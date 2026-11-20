@@ -218,6 +218,7 @@ fun PlayerOptions(
                     LaunchedEffect(Unit) {
                         while (true) {
                             buffer = engine.bufferedMs
+                            engine.refreshVlcStats()
                             kotlinx.coroutines.delay(1_000)
                         }
                     }
@@ -228,6 +229,10 @@ fun PlayerOptions(
                         "Bildrate Video" to if (v.fps > 0) "%.3g fps".format(v.fps) else "wird gemessen …",
                         "Bildschirm" to (rate?.let { "%.3g Hz".format(it) } ?: "–") +
                             (if (v.fps > 0 && rate != null && app.iptv.tv.player.DisplayRate.bestRefreshRate(v.fps, listOf(rate)) == null) "  ⚠ passt nicht" else ""),
+                        "Deinterlacing" to when (engine.deinterlaceActive) {
+                            "yadif2x" -> "an (Yadif 2x)"; "bob" -> "an (Bob)"
+                            else -> if (engine.backendName == "ExoPlayer") "aus (ExoPlayer)" else "aus"
+                        },
                         "Verlorene Bilder" to "${v.droppedFrames}",
                         "Hänger (Nachladen)" to "${v.rebuffers}",
                         "Puffer" to if (engine.backendName == "VLC") "–" else "%.1f s".format(buffer / 1000f),

@@ -129,6 +129,14 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Puffer", if (Prefs.bigBuffer) "Groß" else "Normal",
             "Groß: weniger Hänger bei wackeliger Verbindung, dafür langsameres Umschalten",
             modifier = Modifier.rememberFocus(memory, "buffer")) { Prefs.bigBuffer = !Prefs.bigBuffer }
+        SettingRow(
+            "Deinterlacing für Live TV (1080i-Sender)",
+            when (Prefs.deinterlace) { "bob" -> "Schonend (Bob)"; "yadif2x" -> "Beste Qualität (Yadif 2x)"; else -> "Aus" },
+            "Gegen Ruckeln bei 1080i-Sendern (RTL, ProSieben, Sky …). Nutzt VLC; 720p/1080p bleiben unverändert",
+            modifier = Modifier.rememberFocus(memory, "deint"),
+        ) {
+            Prefs.deinterlace = when (Prefs.deinterlace) { "off" -> "yadif2x"; "yadif2x" -> "bob"; else -> "off" }
+        }
         SettingRow("Tunneling (Bild-Ton-Synchronisierung)", if (Prefs.tunneling) "An" else "Aus",
             "Bei manchen Fernsehern flüssiger, bei manchen Streams Probleme – ausprobieren",
             modifier = Modifier.rememberFocus(memory, "tunnel")) { Prefs.tunneling = !Prefs.tunneling }

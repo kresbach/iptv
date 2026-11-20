@@ -152,8 +152,12 @@ class PlaybackEngine(private val context: Context) {
         backend = when (preferredBackend) {
             app.iptv.tv.data.PlayerChoice.SYSTEM -> Backend.EXO
             app.iptv.tv.data.PlayerChoice.VLC -> Backend.VLC
-            app.iptv.tv.data.PlayerChoice.AUTOMATIC ->
-                if (UrlTools.extension(channel.url) in vlcExtensions) Backend.VLC else Backend.EXO
+            app.iptv.tv.data.PlayerChoice.AUTOMATIC -> when {
+                UrlTools.extension(channel.url) in vlcExtensions -> Backend.VLC
+                // Deinterlacing gewünscht → Live über VLC (ExoPlayer kann das nicht).
+                channel.kind == ContentKind.LIVE && deinterlaceMode != null -> Backend.VLC
+                else -> Backend.EXO
+            }
         }
         start()
     }
@@ -297,6 +301,16 @@ class PlaybackEngine(private val context: Context) {
 
     val duration: Long
         get() = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: vlc?.length?.takeIf { it > 0 } ?: 0L
+
+    /** VLC: verlorene Bilder laut VLC-Statistik (für die Wiedergabe-Info). */
+    fun refreshVlcStats() {
+        val lost = runCatching {
+            vlc?.media?.let { m ->
+                try { m.stats?.lostPictures } finally { m.release() }
+            }
+        }.getOrNull() ?: return
+        videoInfo.value = videoInfo.value.copy(droppedFrames = lost)
+    }
 
     /** Vorrat im Puffer (ms), nur ExoPlayer. */
     val bufferedMs: Long get() = exo?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0) } ?: 0L
@@ -556,9 +570,34 @@ class PlaybackEngine(private val context: Context) {
     // region VLC
 
     private var libVlc: LibVLC? = null
+    private var libVlcDeinterlace: String? = null
+
+    /** Gewähltes Deinterlacing ("bob"/"yadif2x") oder null. */
+    private val deinterlaceMode: String?
+        get() = app.iptv.tv.data.Prefs.deinterlace.takeIf { it == "bob" || it == "yadif2x" }
+
+    /** Für die Wiedergabe-Info. */
+    val deinterlaceActive: String?
+        get() = if (backend == Backend.VLC && isLive) deinterlaceMode else null
 
     private fun startVlc(url: String) {
-        val lib = libVlc ?: LibVLC(context, arrayListOf("--http-reconnect")).also { libVlc = it }
+        // Deinterlacing ist eine Einstellung der LibVLC-Instanz → bei Änderung neu anlegen.
+        val wanted = if (isLive) deinterlaceMode else null
+        if (libVlc != null && libVlcDeinterlace != wanted) {
+            val old = libVlc
+            libVlc = null
+            Thread({ while (releasing.get() > 0) Thread.sleep(50); runCatching { old?.release() } }, "vlc-lib-release").start()
+        }
+        val lib = libVlc ?: LibVLC(
+            context,
+            arrayListOf("--http-reconnect").apply {
+                if (wanted != null) {
+                    // -1 = automatisch: nur Bilder entflechten, die wirklich interlaced sind (1080i), 720p/1080p bleiben unberührt
+                    add("--deinterlace=-1")
+                    add("--deinterlace-mode=$wanted")
+                }
+            },
+        ).also { libVlc = it; libVlcDeinterlace = wanted }
         val layout = VLCVideoLayout(context)
         container.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         vlcLayout = layout
@@ -593,7 +632,16 @@ class PlaybackEngine(private val context: Context) {
         val media = Media(lib, Uri.parse(url)).apply {
             addOption(":http-user-agent=${Http.USER_AGENT}")
             addOption(":network-caching=" + if (app.iptv.tv.data.Prefs.bigBuffer) 6000 else 3000)
-            setHWDecoderEnabled(true, false)
+            if (wanted != null) {
+                // Hardware dekodiert, Bild aber über VLC ausgeben – nur so greift der Deinterlace-Filter.
+                setHWDecoderEnabled(true, true)
+                addOption(":no-mediacodec-dr")
+                addOption(":no-omxil-dr")
+                addOption(":deinterlace=-1")
+                addOption(":deinterlace-mode=$wanted")
+            } else {
+                setHWDecoderEnabled(true, false)
+            }
             if (!isLive && resumePosition > 0) addOption(":start-time=${resumePosition / 1000}")
         }
         player.media = media

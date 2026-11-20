@@ -118,6 +118,11 @@ für die Spracheingabe.
   Einstellungen → Motionflow / „Bildfrequenz anpassen“*.
 - **Puffer** Normal/Groß: Groß hilft bei wackeliger Verbindung (dafür langsameres Umschalten).
 - **Tunneling**: Bild-Ton-Synchronisierung durch die Hardware; auf manchen Fernsehern flüssiger.
+- **Deinterlacing für Live TV (1080i-Sender)**: Viele HD-Sender (RTL, ProSieben, Sky …) senden 1080i
+  (Halbbilder). ExoPlayer macht daraus nur 25 Bilder/s → abgehackte Bewegungen. Mit dieser Einstellung
+  laufen Live-Sender über VLC, das die Halbbilder zu 50 flüssigen Bildern zusammensetzt
+  („Beste Qualität“ = Yadif 2x, „Schonend“ = Bob für schwächere Geräte). 720p/1080p bleiben unverändert.
+  Alternative: **Tunneling** einschalten – dann übernimmt die Bild-Hardware des Fernsehers das Deinterlacing.
 - **Wiedergabe-Info** im Player (OK lange drücken): Bildrate, Bildschirmfrequenz, verlorene Bilder,
   Hänger und Puffer – zeigt, woran es liegt.
 

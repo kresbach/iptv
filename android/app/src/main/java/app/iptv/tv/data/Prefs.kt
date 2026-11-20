@@ -73,6 +73,12 @@ object Prefs {
     /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */
     var tunneling: Boolean get() = bool("tunneling", false); set(v) = putBool("tunneling", v)
 
+    /**
+     * Deinterlacing für Live TV (1080i-Sender): "off", "bob" (schonend) oder "yadif2x" (beste Qualität).
+     * Nutzt VLC, da ExoPlayer Halbbilder nicht zu 50 Vollbildern zusammensetzt.
+     */
+    var deinterlace: String get() = str("deinterlace", "off"); set(v) = putStr("deinterlace", v)
+
     // endregion
 
     // region Untertitel (OpenSubtitles)

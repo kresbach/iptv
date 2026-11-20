@@ -339,7 +339,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(8)
+        down(9)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")
