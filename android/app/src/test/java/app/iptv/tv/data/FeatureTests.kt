@@ -264,6 +264,9 @@ class VideoFitTest {
         assertEquals(1920 to 1080, f.fit(1920, 1080, 1280, 720))          // 16:9 füllt den Bildschirm
         assertEquals(1440 to 1080, f.fit(1920, 1080, 640, 480))           // 4:3 → Ränder links/rechts
         assertEquals(1920 to 803, f.fit(1920, 1080, 1920, 803))           // Kino 2,39:1 → Ränder oben/unten
+        assertEquals(1920 to 822, f.fit(1920, 1080, 3840, 1644))          // 21:9 (4K-Datei) → Ränder oben/unten
+        assertEquals(1920 to 810, f.fit(1920, 1080, 2560, 1080))          // 21:9 (2560×1080)
+        assertEquals(3840 to 1620, f.fit(3840, 2160, 2560, 1080))         // 21:9 auf 4K-Oberfläche
         assertEquals(1920 to 1080, f.fit(1920, 1080, 720, 576, 64, 45))   // anamorph 16:9 (PAL)
         assertEquals(1440 to 1080, f.fit(1920, 1080, 720, 576, 16, 15))   // anamorph 4:3 (PAL)
     }
