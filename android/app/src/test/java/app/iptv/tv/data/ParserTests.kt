@@ -305,3 +305,50 @@ class LibraryContentTest {
         assertNotNull(c.show("series|Serien|Lost"))
     }
 }
+
+class PhoneInputServerTest {
+    @Test
+    fun acceptsLinkFromPhoneOverHttp() {
+        val server = PhoneInputServer()
+        val port = server.start(0)
+        try {
+            val base = "http://127.0.0.1:$port/${server.token}"
+            // Eingabeseite
+            val page = java.net.URL(base).readText()
+            assertTrue(page.contains("An Fernseher senden"))
+            assertTrue(page.contains("/${server.token}/send"))
+            // Falscher Code → 404
+            val wrong = java.net.URL("http://127.0.0.1:$port/falsch").openConnection() as java.net.HttpURLConnection
+            assertEquals(404, wrong.responseCode)
+            // Link senden (wie das Formular auf dem Handy)
+            val link = "http://srv.tv:8080/get.php?username=max&password=geheim&type=m3u_plus"
+            val conn = java.net.URL("$base/send").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.outputStream.use {
+                it.write(("name=Mein+IPTV&link=" + java.net.URLEncoder.encode(link, "UTF-8") + "&server=&user=&pass=").toByteArray())
+            }
+            assertEquals(200, conn.responseCode)
+            val input = server.received.value!!
+            assertEquals("Mein IPTV", input.name)
+            assertEquals(link, input.link)
+            assertTrue(!input.isXtream)
+            assertTrue(java.net.URL("$base/status").readText().contains("Übertragen"))
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun xtreamAndValidation() {
+        val server = PhoneInputServer()
+        val t = server.token
+        val (code, _, _) = server.respond("POST /$t/send HTTP/1.1", "link=&server=host%3A8080&user=a&pass=b%26c")
+        assertEquals("200 OK", code)
+        val input = server.received.value!!
+        assertTrue(input.isXtream)
+        assertEquals("b&c", input.pass)
+        assertEquals("400 Bad Request", server.respond("POST /$t/send HTTP/1.1", "link=&server=x").first)
+    }
+}

@@ -1,6 +1,23 @@
 package app.iptv.tv.ui
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.style.TextAlign
+import app.iptv.tv.data.PhoneInputServer
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -133,12 +150,26 @@ fun AddPlaylistScreen(nav: Navigator) {
     val scope = rememberCoroutineScope()
     val memory = remember { ScreenMemory() }
 
+    // Eingabe per Handy: kleiner Web-Server im Heimnetz, solange dieser Bildschirm offen ist.
+    val phone = remember { PhoneInputServer() }
+    val phoneUrl by produceState<String?>(null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val ip = PhoneInputServer.localIpAddress() ?: return@runCatching null
+                phone.start()
+                phone.url(ip)
+            }.getOrNull()
+        }
+    }
+    DisposableEffect(Unit) { onDispose { phone.stop() } }
+
     fun save() {
         error = null
         val source: PlaylistSource = if (xtreamMode) {
             val s = UrlTools.normalizedServer(server)
             if (s == null || user.isBlank() || pass.isBlank()) {
                 error = "Bitte Server, Benutzername und Passwort eingeben."
+                phone.status = "Fehler: $error"
                 return
             }
             PlaylistSource.Xtream(XtreamCredentials(s, user.trim(), pass.trim()))
@@ -146,6 +177,7 @@ fun AddPlaylistScreen(nav: Navigator) {
             val url = UrlTools.userInput(link)
             if (url == null) {
                 error = "Bitte einen gültigen Link eingeben (beginnt mit http:// oder https://)."
+                phone.status = "Fehler: $error"
                 return
             }
             // get.php-Links sind Xtream-Zugänge → über die Xtream-Schnittstelle laden.
@@ -157,17 +189,46 @@ fun AddPlaylistScreen(nav: Navigator) {
                 is PlaylistSource.M3u -> source.displayDetail
             }
         }
+        phone.status = "Der Fernseher lädt die Playlist – das kann bei großen Listen etwas dauern …"
         scope.launch {
             val message = Repository.addPlaylist(title, source)
-            if (message == null) nav.home() else error = message
+            if (message == null) {
+                val c = Repository.content.value
+                phone.status = "Fertig! ${c.live.size} Sender, ${c.movies.size} Filme und ${c.shows.size} Serien geladen."
+                delay(2_500) // Handy kann die Erfolgsmeldung noch abholen.
+                nav.home()
+            } else {
+                error = message
+                phone.status = "Fehler: $message"
+            }
         }
     }
 
+    // Vom Handy gesendet → Felder ausfüllen und sofort laden.
+    LaunchedEffect(phone) {
+        phone.received.collect { input ->
+            if (input == null || loading) return@collect
+            phone.received.value = null
+            if (input.name.isNotBlank()) name = input.name
+            xtreamMode = input.isXtream
+            if (input.isXtream) {
+                server = input.server
+                user = input.user
+                pass = input.pass
+            } else {
+                link = input.link
+            }
+            save()
+        }
+    }
+
+    Row(Modifier.fillMaxSize()) {
     Column(
         Modifier
-            .fillMaxSize()
+            .weight(1f)
+            .fillMaxHeight()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 64.dp, vertical = 40.dp),
+            .padding(start = 64.dp, end = 32.dp, top = 40.dp, bottom = 40.dp),
     ) {
         Text("Playlist hinzufügen", fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(20.dp))
@@ -209,6 +270,58 @@ fun AddPlaylistScreen(nav: Navigator) {
                 if (loading) {
                     Spinner(size = 30.dp)
                     Text("Lade Sender, Filme und Serien – das kann bei großen Listen etwas dauern.", fontSize = 15.sp, color = AppColors.TextSecondary)
+                }
+            }
+        }
+    }
+        PhonePanel(phoneUrl)
+    }
+}
+
+/** Rechts: QR-Code + Adresse für die Eingabe per Handy. */
+@Composable
+private fun PhonePanel(url: String?) {
+    Column(
+        Modifier
+            .width(400.dp)
+            .fillMaxHeight()
+            .background(AppColors.Surface.copy(alpha = 0.6f))
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("Bequemer mit dem Handy", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        if (url == null) {
+            Text(
+                "Keine WLAN-/Netzwerkverbindung gefunden. Ist der Fernseher mit dem Heimnetz verbunden?",
+                fontSize = 16.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+            )
+            return@Column
+        }
+        Text(
+            "QR-Code mit der Handy-Kamera scannen (Handy im selben WLAN), Link einfügen und senden.",
+            fontSize = 16.sp, color = AppColors.TextSecondary, textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(20.dp))
+        QrCode(url, Modifier.size(260.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("Oder im Handy-Browser öffnen:", fontSize = 14.sp, color = AppColors.TextSecondary)
+        Text(url, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = AppColors.OrangeLight, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+fun QrCode(text: String, modifier: Modifier = Modifier) {
+    val matrix = remember(text) {
+        QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.MARGIN to 2))
+    }
+    Canvas(modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(10.dp)) {
+        val cell = size.minDimension / matrix.width
+        for (y in 0 until matrix.height) {
+            for (x in 0 until matrix.width) {
+                if (matrix[x, y]) {
+                    drawRect(Color.Black, topLeft = Offset(x * cell, y * cell), size = Size(cell + 0.5f, cell + 0.5f))
                 }
             }
         }

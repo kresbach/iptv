@@ -46,6 +46,19 @@ android/release/IPTV-TV-debug.apk
    Bei neueren Geräten (Android 11+) ggf. **Kabelloses Debugging → Gerät koppeln** verwenden und
    vorher `adb pair IP:PORT` mit dem angezeigten Code ausführen.
 
+## Playlist bequem per Handy eintragen
+
+Auf dem Fernseher **Playlists → Playlist hinzufügen** öffnen (bzw. beim ersten Start
+„Playlist hinzufügen“). Rechts erscheint ein **QR-Code**:
+
+1. Handy ins **selbe WLAN** wie den Fernseher.
+2. QR-Code mit der Handy-Kamera scannen (oder die angezeigte Adresse im Handy-Browser öffnen).
+3. Link einfügen (oder auf „Xtream-Login“ tippen und Server/Benutzer/Passwort eingeben).
+4. **An Fernseher senden** – der Fernseher lädt die Playlist sofort, das Handy zeigt an, wann sie fertig ist.
+
+Die Eingabeseite ist nur erreichbar, solange „Playlist hinzufügen“ auf dem Fernseher offen ist,
+und nur mit dem Zufalls-Code aus dem QR-Code.
+
 ## Bedienung
 
 | Wo | Taste | Wirkung |
