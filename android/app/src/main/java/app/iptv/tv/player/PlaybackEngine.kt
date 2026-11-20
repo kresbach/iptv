@@ -92,6 +92,10 @@ class PlaybackEngine(private val context: Context) {
         // Die Videofläche darf den Fokus der Fernbedienung nicht übernehmen (Tasten steuert Compose).
         isFocusable = false
         descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        // Größe der Videofläche geändert (z. B. nach Umschalten der Bildwiederholrate) → VLC anpassen.
+        addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) post { refreshVideoLayout() }
+        }
         setBackgroundColor(android.graphics.Color.BLACK)
     }
 
@@ -304,9 +308,26 @@ class PlaybackEngine(private val context: Context) {
     val duration: Long
         get() = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: vlc?.length?.takeIf { it > 0 } ?: 0L
 
+    /**
+     * VLC die aktuelle Größe der Videofläche mitteilen und das Bild neu einpassen. Nötig nach dem
+     * Start, nach einem Wechsel der Videoauflösung und nach dem Umschalten der Bildwiederholrate –
+     * sonst zeichnet VLC das Video manchmal in Originalgröße in die linke untere Ecke.
+     */
+    fun refreshVideoLayout() {
+        val p = vlc ?: return
+        val w = container.width
+        val h = container.height
+        runCatching {
+            if (w > 0 && h > 0) p.vlcVout.setWindowSize(w, h)
+            p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            p.updateVideoSurfaces()
+        }
+    }
+
     /** Auflösung und Bildrate von VLC lesen (die Bildrate steht oft erst nach einigen Sekunden fest). */
     private fun readVlcVideoTrack() {
         val t = runCatching { vlc?.currentVideoTrack }.getOrNull() ?: return
+        if (t.width != videoInfo.value.width || t.height != videoInfo.value.height) main.post { refreshVideoLayout() }
         val fps = if (t.frameRateDen > 0) t.frameRateNum.toFloat() / t.frameRateDen else 0f
         videoInfo.value = videoInfo.value.copy(
             width = t.width, height = t.height, decoder = "VLC",
@@ -634,13 +655,21 @@ class PlaybackEngine(private val context: Context) {
         val player = MediaPlayer(lib)
         vlc = player
         player.attachViews(layout, null, true, false)
+        player.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+        refreshVideoLayout()
 
         val gen = generation
         player.setEventListener { event ->
             if (gen != generation) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> onPlaying()
-                MediaPlayer.Event.Vout -> readVlcVideoTrack()
+                MediaPlayer.Event.Vout -> {
+                    readVlcVideoTrack()
+                    // Bildausgabe steht: Bildschirmgröße mitteilen (sonst landet z. B. 720p unskaliert in der Ecke).
+                    refreshVideoLayout()
+                    main.postDelayed({ if (gen == generation) refreshVideoLayout() }, 500)
+                    main.postDelayed({ if (gen == generation) refreshVideoLayout() }, 2_000)
+                }
                 MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> refreshTracks()
                 MediaPlayer.Event.Buffering ->
                     status.value = status.value.copy(buffering = event.buffering < 100f)

@@ -170,6 +170,11 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     LaunchedEffect(videoFps) {
         if (videoFps > 0f && app.iptv.tv.data.Prefs.autoFrameRate) {
             app.iptv.tv.player.DisplayRate.apply(activity, videoFps)
+            // Nach dem Umschalten der Bildwiederholrate das Bild neu einpassen (VLC).
+            delay(800)
+            engine.refreshVideoLayout()
+            delay(2_000)
+            engine.refreshVideoLayout()
         }
     }
     DisposableEffect(Unit) { onDispose { app.iptv.tv.player.DisplayRate.reset(activity) } }
