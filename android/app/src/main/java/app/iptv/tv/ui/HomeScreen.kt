@@ -63,7 +63,7 @@ fun HomeScreen(nav: Navigator, memory: ScreenMemory) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spinner()
                 Spacer(Modifier.height(16.dp))
-                Text("Playlist wird geladen …", fontSize = 20.sp)
+                Text("Playlist wird geladen …", fontSize = 20.sp, color = AppColors.TextPrimary)
             }
         }
         else -> HomeContent(nav, memory, content, loading, status)
@@ -107,7 +107,7 @@ fun Logo(big: Boolean = false) {
             androidx.tv.material3.Icon(AppIcons.Play, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(if (big) 40.dp else 26.dp))
         }
         Spacer(Modifier.width(14.dp))
-        Text("IPTV", fontSize = if (big) 44.sp else 28.sp, fontWeight = FontWeight.Black)
+        Text("IPTV", fontSize = if (big) 44.sp else 28.sp, fontWeight = FontWeight.Black, color = androidx.compose.ui.graphics.Color.White)
     }
 }
 

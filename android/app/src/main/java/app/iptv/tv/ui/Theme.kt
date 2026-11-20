@@ -1,6 +1,8 @@
 package app.iptv.tv.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.tv.material3.LocalContentColor
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -38,8 +40,10 @@ fun AppTheme(content: @Composable () -> Unit) {
             onSurfaceVariant = AppColors.TextSecondary,
             border = AppColors.Orange,
         ),
-        content = content,
-    )
+    ) {
+        // Grundfarbe für alle Texte: Weiß (sonst wären Texte ohne eigene Farbe schwarz).
+        CompositionLocalProvider(LocalContentColor provides AppColors.TextPrimary, content = content)
+    }
 }
 
 /** Einige Material-Symbole (Apache 2.0) als Vektoren, damit kein großes Icon-Paket nötig ist. */
