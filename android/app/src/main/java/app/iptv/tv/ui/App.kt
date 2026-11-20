@@ -131,6 +131,8 @@ fun AppRoot(onExit: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(AppColors.Background)) {
         val screen = nav.current
+        app.iptv.tv.IptvApp.lastScreen = screen.javaClass.simpleName +
+            if (screen is Screen.Player) " (" + screen.items.getOrNull(screen.index)?.kind?.name?.lowercase() + ")" else ""
         holder.SaveableStateProvider(screen.key + System.identityHashCode(screen)) {
             when (screen) {
                 Screen.Home -> HomeScreen(nav, screen.memory)

@@ -16,8 +16,17 @@ class IptvApp : Application(), ImageLoaderFactory {
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {
                 val text = buildString {
+                    val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+                    append("Version ").append(version).append(" · Bildschirm: ").append(lastScreen).append('\n')
                     append(error.javaClass.simpleName).append(": ").append(error.message ?: "").append('\n')
-                    error.stackTrace.take(8).forEach { append("  bei ").append(it.toString()).append('\n') }
+                    // Erste Zeilen + alle Zeilen aus der App selbst (zeigen, welcher Bildschirm/Teil betroffen ist)
+                    val frames = error.stackTrace
+                    frames.take(3).forEach { append("  bei ").append(it.toString()).append('\n') }
+                    val own = frames.drop(3).filter { it.className.startsWith("app.iptv.tv") }.take(6)
+                    if (own.isNotEmpty()) {
+                        append("  … App:\n")
+                        own.forEach { append("  bei ").append(it.toString()).append('\n') }
+                    }
                     error.cause?.let { append("Ursache: ").append(it.javaClass.simpleName).append(": ").append(it.message ?: "") }
                 }
                 crashFile(this).writeText(text)
@@ -27,6 +36,9 @@ class IptvApp : Application(), ImageLoaderFactory {
     }
 
     companion object {
+        /** Zuletzt angezeigter Bildschirm (für die Absturzmeldung). */
+        @Volatile var lastScreen: String = "?"
+
         fun crashFile(context: android.content.Context) = java.io.File(context.filesDir, "last_crash.txt")
     }
 
