@@ -109,6 +109,18 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Ruckeln beim Live-TV
+
+- **Bildwiederholrate anpassen** (Einstellungen, Standard: an): Deutsches TV hat 50 Bilder/s.
+  Läuft der Fernseher mit 60 Hz, wird regelmäßig ein Bild doppelt gezeigt → Ruckeln. Die App schaltet
+  den Fernseher beim Abspielen auf die passende Frequenz (50 Hz, 24 Hz, 60 Hz). Beim Umschalten kann
+  das Bild kurz schwarz werden. Am Sony zusätzlich möglich: *Einstellungen → Bild → Erweiterte
+  Einstellungen → Motionflow / „Bildfrequenz anpassen“*.
+- **Puffer** Normal/Groß: Groß hilft bei wackeliger Verbindung (dafür langsameres Umschalten).
+- **Tunneling**: Bild-Ton-Synchronisierung durch die Hardware; auf manchen Fernsehern flüssiger.
+- **Wiedergabe-Info** im Player (OK lange drücken): Bildrate, Bildschirmfrequenz, verlorene Bilder,
+  Hänger und Puffer – zeigt, woran es liegt.
+
 ## Selbst bauen
 
 Voraussetzungen: JDK 17 oder neuer, Android SDK (Platform 36, Build-Tools).

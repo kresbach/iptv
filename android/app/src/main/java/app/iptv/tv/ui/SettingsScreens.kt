@@ -123,6 +123,15 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
             Prefs.playerVod = PlayerChoice.entries[(Prefs.playerVod.ordinal + 1) % PlayerChoice.entries.size]
             GoogleSync.scheduleSync()
         }
+        SettingRow("Bildwiederholrate anpassen", if (Prefs.autoFrameRate) "An" else "Aus",
+            "Gegen Ruckeln: Fernseher schaltet z. B. für deutsches TV auf 50 Hz",
+            modifier = Modifier.rememberFocus(memory, "afr")) { Prefs.autoFrameRate = !Prefs.autoFrameRate }
+        SettingRow("Puffer", if (Prefs.bigBuffer) "Groß" else "Normal",
+            "Groß: weniger Hänger bei wackeliger Verbindung, dafür langsameres Umschalten",
+            modifier = Modifier.rememberFocus(memory, "buffer")) { Prefs.bigBuffer = !Prefs.bigBuffer }
+        SettingRow("Tunneling (Bild-Ton-Synchronisierung)", if (Prefs.tunneling) "An" else "Aus",
+            "Bei manchen Fernsehern flüssiger, bei manchen Streams Probleme – ausprobieren",
+            modifier = Modifier.rememberFocus(memory, "tunnel")) { Prefs.tunneling = !Prefs.tunneling }
         SettingRow("Untertitel (OpenSubtitles)", if (Subtitles.isConfigured) "eingerichtet" else "nicht eingerichtet",
             "API-Key, Konto und bevorzugte Sprachen", modifier = Modifier.rememberFocus(memory, "subs")) { nav.push(Screen.SubtitleSettings) }
 

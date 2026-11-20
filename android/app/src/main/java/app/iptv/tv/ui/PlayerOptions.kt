@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -107,6 +108,7 @@ fun PlayerOptions(
         "search" -> "Untertitel suchen"
         "diag" -> "Verbindung prüfen"
         "engine" -> "Player"
+        "info" -> "Wiedergabe-Info"
         else -> "Optionen"
     }
 
@@ -137,6 +139,7 @@ fun PlayerOptions(
                     if (!isLive) row("search", "Untertitel suchen (OpenSubtitles)", if (Subtitles.isConfigured) null else "nicht eingerichtet") { onPage("search") }
                     row("engine", "Player", "${engine.backendName} · ${(if (isLive) Prefs.playerLive else Prefs.playerVod).title}") { onPage("engine") }
                     if (isLive) row("fav", if (isFavorite) "Aus Favoriten entfernen" else "Zu Favoriten hinzufügen") { onToggleFavorite() }
+                    row("info", "Wiedergabe-Info", "Bildrate, Ruckeln, Puffer") { onPage("info") }
                     row("diag", "Verbindung prüfen", "hält den Stream kurz an") { onPage("diag") }
                     row("close", "Schließen") { onClose() }
                 }
@@ -207,6 +210,41 @@ fun PlayerOptions(
                     }
                     if (findings != null) {
                         row("retry", "Stream neu starten", first = true) { engine.retryNow(); onClose() }
+                    }
+                }
+                "info" -> item("info") {
+                    val v by engine.videoInfo.collectAsState()
+                    var buffer by remember { mutableStateOf(0L) }
+                    LaunchedEffect(Unit) {
+                        while (true) {
+                            buffer = engine.bufferedMs
+                            kotlinx.coroutines.delay(1_000)
+                        }
+                    }
+                    val rate = app.iptv.tv.player.DisplayRate.currentRate(app.iptv.tv.player.DisplayRate.findActivity(androidx.compose.ui.platform.LocalContext.current))
+                    val lines = listOf(
+                        "Player" to engine.backendName + (if (v.decoder.isNotEmpty() && v.decoder != "VLC") " · ${v.decoder}" else ""),
+                        "Auflösung" to if (v.width > 0) "${v.width}×${v.height}" else "–",
+                        "Bildrate Video" to if (v.fps > 0) "%.3g fps".format(v.fps) else "wird gemessen …",
+                        "Bildschirm" to (rate?.let { "%.3g Hz".format(it) } ?: "–") +
+                            (if (v.fps > 0 && rate != null && app.iptv.tv.player.DisplayRate.bestRefreshRate(v.fps, listOf(rate)) == null) "  ⚠ passt nicht" else ""),
+                        "Verlorene Bilder" to "${v.droppedFrames}",
+                        "Hänger (Nachladen)" to "${v.rebuffers}",
+                        "Puffer" to if (engine.backendName == "VLC") "–" else "%.1f s".format(buffer / 1000f),
+                    )
+                    Column(Modifier.padding(horizontal = 8.dp).focusRequester(firstFocus).focusable()) {
+                        lines.forEach { (k, value) ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                                Text(k, fontSize = 15.sp, color = AppColors.TextSecondary, modifier = Modifier.weight(1f))
+                                Text(value, fontSize = 15.sp)
+                            }
+                        }
+                        Spacer(Modifier.size(10.dp))
+                        Text(
+                            "Viele verlorene Bilder → Bildrate passt nicht oder das Gerät ist überlastet. " +
+                                "Viele Hänger → Verbindung zum Anbieter zu langsam (Einstellungen → großer Puffer).",
+                            fontSize = 13.sp, color = AppColors.TextSecondary, lineHeight = 18.sp,
+                        )
                     }
                 }
                 "engine" -> {

@@ -35,6 +35,18 @@ import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 
+/** Technische Daten der laufenden Wiedergabe (für „Wiedergabe-Info“ und die Bildratenanpassung). */
+data class VideoInfo(
+    val width: Int = 0,
+    val height: Int = 0,
+    /** Bildrate des Videos (gemessen bzw. aus dem Stream), 0 = unbekannt. */
+    val fps: Float = 0f,
+    val droppedFrames: Int = 0,
+    val rebuffers: Int = 0,
+    val bufferMs: Long = 0,
+    val decoder: String = "",
+)
+
 /** Eine Ton- oder Untertitelspur zur Auswahl. */
 data class TrackOption(val id: String, val label: String, val selected: Boolean)
 
@@ -63,6 +75,10 @@ class PlaybackEngine(private val context: Context) {
 
     val status = MutableStateFlow(PlayerStatus())
     val audioTracks = MutableStateFlow<List<TrackOption>>(emptyList())
+    val videoInfo = MutableStateFlow(VideoInfo())
+    /** Zeitstempel-Abstände der ersten Bilder, daraus wird die Bildrate bestimmt. */
+    private val frameDeltas = ArrayList<Long>()
+    private var lastFrameUs = -1L
     val textTracks = MutableStateFlow<List<TrackOption>>(emptyList())
 
     /** Externe Untertiteldatei (.srt), z. B. von OpenSubtitles. */
@@ -127,6 +143,7 @@ class PlaybackEngine(private val context: Context) {
         attempts = 0
         forceHls = false
         bufferingSince = 0L
+        videoInfo.value = VideoInfo()
         everPlayed = false
         resumePosition = startPositionMs
         subtitleFile = subtitle
@@ -281,6 +298,9 @@ class PlaybackEngine(private val context: Context) {
     val duration: Long
         get() = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: vlc?.length?.takeIf { it > 0 } ?: 0L
 
+    /** Vorrat im Puffer (ms), nur ExoPlayer. */
+    val bufferedMs: Long get() = exo?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0) } ?: 0L
+
     val isPlaying: Boolean get() = exo?.isPlaying ?: vlc?.isPlaying ?: false
 
     fun togglePause() {
@@ -414,14 +434,55 @@ class PlaybackEngine(private val context: Context) {
             .setConstantBitrateSeekingEnabled(true)
         val sources = DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        // Live: etwas Vorrat vor dem Start, damit kleine Netzaussetzer nicht sofort zum Hänger werden.
+        val big = app.iptv.tv.data.Prefs.bigBuffer
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+            .setBufferDurationsMs(
+                if (big) 30_000 else 15_000,
+                if (big) 90_000 else 50_000,
+                when { !isLive -> 1_500; big -> 6_000; else -> 2_500 },
+                when { !isLive -> 3_000; big -> 10_000; else -> 5_000 },
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
+            parameters = buildUponParameters().setTunnelingEnabled(app.iptv.tv.data.Prefs.tunneling).build()
+        }
         val player = ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(sources)
             .setLoadControl(loadControl)
+            .setTrackSelector(trackSelector)
             .build()
         exo = player
+        frameDeltas.clear()
+        lastFrameUs = -1L
+        // Bildrate aus den Zeitstempeln der ersten Bilder bestimmen (viele Live-Streams nennen sie nicht).
+        player.setVideoFrameMetadataListener { presentationTimeUs, _, format, _ ->
+            if (format.frameRate > 0 && videoInfo.value.fps == 0f) {
+                DisplayRate.snapFps(format.frameRate)?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
+            }
+            if (videoInfo.value.fps > 0f) return@setVideoFrameMetadataListener
+            if (lastFrameUs >= 0 && presentationTimeUs > lastFrameUs) frameDeltas += presentationTimeUs - lastFrameUs
+            lastFrameUs = presentationTimeUs
+            if (frameDeltas.size >= 48) {
+                val median = frameDeltas.sorted()[frameDeltas.size / 2]
+                frameDeltas.clear()
+                DisplayRate.snapFps(1_000_000f / median)?.let { f -> videoInfo.value = videoInfo.value.copy(fps = f) }
+            }
+        }
+        player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onDroppedVideoFrames(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                videoInfo.value = videoInfo.value.copy(droppedFrames = videoInfo.value.droppedFrames + droppedFrames)
+            }
+
+            override fun onVideoDecoderInitialized(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                videoInfo.value = videoInfo.value.copy(decoder = decoderName)
+            }
+
+            override fun onVideoSizeChanged(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, videoSize: androidx.media3.common.VideoSize) {
+                videoInfo.value = videoInfo.value.copy(width = videoSize.width, height = videoSize.height)
+            }
+        })
 
         val view = PlayerView(context).apply {
             useController = false
@@ -436,7 +497,11 @@ class PlaybackEngine(private val context: Context) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (gen != generation) return
                 when (state) {
-                    Player.STATE_BUFFERING -> status.value = status.value.copy(buffering = true)
+                    Player.STATE_BUFFERING -> {
+                        // Nachladen mitten in der Wiedergabe = „Hänger“ (für die Wiedergabe-Info zählen)
+                        if (everPlayed) videoInfo.value = videoInfo.value.copy(rebuffers = videoInfo.value.rebuffers + 1)
+                        status.value = status.value.copy(buffering = true)
+                    }
                     Player.STATE_READY -> onPlaying()
                     Player.STATE_ENDED ->
                         // Live endet nie von selbst – Ende heißt: Verbindung abgebrochen.
@@ -493,7 +558,7 @@ class PlaybackEngine(private val context: Context) {
     private var libVlc: LibVLC? = null
 
     private fun startVlc(url: String) {
-        val lib = libVlc ?: LibVLC(context, arrayListOf("--network-caching=2000", "--http-reconnect")).also { libVlc = it }
+        val lib = libVlc ?: LibVLC(context, arrayListOf("--http-reconnect")).also { libVlc = it }
         val layout = VLCVideoLayout(context)
         container.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         vlcLayout = layout
@@ -506,6 +571,13 @@ class PlaybackEngine(private val context: Context) {
             if (gen != generation) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> onPlaying()
+                MediaPlayer.Event.Vout -> player.currentVideoTrack?.let { t ->
+                    val fps = if (t.frameRateDen > 0) t.frameRateNum.toFloat() / t.frameRateDen else 0f
+                    videoInfo.value = videoInfo.value.copy(
+                        width = t.width, height = t.height, decoder = "VLC",
+                        fps = DisplayRate.snapFps(fps) ?: 0f,
+                    )
+                }
                 MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> refreshTracks()
                 MediaPlayer.Event.Buffering ->
                     status.value = status.value.copy(buffering = event.buffering < 100f)
@@ -520,6 +592,7 @@ class PlaybackEngine(private val context: Context) {
 
         val media = Media(lib, Uri.parse(url)).apply {
             addOption(":http-user-agent=${Http.USER_AGENT}")
+            addOption(":network-caching=" + if (app.iptv.tv.data.Prefs.bigBuffer) 6000 else 3000)
             setHWDecoderEnabled(true, false)
             if (!isLive && resumePosition > 0) addOption(":start-time=${resumePosition / 1000}")
         }

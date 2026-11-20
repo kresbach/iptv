@@ -164,6 +164,16 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         }
     }
 
+    // Bildwiederholrate des Fernsehers an das Video anpassen (gegen Ruckeln, z. B. 50 Hz für deutsches TV).
+    val activity = app.iptv.tv.player.DisplayRate.findActivity(context)
+    val videoFps = engine.videoInfo.collectAsState().value.fps
+    LaunchedEffect(videoFps) {
+        if (videoFps > 0f && app.iptv.tv.data.Prefs.autoFrameRate) {
+            app.iptv.tv.player.DisplayRate.apply(activity, videoFps)
+        }
+    }
+    DisposableEffect(Unit) { onDispose { app.iptv.tv.player.DisplayRate.reset(activity) } }
+
     // Beim Verlassen und wenn der Fernseher in den Standby/Home geht: Verbindung freigeben.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {

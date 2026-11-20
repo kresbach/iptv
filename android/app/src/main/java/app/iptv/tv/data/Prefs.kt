@@ -66,6 +66,13 @@ object Prefs {
         get() = long("settingsChangedAt", 0)
         set(v) = putLong("settingsChangedAt", v)
 
+    /** Bildwiederholrate des Fernsehers an das Video anpassen (z. B. 50 Hz für deutsches TV). */
+    var autoFrameRate: Boolean get() = bool("afr", true); set(v) = putBool("afr", v)
+    /** Größerer Puffer für Live TV (wackelige Verbindung, dafür langsameres Umschalten). */
+    var bigBuffer: Boolean get() = bool("bigBuffer", false); set(v) = putBool("bigBuffer", v)
+    /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */
+    var tunneling: Boolean get() = bool("tunneling", false); set(v) = putBool("tunneling", v)
+
     // endregion
 
     // region Untertitel (OpenSubtitles)

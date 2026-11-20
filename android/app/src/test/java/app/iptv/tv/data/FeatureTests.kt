@@ -225,3 +225,21 @@ class EpgRobustnessTest {
         assertEquals(400, list[1].description!!.length)
     }
 }
+
+class DisplayRateTest {
+    private val sony = listOf(50f, 59.94f, 60f, 23.976f, 24f)
+
+    @Test
+    fun choosesMatchingRefreshRate() {
+        val d = app.iptv.tv.player.DisplayRate
+        assertEquals(50f, d.bestRefreshRate(25f, sony))      // deutsches TV (25/50i)
+        assertEquals(50f, d.bestRefreshRate(50f, sony))
+        assertEquals(23.976f, d.bestRefreshRate(23.976f, sony))
+        assertEquals(59.94f, d.bestRefreshRate(29.97f, sony))
+        assertEquals(60f, d.bestRefreshRate(30f, sony))
+        assertNull(d.bestRefreshRate(25f, listOf(60f)))       // 60-Hz-Bildschirm passt nicht zu 25 fps
+        assertEquals(25f, d.snapFps(24.98f))
+        assertEquals(50f, d.snapFps(1_000_000f / 20_000))
+        assertNull(d.snapFps(0f))
+    }
+}

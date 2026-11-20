@@ -194,6 +194,11 @@ class TvSimulationTest {
         ok() // Untertitel-Seite
         shot("24-player-untertitel")
         back()
+        down(4)
+        ok() // Wiedergabe-Info
+        expect("Bildrate Video")
+        shot("25-wiedergabe-info")
+        back()
         back()
         back()
         expect("Abspielen")
@@ -334,7 +339,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(5)
+        down(8)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")
