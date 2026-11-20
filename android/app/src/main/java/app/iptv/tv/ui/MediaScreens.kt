@@ -72,7 +72,7 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
             if (hasFav) add(Triple(FAVORITES, "★ Favoriten", null as Int?))
             add(Triple(ALL, if (isMovies) "Alle Filme" else "Alle Serien", if (isMovies) content.movies.size else content.shows.size))
             cats.forEach { add(Triple(it.name, it.name, it.count)) }
-            if (app.iptv.tv.data.CategoryPrefs.hasLocked && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
+            if (app.iptv.tv.data.CategoryPrefs.hasLocked(screen.kind) && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: ALL) }
@@ -283,7 +283,8 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
                         items(versions.size) { i ->
                             val v = versions[i]
-                            SmallButton(v.name, Modifier.rememberFocus(memory, "v-${v.url}")) { nav.replace(Screen.MovieDetail(v)) }
+                            val label = if (v.name == movie.name) "${v.name} · ${v.category} · ${app.iptv.tv.data.UrlTools.extension(v.url).uppercase()}" else v.name
+                            SmallButton(label, Modifier.rememberFocus(memory, "v-${v.url}")) { nav.replace(Screen.MovieDetail(v)) }
                         }
                     }
                 }
@@ -347,7 +348,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
     Box(Modifier.fillMaxSize()) {
         Backdrop(info?.backdrop)
         Row(Modifier.fillMaxSize().padding(start = 56.dp, top = 48.dp, end = 40.dp)) {
-            Column(Modifier.width(260.dp)) {
+            Column(Modifier.width(200.dp)) {
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(AppColors.Surface)) {
                     RemoteImage(info?.poster ?: show.poster, show.title.take(2).uppercase(), Modifier.fillMaxSize(), ContentScale.Crop)
                 }
@@ -417,7 +418,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                                         if (dl != null) Text("  ⬇ " + downloadStatus(dl).substringBefore(" ·"), fontSize = 12.sp, color = AppColors.TextSecondary)
                                     }
                                 }
-                                SmallButton(if (dl == null) "⬇" else "✕") {
+                                IconSmallButton(if (dl == null) AppIcons.Download else AppIcons.Delete) {
                                     if (dl == null) app.iptv.tv.data.Downloads.enqueue(
                                         ep.channel, show.title, ep.displayTitle + (ep.season?.let { " · Staffel $it" } ?: ""),
                                         show.poster ?: ep.channel.logo, show.favoriteKey,

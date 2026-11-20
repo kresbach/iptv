@@ -239,12 +239,12 @@ fun TvTextField(
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(modifier) {
-        Text(label, fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label, fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 20.sp),
+            textStyle = TextStyle(color = Color.White, fontSize = 17.sp),
             cursorBrush = SolidColor(AppColors.Orange),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType),
@@ -257,10 +257,10 @@ fun TvTextField(
                     BorderStroke(if (focused) 3.dp else 1.dp, if (focused) AppColors.Orange else Color.White.copy(alpha = 0.15f)),
                     RoundedCornerShape(10.dp),
                 )
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             decorationBox = { inner ->
                 Box {
-                    if (value.isEmpty()) Text(placeholder, color = AppColors.TextSecondary.copy(alpha = 0.6f), fontSize = 20.sp)
+                    if (value.isEmpty()) Text(placeholder, color = AppColors.TextSecondary.copy(alpha = 0.6f), fontSize = 17.sp, maxLines = 1)
                     inner()
                 }
             },

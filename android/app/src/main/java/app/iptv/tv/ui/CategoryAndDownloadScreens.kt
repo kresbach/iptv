@@ -112,6 +112,13 @@ fun SmallButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit
     }
 }
 
+@Composable
+fun IconSmallButton(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FocusSurface(onClick = onClick, modifier = modifier, scale = 1.1f, color = AppColors.SurfaceHigh, shape = RoundedCornerShape(20.dp)) {
+        androidx.tv.material3.Icon(icon, null, tint = Color.White, modifier = Modifier.padding(9.dp).size(20.dp))
+    }
+}
+
 /** Übersicht der Downloads: OK = abspielen, lange OK = löschen. */
 @Composable
 fun DownloadsScreen(nav: Navigator, memory: ScreenMemory) {

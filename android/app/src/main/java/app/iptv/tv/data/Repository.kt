@@ -104,12 +104,17 @@ object Repository {
 
     val activePlaylist: Playlist? get() = playlists.value.firstOrNull { it.id == activeId.value }
 
-    fun start(context: Context) {
-        if (started) return
-        started = true
+    /** Speicherorte festlegen (ohne zu laden) – auch für Oberflächen-Tests. */
+    fun attachStorage(context: Context) {
         dir = context.filesDir
         cacheDir = context.cacheDir
         Prefs.init(context)
+    }
+
+    fun start(context: Context) {
+        if (started) return
+        started = true
+        attachStorage(context)
         // Sichtbare Inhalte neu berechnen, wenn sich Playlist oder Kategorie-Einstellungen ändern.
         scope.launch {
             kotlinx.coroutines.flow.combine(content, CategoryPrefs.version) { c, _ -> c }

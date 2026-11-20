@@ -194,12 +194,23 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         }
     }
 
+    /** Schließen: in der Senderliste darunter den zuletzt gesehenen Sender fokussieren. */
+    fun close() {
+        val prev = nav.stack.getOrNull(nav.stack.size - 2)
+        if (prev is Screen.Live && isLive) {
+            prev.memory.focusedKey = "ch-${items[index].stableKey}"
+            prev.memory.scroll["channels"] = (index - 3).coerceAtLeast(0) to 0
+            prev.memory.restored = false
+        }
+        nav.back()
+    }
+
     BackHandler {
         when {
             options != null -> options = if (options == "main") null else "main"
             showList -> showList = false
             showInfo && !isLive && status.playing -> showInfo = false
-            else -> nav.back()
+            else -> close()
         }
     }
 

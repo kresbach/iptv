@@ -83,7 +83,7 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
                 .forEach { add(it.name to it.name) }
         }
     }
-    var category by remember { mutableStateOf(memory.selection ?: categories.first().first) }
+    var category by remember { mutableStateOf(memory.selection ?: ALL) }
     val channels = remember(content, category, favorites, guide) {
         liveChannels(content, category, favorites).filter { guide.schedule(it).isNotEmpty() }.take(300)
     }

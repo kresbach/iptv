@@ -146,6 +146,7 @@ object CategoryPrefs {
     fun isLocked(kind: ContentKind, name: String) = key(kind, name) in stored.locked
     fun isBlocked(kind: ContentKind, name: String) = Prefs.hasPin && !unlocked.value && isLocked(kind, name)
     val hasLocked: Boolean get() = Prefs.hasPin && stored.locked.isNotEmpty()
+    fun hasLocked(kind: ContentKind): Boolean = Prefs.hasPin && stored.locked.any { it.startsWith(kind.name.lowercase() + "|") }
 
     private val hasRestrictions get() = stored.hidden.isNotEmpty() || (Prefs.hasPin && !unlocked.value && stored.locked.isNotEmpty())
 

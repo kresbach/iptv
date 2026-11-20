@@ -449,7 +449,8 @@ fun ParentalScreen(nav: Navigator) {
     var first by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var afterVerify by remember { mutableStateOf<String?>(null) }
-    val memory = remember { ScreenMemory() }
+    // Neue „Erinnerung“ je Schritt, damit nach der PIN-Eingabe wieder ein Eintrag den Fokus bekommt.
+    val memory = remember(step, Prefs.hasPin) { ScreenMemory() }
 
     when (step) {
         "verify" -> PinPad("Aktuelle PIN", message, onComplete = { pin ->
@@ -464,7 +465,6 @@ fun ParentalScreen(nav: Navigator) {
             } else { message = "Die PINs stimmen nicht überein. Bitte neu festlegen."; step = "new" }
         })
         else -> Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 32.dp).widthIn(max = 900.dp)) {
-            remember { memory.restored = false; 0 }
             ScreenTitle(
                 "Kindersicherung",
                 "Mit einer PIN lassen sich Kategorien sperren (Einstellungen → Kategorien bearbeiten → „Sperren“). " +

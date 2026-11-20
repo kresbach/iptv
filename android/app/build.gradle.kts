@@ -13,8 +13,8 @@ android {
         applicationId = "app.iptv.tv"
         minSdk = 26 // Google TV: Android 10+, ältere Android-TV-Boxen ab 8.0
         targetSdk = 36
-        versionCode = 7
-        versionName = "2.0"
+        versionCode = 8
+        versionName = "2.0.1"
         // Google-TV-Geräte (Sony & Co.) laufen auf ARM. Spart ~50 MB gegenüber allen Architekturen.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
@@ -44,7 +44,16 @@ android {
         jniLibs { useLegacyPackaging = true }
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        // Oberflächen-Tests mit Robolectric (simuliertes Android auf dem Rechner)
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.maxHeapSize = "3g"
+            it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2")
+            it.systemProperty("robolectric.dependency.repo.id", "central")
+        }
+    }
     lint {
         // Bewusst: IPTV braucht http, Versionshinweise sind kein Fehler.
         disable += listOf("InsecureBaseConfiguration", "AcceptsUserCertificates", "GradleDependency", "NewerVersionAvailable", "ChromeOsAbiSupport")
@@ -73,4 +82,8 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

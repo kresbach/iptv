@@ -57,7 +57,7 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
             add(Triple(ALL, "Alle Sender", content.live.size))
             app.iptv.tv.data.CategoryPrefs.arranged(content.liveCategories, app.iptv.tv.model.ContentKind.LIVE)
                 .forEach { add(Triple(it.name, it.name, it.count)) }
-            if (app.iptv.tv.data.CategoryPrefs.hasLocked && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
+            if (app.iptv.tv.data.CategoryPrefs.hasLocked(app.iptv.tv.model.ContentKind.LIVE) && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: screen.startCategory ?: categories.firstOrNull { it.first != FAVORITES }?.first ?: ALL) }

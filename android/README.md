@@ -117,8 +117,13 @@ Voraussetzungen: JDK 17 oder neuer, Android SDK (Platform 36, Build-Tools).
 cd android
 echo "sdk.dir=/pfad/zum/android-sdk" > local.properties
 ./gradlew assembleDebug        # APK: app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # Unit-Tests (Parser, Xtream, TV-Guide)
+./gradlew testDebugUnitTest    # Unit-Tests (Parser, Xtream, TV-Guide) + TV-Simulation
 ```
+
+Die **TV-Simulation** (`TvSimulationTest`, Robolectric) startet die echte Oberfläche in
+1920×1080 mit Beispieldaten, bedient sie wie mit der Fernbedienung (Steuerkreuz, OK, langes OK,
+Zurück, Zifferntasten) und legt Bildschirmfotos unter `app/build/tv-screens/` ab.
+Videos werden dabei nicht abgespielt – das lässt sich nur auf einem echten Gerät prüfen.
 
 ## Weitere Funktionen (seit Version 2.0)
 
