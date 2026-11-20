@@ -1,0 +1,345 @@
+package app.iptv.tv.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Text
+import app.iptv.tv.data.LibraryContent
+import app.iptv.tv.data.Repository
+import app.iptv.tv.model.ContentKind
+import kotlinx.coroutines.delay
+
+@Composable
+fun rememberNow(): Long {
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            delay(30_000)
+            value = System.currentTimeMillis()
+        }
+    }
+    return now
+}
+
+@Composable
+fun HomeScreen(nav: Navigator, memory: ScreenMemory) {
+    val restored by Repository.restored.collectAsState()
+    val playlists by Repository.playlists.collectAsState()
+    val content by Repository.content.collectAsState()
+    val loading by Repository.isLoading.collectAsState()
+    val status by Repository.statusMessage.collectAsState()
+    remember { memory.restored = false; 0 }
+
+    when {
+        !restored -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
+        playlists.isEmpty() -> WelcomeScreen(nav, memory)
+        content.isEmpty && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spinner()
+                Spacer(Modifier.height(16.dp))
+                Text("Playlist wird geladen …", fontSize = 20.sp)
+            }
+        }
+        else -> HomeContent(nav, memory, content, loading, status)
+    }
+}
+
+@Composable
+private fun WelcomeScreen(nav: Navigator, memory: ScreenMemory) {
+    Column(
+        Modifier.fillMaxSize().padding(64.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Logo(big = true)
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "Willkommen! Füge deine erste Playlist hinzu –\nper M3U-Link oder mit deinem Xtream-Codes-Zugang.",
+            fontSize = 22.sp,
+            textAlign = TextAlign.Center,
+            color = AppColors.TextSecondary,
+        )
+        Spacer(Modifier.height(32.dp))
+        AppButton(
+            "Playlist hinzufügen",
+            onClick = { nav.push(Screen.AddPlaylist) },
+            icon = AppIcons.Add,
+            modifier = Modifier.rememberFocus(memory, "add", isDefault = true),
+        )
+    }
+}
+
+@Composable
+fun Logo(big: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(if (big) 64.dp else 40.dp)
+                .background(AppColors.Gradient, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.tv.material3.Icon(AppIcons.Play, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(if (big) 40.dp else 26.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Text("IPTV", fontSize = if (big) 44.sp else 28.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun HomeContent(
+    nav: Navigator,
+    memory: ScreenMemory,
+    content: LibraryContent,
+    loading: Boolean,
+    status: String?,
+) {
+    val epg by Repository.epg.collectAsState()
+    val favorites by Repository.favorites.collectAsState()
+    val recents by Repository.recents.collectAsState()
+    val progress by Repository.progress.collectAsState()
+    val toggleFavorite = rememberFavoriteToggle()
+    val now = rememberNow()
+    val active = Repository.activePlaylist
+    val playlistCount = Repository.playlists.collectAsState().value.size
+
+    val saved = memory.scroll["home"]
+    val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
+    DisposableEffect(Unit) {
+        onDispose { memory.scroll["home"] = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+    }
+
+    LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 48.dp), modifier = Modifier.fillMaxSize()) {
+        item("header") {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 28.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Logo()
+                Spacer(Modifier.width(20.dp))
+                Text(active?.name ?: "", fontSize = 18.sp, color = AppColors.TextSecondary, modifier = Modifier.weight(1f))
+                if (loading) {
+                    Spinner(size = 24.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Aktualisiere …", fontSize = 15.sp, color = AppColors.TextSecondary)
+                } else if (status != null) {
+                    Text(status, fontSize = 15.sp, color = AppColors.OrangeLight, maxLines = 1)
+                }
+            }
+        }
+
+        homeRow("tiles", null, memory) {
+            item("live") {
+                TileCard(
+                    "Live TV", "${content.live.size} Sender", AppIcons.Tv,
+                    onClick = { nav.push(Screen.Live()) },
+                    modifier = Modifier.rememberFocus(memory, "tile-live", isDefault = true),
+                )
+            }
+            item("movies") {
+                TileCard(
+                    "Filme", "${content.movies.size} Filme", AppIcons.Movie,
+                    onClick = { nav.push(Screen.Grid(ContentKind.MOVIE)) },
+                    modifier = Modifier.rememberFocus(memory, "tile-movies"),
+                )
+            }
+            item("series") {
+                TileCard(
+                    "Serien", "${content.shows.size} Serien", AppIcons.Series,
+                    onClick = { nav.push(Screen.Grid(ContentKind.SERIES)) },
+                    modifier = Modifier.rememberFocus(memory, "tile-series"),
+                )
+            }
+            item("playlists") {
+                TileCard(
+                    "Playlists", "${playlistCount} gespeichert", AppIcons.Playlist,
+                    onClick = { nav.push(Screen.Playlists) },
+                    modifier = Modifier.rememberFocus(memory, "tile-playlists"),
+                    highlighted = false,
+                )
+            }
+        }
+
+        if (recents.isNotEmpty()) {
+            homeRow("recents", "Zuletzt gesehen", memory) {
+                items(recents.take(20), key = { "r-" + it.channel.stableKey }) { entry ->
+                    val ch = entry.channel
+                    val key = "recent-${ch.stableKey}"
+                    if (ch.kind == ContentKind.LIVE) {
+                        ChannelCard(
+                            ch, epg?.current(ch, now), now,
+                            onClick = {
+                                val list = content.live.ifEmpty { listOf(ch) }
+                                val idx = list.indexOfFirst { it.stableKey == ch.stableKey }
+                                nav.push(if (idx >= 0) Screen.Player(list, idx) else Screen.Player(listOf(ch), 0))
+                            },
+                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                            isFavorite = ch.stableKey in favorites,
+                            modifier = Modifier.rememberFocus(memory, key),
+                        )
+                    } else {
+                        val p = progress[ch.stableKey]
+                        PosterCard(
+                            title = ch.name,
+                            image = ch.logo,
+                            initials = ch.initials,
+                            progress = p?.let { it.position.toFloat() / it.duration },
+                            onClick = {
+                                val show = entry.showKey?.let { content.show(it) }
+                                when {
+                                    show != null -> nav.push(Screen.SeriesDetail(show))
+                                    ch.kind == ContentKind.MOVIE -> nav.push(Screen.MovieDetail(ch))
+                                    else -> nav.push(Screen.Player(listOf(ch), 0, p?.position ?: 0, entry.showKey))
+                                }
+                            },
+                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                            modifier = Modifier.rememberFocus(memory, key),
+                        )
+                    }
+                }
+            }
+        }
+
+        val favChannels = favorites.mapNotNull { content.channel(it) }
+        val favShows = favorites.mapNotNull { content.show(it) }
+        if (favChannels.isNotEmpty() || favShows.isNotEmpty()) {
+            homeRow("favorites", "Favoriten", memory) {
+                items(favChannels, key = { "f-" + it.stableKey }) { ch ->
+                    val key = "fav-${ch.stableKey}"
+                    if (ch.kind == ContentKind.LIVE) {
+                        ChannelCard(
+                            ch, epg?.current(ch, now), now,
+                            onClick = {
+                                val list = favChannels.filter { it.kind == ContentKind.LIVE }
+                                nav.push(Screen.Player(list, list.indexOf(ch).coerceAtLeast(0)))
+                            },
+                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                            isFavorite = true,
+                            modifier = Modifier.rememberFocus(memory, key),
+                        )
+                    } else {
+                        PosterCard(
+                            ch.name, ch.logo, initials = ch.initials,
+                            onClick = { nav.push(Screen.MovieDetail(ch)) },
+                            onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                            isFavorite = true,
+                            modifier = Modifier.rememberFocus(memory, key),
+                        )
+                    }
+                }
+                items(favShows, key = { "fs-" + it.favoriteKey }) { show ->
+                    PosterCard(
+                        show.title, show.poster, initials = show.title.take(2).uppercase(),
+                        onClick = { nav.push(Screen.SeriesDetail(show)) },
+                        onLongClick = { toggleFavorite(show.favoriteKey, show.title) },
+                        isFavorite = true,
+                        modifier = Modifier.rememberFocus(memory, "fav-${show.favoriteKey}"),
+                    )
+                }
+            }
+        }
+
+        if (content.live.isNotEmpty()) {
+            homeRow("live", "Live TV", memory) {
+                val list = content.live.take(30)
+                items(list, key = { "l-" + it.stableKey }) { ch ->
+                    ChannelCard(
+                        ch, epg?.current(ch, now), now,
+                        onClick = { nav.push(Screen.Player(content.live, content.live.indexOf(ch))) },
+                        onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                        isFavorite = ch.stableKey in favorites,
+                        modifier = Modifier.rememberFocus(memory, "live-${ch.stableKey}"),
+                    )
+                }
+            }
+        }
+
+        if (content.movies.isNotEmpty()) {
+            homeRow("movies", "Filme – neu hinzugefügt", memory) {
+                items(content.newestMovies, key = { "m-" + it.stableKey }) { ch ->
+                    PosterCard(
+                        ch.name, ch.logo, initials = ch.initials,
+                        onClick = { nav.push(Screen.MovieDetail(ch)) },
+                        onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
+                        isFavorite = ch.stableKey in favorites,
+                        progress = progress[ch.stableKey]?.let { it.position.toFloat() / it.duration },
+                        modifier = Modifier.rememberFocus(memory, "movie-${ch.stableKey}"),
+                    )
+                }
+            }
+        }
+
+        if (content.shows.isNotEmpty()) {
+            homeRow("shows", "Serien – neu", memory) {
+                items(content.newestShows, key = { "s-" + it.favoriteKey }) { show ->
+                    PosterCard(
+                        show.title, show.poster, initials = show.title.take(2).uppercase(),
+                        onClick = { nav.push(Screen.SeriesDetail(show)) },
+                        onLongClick = { toggleFavorite(show.favoriteKey, show.title) },
+                        isFavorite = show.favoriteKey in favorites,
+                        modifier = Modifier.rememberFocus(memory, "show-${show.favoriteKey}"),
+                    )
+                }
+            }
+        }
+
+        item("hint") {
+            Text(
+                "Tipp: OK lange drücken = Favorit hinzufügen/entfernen",
+                modifier = Modifier.padding(start = 48.dp, top = 24.dp),
+                fontSize = 14.sp,
+                color = AppColors.TextSecondary,
+            )
+        }
+    }
+}
+
+/** Eine horizontale Reihe mit Titel; die Scrollposition bleibt beim Zurückkehren erhalten. */
+private fun LazyListScope.homeRow(
+    id: String,
+    title: String?,
+    memory: ScreenMemory,
+    content: LazyListScope.() -> Unit,
+) {
+    item(id) {
+        Column {
+            if (title != null) SectionTitle(title) else Spacer(Modifier.height(24.dp))
+            val saved = memory.scroll[id]
+            val state = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
+            DisposableEffect(Unit) {
+                onDispose { memory.scroll[id] = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+            }
+            LazyRow(
+                state = state,
+                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                content = content,
+            )
+        }
+    }
+}

@@ -1,0 +1,106 @@
+package app.iptv.tv.ui
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Modifier
+import app.iptv.tv.data.Repository
+import app.iptv.tv.model.Channel
+import app.iptv.tv.model.ContentKind
+import app.iptv.tv.model.SeriesShow
+
+/** Bildschirme der App. Jede Instanz merkt sich Fokus und Scrollposition. */
+sealed class Screen {
+    val memory = ScreenMemory()
+    open val key: String get() = javaClass.simpleName
+
+    data object Home : Screen()
+    data object Playlists : Screen()
+    data object AddPlaylist : Screen()
+    data class Live(val startCategory: String? = null) : Screen()
+    data class Grid(val kind: ContentKind) : Screen() {
+        override val key get() = "Grid-$kind"
+    }
+    data class MovieDetail(val movie: Channel) : Screen() {
+        override val key get() = "Movie-${movie.stableKey}"
+    }
+    data class SeriesDetail(val show: SeriesShow) : Screen() {
+        override val key get() = "Series-${show.favoriteKey}"
+    }
+
+    /** Player: `items` ist die Liste für Hoch/Runter (Sender einer Kategorie bzw. Episoden). */
+    data class Player(
+        val items: List<Channel>,
+        val index: Int,
+        val startPosition: Long = 0,
+        val showKey: String? = null,
+    ) : Screen()
+}
+
+class Navigator {
+    val stack = mutableStateListOf<Screen>(Screen.Home)
+    val current: Screen get() = stack.last()
+
+    fun push(screen: Screen) {
+        stack.add(screen)
+    }
+
+    /** Ersetzt den obersten Bildschirm (z. B. nach „Playlist hinzufügen“). */
+    fun replace(screen: Screen) {
+        stack.removeAt(stack.lastIndex)
+        stack.add(screen)
+    }
+
+    fun back(): Boolean {
+        if (stack.size <= 1) return false
+        stack.removeAt(stack.lastIndex)
+        return true
+    }
+
+    fun home() {
+        while (stack.size > 1) stack.removeAt(stack.lastIndex)
+    }
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Repository.start(applicationContext)
+        setContent {
+            AppTheme {
+                AppRoot(onExit = { finish() })
+            }
+        }
+    }
+}
+
+@Composable
+fun AppRoot(onExit: () -> Unit) {
+    val nav = remember { Navigator() }
+    val holder = rememberSaveableStateHolder()
+    BackHandler { if (!nav.back()) onExit() }
+
+    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+        val screen = nav.current
+        holder.SaveableStateProvider(screen.key + System.identityHashCode(screen)) {
+            when (screen) {
+                Screen.Home -> HomeScreen(nav, screen.memory)
+                Screen.Playlists -> PlaylistsScreen(nav, screen.memory)
+                Screen.AddPlaylist -> AddPlaylistScreen(nav)
+                is Screen.Live -> LiveScreen(nav, screen)
+                is Screen.Grid -> GridScreen(nav, screen)
+                is Screen.MovieDetail -> MovieDetailScreen(nav, screen)
+                is Screen.SeriesDetail -> SeriesDetailScreen(nav, screen)
+                is Screen.Player -> PlayerScreen(nav, screen)
+            }
+        }
+    }
+}
