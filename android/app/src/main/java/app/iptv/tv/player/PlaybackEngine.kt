@@ -315,11 +315,24 @@ class PlaybackEngine(private val context: Context) {
      */
     fun refreshVideoLayout() {
         val p = vlc ?: return
-        val w = container.width
-        val h = container.height
+        val layout = vlcLayout ?: return
+        val cw = container.width
+        val ch = container.height
+        if (cw <= 0 || ch <= 0) return
         runCatching {
-            if (w > 0 && h > 0) p.vlcVout.setWindowSize(w, h)
+            // Seitenverhältnis selbst berechnen und die Bildfläche passend zentrieren (Originalformat,
+            // schwarze Ränder). VLC zeichnet dann nur noch innerhalb dieser Fläche – nie gestreckt.
+            val t = p.currentVideoTrack
+            val (w, h) = if (t != null && t.width > 0 && t.height > 0) {
+                VideoFit.fit(cw, ch, t.width, t.height, t.sarNum, t.sarDen)
+            } else cw to ch
+            val lp = layout.layoutParams as? FrameLayout.LayoutParams
+            if (lp == null || lp.width != w || lp.height != h) {
+                layout.layoutParams = FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER)
+            }
+            p.vlcVout.setWindowSize(w, h)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            p.aspectRatio = null
             p.updateVideoSurfaces()
         }
     }
@@ -327,7 +340,11 @@ class PlaybackEngine(private val context: Context) {
     /** Auflösung und Bildrate von VLC lesen (die Bildrate steht oft erst nach einigen Sekunden fest). */
     private fun readVlcVideoTrack() {
         val t = runCatching { vlc?.currentVideoTrack }.getOrNull() ?: return
-        if (t.width != videoInfo.value.width || t.height != videoInfo.value.height) main.post { refreshVideoLayout() }
+        if (t.width != videoInfo.value.width || t.height != videoInfo.value.height) {
+            main.post { refreshVideoLayout() }
+            // nach der Layout-Änderung der Fläche erneut einpassen
+            main.postDelayed({ refreshVideoLayout() }, 300)
+        }
         val fps = if (t.frameRateDen > 0) t.frameRateNum.toFloat() / t.frameRateDen else 0f
         videoInfo.value = videoInfo.value.copy(
             width = t.width, height = t.height, decoder = "VLC",
@@ -650,7 +667,7 @@ class PlaybackEngine(private val context: Context) {
             },
         ).also { libVlc = it; libVlcDeinterlace = wanted }
         val layout = VLCVideoLayout(context)
-        container.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        container.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.CENTER))
         vlcLayout = layout
         val player = MediaPlayer(lib)
         vlc = player

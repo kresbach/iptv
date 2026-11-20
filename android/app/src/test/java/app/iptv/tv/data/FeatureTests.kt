@@ -255,3 +255,16 @@ class FrameRateMeasureTest {
         assertEquals(25f, d.snapFps(1_000_000f / d.frameIntervalUs(List(48) { 40_000L })))
     }
 }
+
+class VideoFitTest {
+    private val f = app.iptv.tv.player.VideoFit
+
+    @Test
+    fun keepsOriginalAspect() {
+        assertEquals(1920 to 1080, f.fit(1920, 1080, 1280, 720))          // 16:9 füllt den Bildschirm
+        assertEquals(1440 to 1080, f.fit(1920, 1080, 640, 480))           // 4:3 → Ränder links/rechts
+        assertEquals(1920 to 803, f.fit(1920, 1080, 1920, 803))           // Kino 2,39:1 → Ränder oben/unten
+        assertEquals(1920 to 1080, f.fit(1920, 1080, 720, 576, 64, 45))   // anamorph 16:9 (PAL)
+        assertEquals(1440 to 1080, f.fit(1920, 1080, 720, 576, 16, 15))   // anamorph 4:3 (PAL)
+    }
+}
