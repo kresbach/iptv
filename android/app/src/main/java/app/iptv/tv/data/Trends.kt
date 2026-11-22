@@ -97,10 +97,13 @@ object Trends {
         if (started) return
         started = true
         file = File(context.filesDir, "trends.json")
-        cache.value = runCatching { json.decodeFromString(Cache.serializer(), file!!.readText()) }.getOrDefault(Cache())
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
+            cache.value = runCatching { json.decodeFromString(Cache.serializer(), file!!.readText()) }.getOrDefault(Cache())
+            var first = true
             combine(Repository.visible, cache) { c, t -> c to t }.collectLatest { (c, t) ->
-                rows.value = runCatching { build(c, t) }.getOrDefault(emptyList())
+                // Beim Start erst die Startseite fertig aufbauen lassen, dann die Trends berechnen.
+                if (first && !c.isEmpty) { first = false; delay(1_500) }
+                rows.value = withContext(Dispatchers.Default) { runCatching { build(c, t) }.getOrDefault(emptyList()) }
             }
         }
         scope.launch {
@@ -189,10 +192,13 @@ object Trends {
     /** Reihen aus Playlist + TMDB-Listen bauen (ohne Netzwerk, testbar). */
     fun build(content: LibraryContent, cache: Cache): List<Row> {
         if (content.movies.isEmpty() && content.shows.isEmpty()) return emptyList()
-        val moviesByTitle = HashMap<String, Channel>()
-        for (m in content.movies) moviesByTitle.putIfAbsent(norm(m.name), m)
-        val showsByTitle = HashMap<String, SeriesShow>()
-        for (s in content.shows) showsByTitle.putIfAbsent(norm(s.title), s)
+        // Titel-Index nur aufbauen, wenn es TMDB-Listen gibt (teuer bei großen Playlists).
+        val moviesByTitle by lazy {
+            HashMap<String, Channel>().also { m -> for (c in content.movies) m.putIfAbsent(norm(c.name), c) }
+        }
+        val showsByTitle by lazy {
+            HashMap<String, SeriesShow>().also { m -> for (x in content.shows) m.putIfAbsent(norm(x.title), x) }
+        }
 
         fun match(list: List<TmdbEntry>): List<Item> {
             val seen = HashSet<String>()

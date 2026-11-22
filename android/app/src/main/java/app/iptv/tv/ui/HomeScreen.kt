@@ -53,20 +53,21 @@ fun HomeScreen(nav: Navigator, memory: ScreenMemory) {
     val playlists by Repository.playlists.collectAsState()
     val content by Repository.visible.collectAsState()
     val loading by Repository.isLoading.collectAsState()
+    val reading by Repository.contentLoading.collectAsState()
     val status by Repository.statusMessage.collectAsState()
     remember { memory.restored = false; 0 }
 
     when {
         !restored -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner() }
         playlists.isEmpty() -> WelcomeScreen(nav, memory)
-        content.isEmpty && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        content.isEmpty && loading && !reading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spinner()
                 Spacer(Modifier.height(16.dp))
                 Text("Playlist wird geladen …", fontSize = 20.sp, color = AppColors.TextPrimary)
             }
         }
-        else -> HomeContent(nav, memory, content, loading, status)
+        else -> HomeContent(nav, memory, content, loading || reading, status)
     }
 }
 
@@ -167,21 +168,21 @@ private fun HomeContent(
             }
             item("live") {
                 TileCard(
-                    "Live TV", "${content.live.size} Sender", AppIcons.Tv,
+                    "Live TV", if (content.isEmpty && loading) "…" else "${content.live.size} Sender", AppIcons.Tv,
                     onClick = { nav.push(Screen.Live()) },
                     modifier = Modifier.rememberFocus(memory, "tile-live", isDefault = true),
                 )
             }
             item("movies") {
                 TileCard(
-                    "Filme", "${content.movies.size} Filme", AppIcons.Movie,
+                    "Filme", if (content.isEmpty && loading) "…" else "${content.movies.size} Filme", AppIcons.Movie,
                     onClick = { nav.push(Screen.Grid(ContentKind.MOVIE)) },
                     modifier = Modifier.rememberFocus(memory, "tile-movies"),
                 )
             }
             item("series") {
                 TileCard(
-                    "Serien", "${content.shows.size} Serien", AppIcons.Series,
+                    "Serien", if (content.isEmpty && loading) "…" else "${content.shows.size} Serien", AppIcons.Series,
                     onClick = { nav.push(Screen.Grid(ContentKind.SERIES)) },
                     modifier = Modifier.rememberFocus(memory, "tile-series"),
                 )

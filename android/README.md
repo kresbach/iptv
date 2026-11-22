@@ -119,6 +119,13 @@ für die Spracheingabe.
   vom Handy). Ohne Schlüssel: neueste Titel aus passend benannten Kategorien des Anbieters
   („NETFLIX“, „AMAZON PRIME“ …). Die Listen werden alle 12 Stunden aktualisiert.
 
+### Schneller Start (seit Version 2.10)
+
+- Die Playlist wird in einem eigenen, kompakten Format gespeichert: etwa 3–4× schneller geladen als
+  vorher und rund 60 % kleiner. Beim ersten Start nach dem Update wird sie einmal umgewandelt.
+- Die Startseite erscheint sofort; Kacheln und Reihen füllen sich, sobald die Playlist geladen ist.
+  Der TV-Guide und die Trends werden erst danach im Hintergrund geladen bzw. berechnet.
+
 ## Ruckeln beim Live-TV
 
 - **Bildwiederholrate anpassen** (Einstellungen, Standard: an): Deutsches TV hat 50 Bilder/s.

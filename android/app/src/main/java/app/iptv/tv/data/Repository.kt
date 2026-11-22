@@ -89,6 +89,8 @@ object Repository {
     /** null = noch nicht geladen (Startbildschirm zeigt Ladeanzeige). */
     val restored = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
+    /** Gespeicherte Playlist wird beim Start noch eingelesen. */
+    val contentLoading = MutableStateFlow(false)
     val statusMessage = MutableStateFlow<String?>(null)
 
     val favorites = MutableStateFlow<Set<String>>(emptySet())
@@ -132,12 +134,14 @@ object Repository {
                 deletedPlaylists.value = it.deleted
             }
             val active = activePlaylist
-            if (active != null) {
-                read(contentFile(active.id), PlaylistData.serializer())?.let { content.value = LibraryContent(it) }
-                epg.value = read(epgFile(active.id), EpgGuide.serializer())
-            }
+            // Startseite sofort zeigen (Kacheln, Weiterschauen); Listen füllen sich, sobald geladen.
+            if (active != null) contentLoading.value = true
             restored.value = true
             if (active != null) {
+                readContent(active.id)?.let { content.value = LibraryContent(it) }
+                contentLoading.value = false
+                // TV-Guide erst danach – er wird für die Startseite nicht gebraucht.
+                epg.value = readEpg(active.id)
                 if (content.value.isEmpty) refresh() else refreshInBackground(8_000)
             }
         }
@@ -168,7 +172,7 @@ object Repository {
             if (importFile != null) importFile.copyTo(sourceFile(playlist.id), overwrite = true)
             val (data, epgUrl, usedSource) = fetch(playlist)
             playlist = playlist.copy(source = usedSource, detectedEpgUrl = epgUrl, lastUpdated = System.currentTimeMillis())
-            write(contentFile(playlist.id), PlaylistData.serializer(), data)
+            writeContent(playlist.id, data)
             playlists.value = playlists.value + playlist
             activate(playlist.id, data) // lädt auch den TV-Guide
             null
@@ -193,9 +197,9 @@ object Repository {
         activeId.value = id
         seriesCache.clear()
         movieInfoCache.clear()
-        val data = preloaded ?: withContext(Dispatchers.IO) { read(contentFile(id), PlaylistData.serializer()) }
+        val data = preloaded ?: withContext(Dispatchers.IO) { readContent(id) }
         content.value = data?.let { LibraryContent(it) } ?: LibraryContent.EMPTY
-        epg.value = withContext(Dispatchers.IO) { read(epgFile(id), EpgGuide.serializer()) }
+        epg.value = withContext(Dispatchers.IO) { readEpg(id) }
         saveLibrary()
         if (data == null) refresh() else if (epg.value == null) scope.launch { refreshEpg(force = true) }
         Log.i(TAG, "aktiv: ${playlist.name}")
@@ -219,6 +223,8 @@ object Repository {
         deletedPlaylists.value = deletedPlaylists.value + (id to System.currentTimeMillis())
         contentFile(id).delete()
         epgFile(id).delete()
+        legacyContentFile(id).delete()
+        legacyEpgFile(id).delete()
         sourceFile(id).delete()
         if (activeId.value == id) {
             val next = playlists.value.firstOrNull()
@@ -257,7 +263,7 @@ object Repository {
         statusMessage.value = null
         try {
             val (data, epgUrl, usedSource) = fetch(playlist)
-            write(contentFile(playlist.id), PlaylistData.serializer(), data)
+            writeContent(playlist.id, data)
             if (activeId.value == playlist.id) {
                 seriesCache.clear()
                 content.value = LibraryContent(data)
@@ -343,7 +349,7 @@ object Repository {
                 Http.download(url, tmp)
                 val guide = tmp.inputStream().use { EpgParser.parse(it, channels, Xml.newPullParser()) }
                 if (guide.programmes.isNotEmpty() || current == null) {
-                    write(epgFile(playlist.id), EpgGuide.serializer(), guide)
+                    writeEpg(playlist.id, guide)
                     if (activeId.value == playlist.id) epg.value = guide
                 }
             } catch (e: Throwable) {
@@ -469,8 +475,53 @@ object Repository {
         write(File(dir, "library.json"), LibraryFile.serializer(), LibraryFile(playlists.value, activeId.value, deletedPlaylists.value))
     }
 
-    private fun contentFile(id: String) = File(dir, "content-$id.json")
-    private fun epgFile(id: String) = File(dir, "epg-$id.json")
+    private fun contentFile(id: String) = File(dir, "content-$id.bin")
+    private fun epgFile(id: String) = File(dir, "epg-$id.bin")
+    // Ältere Versionen speicherten JSON (wird beim ersten Lesen umgewandelt)
+    private fun legacyContentFile(id: String) = File(dir, "content-$id.json")
+    private fun legacyEpgFile(id: String) = File(dir, "epg-$id.json")
+
+    /** Playlist lesen: schnelles Binärformat, sonst alte JSON-Datei (dann einmalig umwandeln). */
+    private fun readContent(id: String): PlaylistData? {
+        readBinary(contentFile(id)) { BinaryStore.readData(it) }?.let { return it }
+        val legacy = read(legacyContentFile(id), PlaylistData.serializer()) ?: return null
+        writeContent(id, legacy)
+        legacyContentFile(id).delete()
+        return legacy
+    }
+
+    private fun readEpg(id: String): EpgGuide? {
+        readBinary(epgFile(id)) { BinaryStore.readEpg(it) }?.let { return it }
+        val legacy = read(legacyEpgFile(id), EpgGuide.serializer()) ?: return null
+        writeEpg(id, legacy)
+        legacyEpgFile(id).delete()
+        return legacy
+    }
+
+    private fun writeContent(id: String, data: PlaylistData) = writeBinary(contentFile(id)) { BinaryStore.writeData(data, it) }
+    private fun writeEpg(id: String, guide: EpgGuide) = writeBinary(epgFile(id)) { BinaryStore.writeEpg(guide, it) }
+
+    private fun <T> readBinary(file: File, reader: (java.io.InputStream) -> T): T? {
+        if (!file.exists()) return null
+        return try {
+            file.inputStream().use(reader)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Lesen fehlgeschlagen: ${file.name}", e)
+            null
+        }
+    }
+
+    @Synchronized
+    private fun writeBinary(file: File, writer: (java.io.OutputStream) -> Unit) {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        try {
+            tmp.outputStream().use(writer)
+            tmp.renameTo(file)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Schreiben fehlgeschlagen: ${file.name}", e)
+            tmp.delete()
+        }
+    }
     private fun sourceFile(id: String) = File(dir, "source-$id.m3u")
 
     @OptIn(ExperimentalSerializationApi::class)
