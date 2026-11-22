@@ -80,15 +80,16 @@ class ScreenMemory {
 fun Modifier.rememberFocus(memory: ScreenMemory, key: String, isDefault: Boolean = false): Modifier {
     val requester = remember { FocusRequester() }
     val wanted = memory.focusedKey == key || (memory.focusedKey == null && isDefault)
-    LaunchedEffect(wanted) {
-        if (wanted && !memory.restored) {
+    // Nur für den einen gesuchten Eintrag eine Aufgabe starten – nicht für jeden Listeneintrag.
+    if (wanted && !memory.restored) {
+        LaunchedEffect(Unit) {
             awaitFrame()
             if (runCatching { requester.requestFocus() }.isSuccess) memory.restored = true
         }
     }
     // Gemerkter Eintrag existiert nicht mehr (gelöscht, ausgeblendet …) → Standard-Eintrag fokussieren,
     // damit die Fernbedienung nie „ins Leere“ zeigt.
-    if (isDefault) {
+    if (isDefault && !memory.restored) {
         LaunchedEffect(Unit) {
             repeat(3) { awaitFrame() }
             if (!memory.restored && runCatching { requester.requestFocus() }.isSuccess) memory.restored = true

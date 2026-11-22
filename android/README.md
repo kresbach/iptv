@@ -8,7 +8,7 @@ Bedienung komplett mit der Fernbedienung (Steuerkreuz, OK, Zurück).
 Die fertige Test-Version liegt hier im Repository:
 
 ```
-android/release/IPTV-TV-debug.apk
+android/release/IPTV-TV.apk
 ```
 
 ## Installation auf dem Sony-Fernseher
@@ -28,7 +28,7 @@ android/release/IPTV-TV-debug.apk
 2. **Einstellungen → Apps → Sicherheit & Einschränkungen → Unbekannte Quellen**:
    für **Downloader** erlauben.
 3. In Downloader die Adresse der APK eingeben, z. B.
-   `https://github.com/kresbach/iptv/raw/claude/loving-maxwell-iaygiz/android/release/IPTV-TV-debug.apk`
+   `https://github.com/kresbach/iptv/raw/claude/loving-maxwell-iaygiz/android/release/IPTV-TV.apk`
    (Ist das Repository privat, funktioniert der Link nicht direkt. Dann die APK am PC
    herunterladen und z. B. per USB-Stick oder Weg B übertragen.)
 4. Nach dem Download auf **Installieren** gehen. Die App erscheint danach in der App-Leiste als **IPTV**.
@@ -40,7 +40,7 @@ android/release/IPTV-TV-debug.apk
 3. Am PC:
    ```
    adb connect 192.168.1.50:5555
-   adb install -r IPTV-TV-debug.apk
+   adb install -r IPTV-TV.apk
    ```
    Beim ersten Verbinden fragt der Fernseher, ob der PC zugreifen darf → **Erlauben**.
    Bei neueren Geräten (Android 11+) ggf. **Kabelloses Debugging → Gerät koppeln** verwenden und
@@ -143,7 +143,7 @@ Voraussetzungen: JDK 17 oder neuer, Android SDK (Platform 36, Build-Tools).
 ```
 cd android
 echo "sdk.dir=/pfad/zum/android-sdk" > local.properties
-./gradlew assembleDebug        # APK: app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease      # optimierte APK: app/build/outputs/apk/release/app-release.apk
 ./gradlew testDebugUnitTest    # Unit-Tests (Parser, Xtream, TV-Guide) + TV-Simulation
 ```
 

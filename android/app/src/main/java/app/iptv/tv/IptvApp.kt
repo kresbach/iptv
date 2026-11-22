@@ -46,7 +46,10 @@ class IptvApp : Application(), ImageLoaderFactory {
         .okHttpClient { Http.client }
         .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.15).build() }
         .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(150L * 1024 * 1024).build() }
-        .crossfade(true)
+        // Kein Einblenden: beim schnellen Scrollen liefen sonst Dutzende Animationen gleichzeitig.
+        .crossfade(false)
+        // Cover/Logos mit halbem Speicherbedarf dekodieren (auf dem Fernseher nicht sichtbar).
+        .allowRgb565(true)
         .respectCacheHeaders(false)
         .build()
 }
