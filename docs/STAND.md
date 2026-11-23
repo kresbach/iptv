@@ -32,7 +32,13 @@ Playlists (M3U-Link inkl. get.php→Xtream, Datei, Xtream), Live/Filme/Serien, K
 Favoriten, Weiterschauen, EPG (XMLTV gestreamt, Zeitraster), Suche, Film-/Seriendetails mit Trailer und weiteren Fassungen,
 Größe/Sortierung, Downloads (Hintergrund, Speicherlimit), Untertitel (eingebettet + OpenSubtitles), Player mit Gesten,
 Umschalten, nächster Episode, AirPlay, Seitenleiste/Menüs/Tastaturkürzel/Player-Fenster auf Mac/iPad.
+Übernommen aus Android (ungetestet gebaut, ohne Compiler): Sortierung Neu/A–Z/Bewertung/Jahr + „Nur ★ 7+“
+(`Views/MediaSort.swift`, Bewertung/Datum aus Xtream in `Channel.rating/added`), Favoriten-Reihenfolge inkl. Sync
+(`UserDataStore.moveFavorites`, `SyncSnapshot.favoriteOrder`), Live TV startet mit Favoriten, Restzeit + nächste Sendung
+in der Senderliste, Erwachsenen-Kategorien automatisch sperren (`CategoryPreferences.autoLocksAdult`),
+Player-Menü „…“ mit Bildformat (`VideoFit`), Sleep-Timer, Sendernummer, letzter Sender, Bildspeicher-Grenze.
 
 ## Offene Ideen
 - Native macOS-App (dauerhaft ohne Konto nutzbar) – am besten in einer Sitzung direkt auf dem Mac bauen.
-- Catch-up/Timeshift, Sleep-Timer, Chromecast.
+- Catch-up/Timeshift, Erinnerungen, Profile, TMDB-Trends/Empfehlungen, Binär-Zwischenspeicher, Chromecast
+  (vollständige Liste der Android-Funktionen, die iOS noch fehlen: siehe Verlauf bzw. android/README.md).

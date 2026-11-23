@@ -15,6 +15,9 @@ struct SyncSnapshot: Codable, Sendable {
     /// Nur gesetzt, wenn „Playlists synchronisieren“ aktiv ist (enthält Zugangsdaten).
     var playlists: [Playlist]?
     var deletedPlaylists: [UUID: Date]?
+    /// Eigene Reihenfolge der Favoriten; die neuere gewinnt.
+    var favoriteOrder: [String]?
+    var favoriteOrderChangedAt: Date?
 }
 
 /// Synchronisierte Einstellungen; die jeweils neuere gewinnt.
@@ -149,7 +152,9 @@ final class SyncService {
                     var item = item
                     item.channel = redactor.restore(item.channel)
                     return item
-                }
+                },
+                order: merged.favoriteOrder,
+                orderChangedAt: merged.favoriteOrderChangedAt
             )
             if let settings = merged.settings, settings.changedAt > SyncedSettings.current.changedAt {
                 settings.apply()
@@ -202,7 +207,9 @@ final class SyncService {
             },
             settings: SyncedSettings.current,
             playlists: includePlaylists ? store.playlists : nil,
-            deletedPlaylists: includePlaylists ? store.deletedPlaylists : nil
+            deletedPlaylists: includePlaylists ? store.deletedPlaylists : nil,
+            favoriteOrder: state.order,
+            favoriteOrderChangedAt: state.orderChangedAt
         )
     }
 
@@ -222,6 +229,12 @@ final class SyncService {
 
         result.progress = local.progress.merging(remote.progress) { mine, theirs in
             theirs.updated > mine.updated ? theirs : mine
+        }
+
+        if let theirOrder = remote.favoriteOrder,
+           (remote.favoriteOrderChangedAt ?? .distantPast) > (local.favoriteOrderChangedAt ?? .distantPast) {
+            result.favoriteOrder = theirOrder
+            result.favoriteOrderChangedAt = remote.favoriteOrderChangedAt
         }
 
         if let theirs = remote.settings, theirs.changedAt > (local.settings?.changedAt ?? .distantPast) {

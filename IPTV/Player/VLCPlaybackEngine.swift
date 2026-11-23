@@ -32,6 +32,8 @@ final class VLCPlaybackEngine: PlaybackEngine {
     @ObservationIgnored private var wantsPlayback = false
     @ObservationIgnored private var sawActivity = false
     @ObservationIgnored private var isStopped = false
+    @ObservationIgnored private var appliedFit: VideoFit?
+    @ObservationIgnored private var appliedFitSize: CGSize = .zero
 
     /// VLC soll erst starten, wenn die Videofläche existiert.
     func attach(_ view: UIView) {
@@ -54,6 +56,45 @@ final class VLCPlaybackEngine: PlaybackEngine {
         pendingSeek = resumeAt
         wantsPlayback = true
         if hasDrawable { player.play() }
+    }
+
+    /// Bildformat anwenden. VLC zeigt von sich aus das ganze Bild im Originalformat;
+    /// für „Zoom“ wird auf das Seitenverhältnis der Fläche zugeschnitten, für „Strecken“
+    /// das Seitenverhältnis des Videos auf das der Fläche gesetzt.
+    func apply(fit: VideoFit, viewSize: CGSize) {
+        guard viewSize.width >= 1, viewSize.height >= 1 else { return }
+        guard fit != appliedFit || viewSize != appliedFitSize else { return }
+        appliedFit = fit
+        appliedFitSize = viewSize
+        let ratio = "\(Int(viewSize.width.rounded())):\(Int(viewSize.height.rounded()))"
+        switch fit {
+        case .original:
+            setAspectRatio(nil)
+            setCropGeometry(nil)
+        case .fill:
+            setAspectRatio(nil)
+            setCropGeometry(ratio)
+        case .stretch:
+            setCropGeometry(nil)
+            setAspectRatio(ratio)
+        }
+    }
+
+    // libVLC kopiert die Zeichenkette sofort, der Zeiger muss nur während des Aufrufs gültig sein.
+    private func setAspectRatio(_ value: String?) {
+        guard let value else {
+            player.videoAspectRatio = nil
+            return
+        }
+        value.withCString { player.videoAspectRatio = UnsafeMutablePointer(mutating: $0) }
+    }
+
+    private func setCropGeometry(_ value: String?) {
+        guard let value else {
+            player.videoCropGeometry = nil
+            return
+        }
+        value.withCString { player.videoCropGeometry = UnsafeMutablePointer(mutating: $0) }
     }
 
     func update() {
@@ -219,12 +260,23 @@ enum VLCPlayerRetirement {
     }
 }
 
+/// Meldet Größenänderungen (Drehen, Fenstergröße), damit das Bildformat passt.
+final class VLCDrawableView: UIView {
+    var onLayout: (@MainActor (CGSize) -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?(bounds.size)
+    }
+}
+
 /// Fläche, in die VLC das Video zeichnet.
 struct VLCVideoSurface: UIViewRepresentable {
     let engine: VLCPlaybackEngine
+    var fit: VideoFit = .original
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> VLCDrawableView {
+        let view = VLCDrawableView()
         view.backgroundColor = .black
         // Berührungen gehen an die SwiftUI-Steuerung darüber.
         view.isUserInteractionEnabled = false
@@ -232,6 +284,11 @@ struct VLCVideoSurface: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {}
+    func updateUIView(_ view: VLCDrawableView, context: Context) {
+        let engine = engine
+        let fit = fit
+        view.onLayout = { size in engine.apply(fit: fit, viewSize: size) }
+        engine.apply(fit: fit, viewSize: view.bounds.size)
+    }
 }
 #endif

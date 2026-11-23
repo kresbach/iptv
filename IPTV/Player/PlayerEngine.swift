@@ -102,6 +102,44 @@ enum PlayerEngine: String, CaseIterable, Identifiable {
 
 }
 
+/// Wie das Video die Fläche füllt. Gilt für Apple-Player und VLC und bleibt gespeichert.
+enum VideoFit: String, CaseIterable, Identifiable {
+    /// Ganzes Bild im Originalformat, ggf. mit Rändern (z. B. 21:9-Filme).
+    case original
+    /// Fläche füllen, Ränder werden abgeschnitten.
+    case fill
+    /// Auf die Fläche verzerren.
+    case stretch
+
+    static let storageKey = "videoFit"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .original: "Original"
+        case .fill: "Zoom (füllen)"
+        case .stretch: "Strecken"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .original: "rectangle.arrowtriangle.2.inward"
+        case .fill: "arrow.up.left.and.arrow.down.right"
+        case .stretch: "arrow.left.and.right.square"
+        }
+    }
+
+    var gravity: AVLayerVideoGravity {
+        switch self {
+        case .original: .resizeAspect
+        case .fill: .resizeAspectFill
+        case .stretch: .resize
+        }
+    }
+}
+
 enum ResolvedPlayer: Equatable {
     case apple
     case vlc

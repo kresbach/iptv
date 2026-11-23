@@ -149,6 +149,13 @@ struct SeriesShow: Identifiable, Hashable, Codable, Sendable {
     var episodes: [Episode]
     /// Xtream: `series_id` zum Nachladen der Episoden.
     var xtreamSeriesID: Int?
+    /// Bewertung (0–10) und letzte Änderung laut Anbieter (Xtream).
+    var rating: Double?
+    var added: Date?
+    /// Erscheinungsjahr (Xtream `releaseDate`, sonst aus dem Titel).
+    var releaseYear: Int?
+
+    var year: Int? { releaseYear ?? MediaInfo.versionKey(for: title).year.flatMap(Int.init) }
 
     /// Eindeutig, auch wenn zwei Serien gleich heißen (Xtream: über die Serien-ID).
     var id: String { xtreamSeriesID.map { "xtream-\($0)" } ?? favoriteKey }

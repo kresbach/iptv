@@ -43,7 +43,7 @@ struct TVGuideView: View {
     }
 
     private var favoriteChannels: [Channel] {
-        prefs.filter(store.content.live.items.filter { userData.isFavorite($0) })
+        userData.inFavoriteOrder(prefs.filter(store.content.live.items.filter { userData.isFavorite($0) }))
     }
 
     /// Sender der gewählten Kategorie, für die es Programmdaten gibt.

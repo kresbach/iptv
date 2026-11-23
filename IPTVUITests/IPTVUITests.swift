@@ -103,6 +103,47 @@ final class IPTVUITests: XCTestCase {
         app.buttons["Fertig"].tap()
     }
 
+    func testFilmeSortieren() {
+        tab("Filme").tap()
+        openCategory("Alle")
+        let sort = app.buttons["Sortieren"].firstMatch
+        XCTAssertTrue(sort.waitForExistence(timeout: 10), "Sortieren-Menü fehlt")
+        sort.tap()
+        let byTitle = button(containing: "A–Z")
+        XCTAssertTrue(byTitle.waitForExistence(timeout: 5), "Sortierung „A–Z“ fehlt")
+        byTitle.tap()
+        XCTAssertTrue(button(containing: "Big Buck Bunny").waitForExistence(timeout: 5))
+        XCTAssertEqual(app.state, .runningForeground, "App ist beim Sortieren abgestürzt")
+    }
+
+    func testPlayerBildformatUndSleepTimer() {
+        tab("Live TV").tap()
+        openCategory("Alle")
+        button(containing: "Apple BipBop").tap()
+        XCTAssertTrue(app.buttons["Schließen"].waitForExistence(timeout: 10))
+
+        revealPlayerControls()
+        let more = app.buttons["Weitere Optionen"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "Menü „Weitere Optionen“ fehlt")
+        more.tap()
+        let fill = button(containing: "Zoom (füllen)")
+        XCTAssertTrue(fill.waitForExistence(timeout: 5), "Bildformat fehlt")
+        fill.tap()
+        XCTAssertEqual(app.state, .runningForeground, "App ist beim Bildformat abgestürzt")
+
+        revealPlayerControls()
+        more.tap()
+        let sleepMenu = button(containing: "Sleep-Timer")
+        XCTAssertTrue(sleepMenu.waitForExistence(timeout: 5), "Sleep-Timer fehlt")
+        sleepMenu.tap()
+        let thirty = button(containing: "30 Minuten")
+        XCTAssertTrue(thirty.waitForExistence(timeout: 5))
+        thirty.tap()
+
+        revealPlayerControls()
+        app.buttons["Schließen"].tap()
+    }
+
     // MARK: - Hilfen
 
     /// Bereich in Tab-Leiste (iPhone) oder Seitenleiste (iPad).

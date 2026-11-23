@@ -37,9 +37,14 @@ final class UserDataStore {
         var progress: [String: PlaybackProgress] = [:]
         /// Optional, damit ältere Dateien ohne dieses Feld lesbar bleiben.
         var favoriteChanges: [String: Date]?
+        /// Zeitpunkt, an dem die Reihenfolge zuletzt von Hand geändert wurde.
+        var favoriteOrderChangedAt: Date?
     }
 
+    /// Favoriten in eigener Reihenfolge (neue zuerst, bis sie verschoben werden).
     private(set) var favorites: [String] = []
+    /// Letzte Änderung der Reihenfolge, für den Abgleich zwischen Geräten.
+    private(set) var favoriteOrderChangedAt: Date = .distantPast
     private(set) var history: [HistoryEntry] = []
     private(set) var progress: [String: PlaybackProgress] = [:]
 
@@ -60,6 +65,7 @@ final class UserDataStore {
         history = snapshot.history
         progress = snapshot.progress
         favoriteChanges = snapshot.favoriteChanges ?? [:]
+        favoriteOrderChangedAt = snapshot.favoriteOrderChangedAt ?? .distantPast
     }
 
     // MARK: - Favoriten
@@ -81,6 +87,43 @@ final class UserDataStore {
 
     func toggleFavorite(_ channel: Channel) { toggleFavorite(channel.stableKey) }
     func toggleFavorite(_ show: SeriesShow) { toggleFavorite(show.favoriteKey) }
+
+    /// Position je Favorit (0 = ganz oben), zum Sortieren von Listen.
+    func favoriteRanks() -> [String: Int] {
+        Dictionary(favorites.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Sortiert Favoriten in die eigene Reihenfolge; doppelte Einträge fallen weg.
+    func inFavoriteOrder(_ channels: [Channel]) -> [Channel] {
+        let ranks = favoriteRanks()
+        var seen = Set<String>()
+        return channels
+            .filter { ranks[$0.stableKey] != nil && seen.insert($0.stableKey).inserted }
+            .sorted { ranks[$0.stableKey, default: .max] < ranks[$1.stableKey, default: .max] }
+    }
+
+    func inFavoriteOrder(_ shows: [SeriesShow]) -> [SeriesShow] {
+        let ranks = favoriteRanks()
+        var seen = Set<String>()
+        return shows
+            .filter { ranks[$0.favoriteKey] != nil && seen.insert($0.favoriteKey).inserted }
+            .sorted { ranks[$0.favoriteKey, default: .max] < ranks[$1.favoriteKey, default: .max] }
+    }
+
+    /// Verschiebt Favoriten innerhalb einer angezeigten Liste (z. B. nur Live TV);
+    /// die übrigen Favoriten behalten ihre Plätze.
+    func moveFavorites(_ visibleKeys: [String], from source: IndexSet, to destination: Int) {
+        var reordered = visibleKeys
+        reordered.move(fromOffsets: source, toOffset: destination)
+        let visible = Set(visibleKeys)
+        guard visible.count == visibleKeys.count, visible.isSubset(of: favoriteSet) else { return }
+        var replacements = reordered.makeIterator()
+        favorites = favorites.map { key in
+            visible.contains(key) ? (replacements.next() ?? key) : key
+        }
+        favoriteOrderChangedAt = .now
+        scheduleSave()
+    }
 
     // MARK: - Verlauf
 
@@ -133,7 +176,13 @@ final class UserDataStore {
     // MARK: - Synchronisierung
 
     /// Aktueller Stand für den Abgleich.
-    func syncState() -> (favorites: [String: FavoriteState], history: [HistoryEntry], progress: [String: PlaybackProgress]) {
+    func syncState() -> (
+        favorites: [String: FavoriteState],
+        history: [HistoryEntry],
+        progress: [String: PlaybackProgress],
+        order: [String],
+        orderChangedAt: Date
+    ) {
         var states: [String: FavoriteState] = [:]
         for (key, date) in favoriteChanges {
             states[key] = FavoriteState(isFavorite: favoriteSet.contains(key), changedAt: date)
@@ -141,16 +190,35 @@ final class UserDataStore {
         for key in favorites where states[key] == nil {
             states[key] = FavoriteState(isFavorite: true, changedAt: .distantPast)
         }
-        return (states, history, progress)
+        return (states, history, progress, favorites, favoriteOrderChangedAt)
     }
 
     /// Übernimmt einen zusammengeführten Stand.
-    func applySync(favorites states: [String: FavoriteState], history: [HistoryEntry], progress: [String: PlaybackProgress]) {
-        let active = states
-            .filter { $0.value.isFavorite }
+    func applySync(
+        favorites states: [String: FavoriteState],
+        history: [HistoryEntry],
+        progress: [String: PlaybackProgress],
+        order: [String]? = nil,
+        orderChangedAt: Date? = nil
+    ) {
+        let activeStates = states.filter { $0.value.isFavorite }
+        let ranks = Dictionary(
+            (order ?? favorites).enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // Neu hinzugekommene (noch ohne Platz) zuerst, danach die eigene Reihenfolge.
+        let unranked = activeStates
+            .filter { ranks[$0.key] == nil }
             .sorted { $0.value.changedAt > $1.value.changedAt }
-            .map { $0.key }
+            .map(\.key)
+        let ranked = activeStates.keys
+            .filter { ranks[$0] != nil }
+            .sorted { ranks[$0, default: .max] < ranks[$1, default: .max] }
+        let active = unranked + ranked
         favorites = active
+        if let orderChangedAt, orderChangedAt > favoriteOrderChangedAt {
+            favoriteOrderChangedAt = orderChangedAt
+        }
         favoriteSet = Set(active)
         favoriteChanges = states
             .filter { $0.value.changedAt != .distantPast }
@@ -169,7 +237,13 @@ final class UserDataStore {
     private func persist(notify: Bool) {
         saveTask?.cancel()
         if notify { onChange?() }
-        let snapshot = Snapshot(favorites: favorites, history: history, progress: progress, favoriteChanges: favoriteChanges)
+        let snapshot = Snapshot(
+            favorites: favorites,
+            history: history,
+            progress: progress,
+            favoriteChanges: favoriteChanges,
+            favoriteOrderChangedAt: favoriteOrderChangedAt
+        )
         saveTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }

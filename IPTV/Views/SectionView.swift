@@ -13,6 +13,10 @@ struct SectionView: View {
     @State private var showsEditor = false
     @State private var asksPIN = false
     @State private var opensEditorAfterPIN = false
+    @AppStorage(LiveSettings.startsWithFavoritesKey) private var startsWithFavorites = true
+    @State private var showsFavoritesOnOpen = false
+    /// Nur beim ersten Öffnen nach dem App-Start direkt zu den Favoriten springen.
+    @MainActor private static var didOpenFavorites = false
 
     private var allCategories: [ChannelCategory] {
         kind == .series ? store.content.series.categories : store.section(kind).categories
@@ -135,7 +139,23 @@ struct SectionView: View {
             if opensEditorAfterPIN { showsEditor = true }
         }
         .refreshable { await store.refresh() }
+        .navigationDestination(isPresented: $showsFavoritesOnOpen) {
+            CategoryDestinationView(route: CategoryRoute(kind: .live, filter: .favorites)).appEnvironment()
+        }
+        .onAppear { openFavoritesIfWanted() }
+        .onChange(of: favoriteCount > 0) { openFavoritesIfWanted() }
     }
+
+    /// Live TV beginnt mit den Favoriten (abschaltbar in den Einstellungen).
+    private func openFavoritesIfWanted() {
+        guard kind == .live, startsWithFavorites, !Self.didOpenFavorites, favoriteCount > 0 else { return }
+        Self.didOpenFavorites = true
+        showsFavoritesOnOpen = true
+    }
+}
+
+enum LiveSettings {
+    static let startsWithFavoritesKey = "liveStartsWithFavorites"
 }
 
 /// Zeile einer Kategorie: Symbol, Name und Anzahl.
@@ -181,7 +201,14 @@ struct CategoryDestinationView: View {
     var body: some View {
         switch route.kind {
         case .live:
-            ChannelListView(title: route.title, channels: channels, showsCategory: !isSingleCategory)
+            if case .favorites = route.filter {
+                let favorites = channels
+                ChannelListView(title: route.title, channels: favorites, showsCategory: true) { source, destination in
+                    userData.moveFavorites(favorites.map(\.stableKey), from: source, to: destination)
+                }
+            } else {
+                ChannelListView(title: route.title, channels: channels, showsCategory: !isSingleCategory)
+            }
         case .movie:
             MovieGridView(title: route.title, movies: channels)
         case .series:
@@ -197,7 +224,7 @@ struct CategoryDestinationView: View {
         let section = store.section(route.kind)
         switch route.filter {
         case .all: return prefs.filter(section.items)
-        case .favorites: return prefs.filter(section.items.filter { userData.isFavorite($0) })
+        case .favorites: return userData.inFavoriteOrder(prefs.filter(section.items.filter { userData.isFavorite($0) }))
         case .category(let name): return prefs.isBlocked(route.kind, name) ? [] : section.items(in: name)
         }
     }
@@ -206,7 +233,7 @@ struct CategoryDestinationView: View {
         let series = store.content.series
         switch route.filter {
         case .all: return prefs.filter(series.shows)
-        case .favorites: return prefs.filter(series.shows.filter { userData.isFavorite($0) })
+        case .favorites: return userData.inFavoriteOrder(prefs.filter(series.shows.filter { userData.isFavorite($0) }))
         case .category(let name): return prefs.isBlocked(.series, name) ? [] : series.shows(in: name)
         }
     }

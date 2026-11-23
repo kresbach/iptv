@@ -99,7 +99,9 @@ struct XtreamClient: Sendable {
                 url: url,
                 group: stream.categoryId?.string.flatMap { vodNames[$0] },
                 logoURL: stream.streamIcon?.string.flatMap(URL.init(string:)),
-                kind: .movie
+                kind: .movie,
+                rating: Self.rating(stream.rating),
+                added: Self.date(stream.added)
             ))
         }
 
@@ -112,11 +114,28 @@ struct XtreamClient: Sendable {
                 posterURL: series.cover?.string.flatMap(URL.init(string:)),
                 plot: series.plot?.string,
                 episodes: [],
-                xtreamSeriesID: id
+                xtreamSeriesID: id,
+                rating: Self.rating(series.rating),
+                added: Self.date(series.lastModified),
+                releaseYear: (series.releaseDate?.string ?? series.releasedate?.string)
+                    .flatMap { $0.count >= 4 ? Int($0.prefix(4)) : nil }
             )
         }
 
         return PlaylistData(channels: channels, shows: shows)
+    }
+
+    /// Bewertung als Zahl 0–10; „0“ oder leer heißt „keine Bewertung“.
+    private static func rating(_ value: Flexible?) -> Double? {
+        guard let text = value?.string?.replacingOccurrences(of: ",", with: "."),
+              let number = Double(text), number > 0, number <= 10 else { return nil }
+        return number
+    }
+
+    /// Unix-Zeitstempel (Sekunden) als Datum.
+    private static func date(_ value: Flexible?) -> Date? {
+        guard let seconds = value?.int, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
     }
 
     /// Infos zu einem Film (Handlung, Besetzung, Trailer …) über `get_vod_info`.
@@ -279,6 +298,8 @@ struct XtreamClient: Sendable {
         let streamIcon: Flexible?
         let categoryId: Flexible?
         let containerExtension: Flexible?
+        let rating: Flexible?
+        let added: Flexible?
     }
 
     private struct Series: Decodable {
@@ -287,6 +308,10 @@ struct XtreamClient: Sendable {
         let cover: Flexible?
         let plot: Flexible?
         let categoryId: Flexible?
+        let rating: Flexible?
+        let lastModified: Flexible?
+        let releaseDate: Flexible?
+        let releasedate: Flexible?
     }
 
     private struct SeriesInfo: Decodable {

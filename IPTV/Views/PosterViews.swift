@@ -10,22 +10,23 @@ struct MovieGridView: View {
     let title: String
     let movies: [Channel]
 
-    enum SortOrder: String, CaseIterable, Identifiable {
-        case standard = "Standard"
-        case smallest = "Kleinste zuerst"
-        case largest = "Größte zuerst"
-        var id: String { rawValue }
-    }
-
     @State private var query = ""
-    @State private var sortOrder: SortOrder = .standard
+    @AppStorage(MediaSort.movieStorageKey) private var sortOrder: MediaSort = .standard
+    @AppStorage(MediaSort.topRatedStorageKey) private var onlyTopRated = false
     @State private var sizeProgress: (done: Int, total: Int)?
+    @State private var sortCache = SortCache<Channel>()
 
     /// Höchstens so viele Größen werden pro Durchgang beim Server abgefragt.
     private static let sizeFetchLimit = 300
 
     private func sorted(_ list: [Channel]) -> [Channel] {
-        guard sortOrder != .standard else { return list }
+        var list = list
+        if onlyTopRated {
+            list = list.filter { ($0.rating ?? 0) >= MediaSort.topRatedThreshold }
+        }
+        guard sortOrder.needsSizes else {
+            return sortOrder.apply(to: list, title: \.name, rating: \.rating, added: \.added, year: \.year)
+        }
         // Unbekannte Größen immer ans Ende.
         let known = list.compactMap { movie in downloads.knownSize(for: movie).map { (movie, $0) } }
         let knownIDs = Set(known.map { $0.0.id })
@@ -34,7 +35,13 @@ struct MovieGridView: View {
     }
 
     var body: some View {
-        let filtered = sorted(store.search(query, in: movies))
+        // Größen kommen während des Ladens nach, daher dort nicht zwischenspeichern.
+        let filtered = sortOrder.needsSizes
+            ? sorted(store.search(query, in: movies))
+            : sortCache.value(for: SortCacheKey(
+                sort: sortOrder, onlyTopRated: onlyTopRated, query: query, count: movies.count,
+                firstID: movies.first.map { AnyHashable($0.id) }, lastID: movies.last.map { AnyHashable($0.id) }
+            )) { sorted(store.search(query, in: movies)) }
 
         ScrollView {
             LazyVGrid(columns: PosterCard.columns, spacing: 18) {
@@ -46,7 +53,8 @@ struct MovieGridView: View {
                             imageURL: movie.logoURL,
                             symbol: "film.fill",
                             progress: userData.playbackProgress(for: movie).flatMap { $0.isFinished ? nil : $0.fraction },
-                            isFavorite: userData.isFavorite(movie)
+                            isFavorite: userData.isFavorite(movie),
+                            rating: movie.rating
                         )
                     }
                     .buttonStyle(.plain)
@@ -72,13 +80,12 @@ struct MovieGridView: View {
         .searchable(text: $query, prompt: "Film suchen")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Sortierung", selection: $sortOrder) {
-                        ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                } label: {
-                    Label("Sortieren", systemImage: "arrow.up.arrow.down")
-                }
+                MediaSortMenu(
+                    sort: $sortOrder,
+                    onlyTopRated: $onlyTopRated,
+                    options: MediaSort.movieOptions,
+                    hasRatings: movies.contains { $0.rating != nil }
+                )
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -97,7 +104,7 @@ struct MovieGridView: View {
         }
         // Beim Sortieren nach Größe die fehlenden Größen nachladen; endet beim Verlassen der Liste.
         .task(id: sortOrder) {
-            guard sortOrder != .standard else {
+            guard sortOrder.needsSizes else {
                 sizeProgress = nil
                 return
             }
@@ -127,9 +134,23 @@ struct SeriesGridView: View {
     let shows: [SeriesShow]
 
     @State private var query = ""
+    @AppStorage(MediaSort.seriesStorageKey) private var sortOrder: MediaSort = .standard
+    @AppStorage(MediaSort.topRatedStorageKey) private var onlyTopRated = false
+    @State private var sortCache = SortCache<SeriesShow>()
+
+    private func sorted(_ list: [SeriesShow]) -> [SeriesShow] {
+        var list = list
+        if onlyTopRated {
+            list = list.filter { ($0.rating ?? 0) >= MediaSort.topRatedThreshold }
+        }
+        return sortOrder.apply(to: list, title: \.title, rating: \.rating, added: \.added, year: \.year)
+    }
 
     var body: some View {
-        let filtered = store.searchShows(query, in: shows)
+        let filtered = sortCache.value(for: SortCacheKey(
+            sort: sortOrder, onlyTopRated: onlyTopRated, query: query, count: shows.count,
+            firstID: shows.first.map { AnyHashable($0.id) }, lastID: shows.last.map { AnyHashable($0.id) }
+        )) { sorted(store.searchShows(query, in: shows)) }
 
         ScrollView {
             LazyVGrid(columns: PosterCard.columns, spacing: 18) {
@@ -140,7 +161,8 @@ struct SeriesGridView: View {
                             subtitle: show.episodes.isEmpty ? nil : "\(show.episodes.count) Episoden",
                             imageURL: show.posterURL,
                             symbol: "rectangle.stack.fill",
-                            isFavorite: userData.isFavorite(show)
+                            isFavorite: userData.isFavorite(show),
+                            rating: show.rating
                         )
                     }
                     .buttonStyle(.plain)
@@ -156,9 +178,25 @@ struct SeriesGridView: View {
         .navigationTitle(title)
         .navigationSubtitle("\(shows.count.formatted()) Serien")
         .searchable(text: $query, prompt: "Serie suchen")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                MediaSortMenu(
+                    sort: $sortOrder,
+                    onlyTopRated: $onlyTopRated,
+                    options: MediaSort.seriesOptions,
+                    hasRatings: shows.contains { $0.rating != nil }
+                )
+            }
+        }
         .overlay {
             if filtered.isEmpty {
-                if query.isEmpty {
+                if onlyTopRated && query.isEmpty && !shows.isEmpty {
+                    ContentUnavailableView(
+                        "Keine Serien mit ★ 7+",
+                        systemImage: "star.slash",
+                        description: Text("Schalte „Nur ★ 7+“ im Sortieren-Menü aus, um alle Serien zu sehen.")
+                    )
+                } else if query.isEmpty {
                     ContentUnavailableView("Keine Serien", systemImage: "rectangle.stack")
                 } else {
                     ContentUnavailableView.search(text: query)
@@ -392,6 +430,7 @@ struct PosterCard: View {
     let symbol: String
     var progress: Double?
     var isFavorite = false
+    var rating: Double?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -413,6 +452,12 @@ struct PosterCard: View {
                             .foregroundStyle(.white)
                             .padding(6)
                             .background(Theme.orange, in: .circle)
+                            .padding(6)
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if let rating {
+                        RatingBadge(rating: rating)
                             .padding(6)
                     }
                 }

@@ -11,15 +11,35 @@ final class CategoryPreferences {
         var locked: Set<String> = []
         /// Eigene Reihenfolge je Bereich (Kategorienamen).
         var order: [String: [String]] = [:]
+        /// Erwachsenen-Kategorien, die trotz automatischer Sperre freigegeben wurden.
+        /// Optional, damit ältere gespeicherte Stände lesbar bleiben.
+        var unlockedAdult: Set<String>?
     }
 
     private var stored = Stored()
     /// `true`, nachdem in dieser Sitzung die richtige PIN eingegeben wurde.
     private(set) var isUnlocked = false
     private(set) var hasPIN = false
+    /// Erwachsenen-Kategorien (z. B. „XXX“, „Adult“, „18+“) automatisch mit der PIN sperren.
+    var autoLocksAdult: Bool = true {
+        didSet { UserDefaults.standard.set(autoLocksAdult, forKey: Self.autoLockKey) }
+    }
 
     private static let defaultsKey = "categoryPreferences"
+    private static let autoLockKey = "autoLockAdultCategories"
     private static let pinAccount = "parentalPIN"
+
+    /// Begriffe, an denen Erwachsenen-Kategorien erkannt werden.
+    private static let adultKeywords = ["xxx", "adult", "18+", "+18", "porn", "erotik", "erotic", "sexy", "for adults", "nur für erwachsene"]
+    /// Treffer, die keine Erwachsenen-Inhalte sind.
+    private static let adultExceptions = ["adult swim"]
+
+    /// `true`, wenn der Kategoriename auf Erwachsenen-Inhalte hinweist.
+    static func isAdultCategory(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        guard !adultExceptions.contains(where: { lowered.contains($0) }) else { return false }
+        return adultKeywords.contains { lowered.contains($0) }
+    }
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
@@ -27,6 +47,7 @@ final class CategoryPreferences {
             stored = saved
         }
         hasPIN = Keychain.read(Self.pinAccount) != nil
+        autoLocksAdult = UserDefaults.standard.object(forKey: Self.autoLockKey) as? Bool ?? true
     }
 
     private static func key(_ kind: ContentKind, _ name: String) -> String { "\(kind.rawValue)|\(name)" }
@@ -34,7 +55,21 @@ final class CategoryPreferences {
     // MARK: - Abfragen
 
     func isHidden(_ kind: ContentKind, _ name: String) -> Bool { stored.hidden.contains(Self.key(kind, name)) }
-    func isLocked(_ kind: ContentKind, _ name: String) -> Bool { stored.locked.contains(Self.key(kind, name)) }
+    func isLocked(_ kind: ContentKind, _ name: String) -> Bool {
+        let key = Self.key(kind, name)
+        if stored.locked.contains(key) { return true }
+        return autoLocksAdult && isAdult(name) && !(stored.unlockedAdult?.contains(key) ?? false)
+    }
+
+    /// Zwischengespeichert, weil Listen mit vielen tausend Einträgen gefiltert werden.
+    @ObservationIgnored private var adultNames: [String: Bool] = [:]
+
+    private func isAdult(_ name: String) -> Bool {
+        if let known = adultNames[name] { return known }
+        let result = Self.isAdultCategory(name)
+        adultNames[name] = result
+        return result
+    }
 
     /// Gesperrt und in dieser Sitzung noch nicht per PIN freigegeben.
     func isBlocked(_ kind: ContentKind, _ name: String) -> Bool {
@@ -43,7 +78,7 @@ final class CategoryPreferences {
 
     /// Ob Einschränkungen aktiv sind (sonst kann das Filtern übersprungen werden).
     private var hasRestrictions: Bool {
-        !stored.hidden.isEmpty || (hasPIN && !isUnlocked && !stored.locked.isEmpty)
+        !stored.hidden.isEmpty || (hasPIN && !isUnlocked && (!stored.locked.isEmpty || autoLocksAdult))
     }
 
     func isVisible(_ channel: Channel) -> Bool {
@@ -85,7 +120,17 @@ final class CategoryPreferences {
     }
 
     func setLocked(_ locked: Bool, kind: ContentKind, name: String) {
-        if locked { stored.locked.insert(Self.key(kind, name)) } else { stored.locked.remove(Self.key(kind, name)) }
+        let key = Self.key(kind, name)
+        if locked {
+            stored.locked.insert(key)
+            stored.unlockedAdult?.remove(key)
+        } else {
+            stored.locked.remove(key)
+            // Automatisch gesperrte Kategorie bewusst freigeben.
+            if Self.isAdultCategory(name) {
+                stored.unlockedAdult = (stored.unlockedAdult ?? []).union([key])
+            }
+        }
         save()
     }
 
@@ -127,6 +172,7 @@ final class CategoryPreferences {
             hasPIN = false
             isUnlocked = false
             stored.locked = []
+            stored.unlockedAdult = nil
             save()
         }
     }
