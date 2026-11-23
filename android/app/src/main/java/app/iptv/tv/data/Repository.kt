@@ -488,14 +488,45 @@ object Repository {
         val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
         val target = Profiles.userDataFile(dir)
         scope.launch(serialIo) { write(target, UserDataFile.serializer(), snapshot) }
-        // Abgleich mit dem iPhone nur für das Hauptprofil
-        if (notify && Profiles.isMain) onChange?.invoke()
+        // Abgleich (Hauptprofil) bzw. Sicherung (alle Profile) anstoßen
+        if (notify) onChange?.invoke()
     }
+
+    // region Sicherung
+
+    /** Inhalt aller Profil-Dateien und der Kategorie-/Erinnerungs-Einstellungen. */
+    fun backupSnapshot(): Backup {
+        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
+        val files = HashMap<String, String>()
+        dir.listFiles { f -> f.name.startsWith("userdata") && f.name.endsWith(".json") }
+            ?.forEach { f -> runCatching { files[f.name] = f.readText() } }
+        files["profiles.json"] = Profiles.exportJson()
+        // aktuelles Profil direkt aus dem Speicher (die Datei wird im Hintergrund geschrieben)
+        files[Profiles.userDataFile(dir).name] = json.encodeToString(UserDataFile.serializer(), snapshot)
+        val settings = listOf("categories", "reminders").associateWith { Prefs.str(it) }.filterValues { it.isNotEmpty() }
+        return Backup(System.currentTimeMillis(), files, settings)
+    }
+
+    fun restoreBackup(backup: Backup) {
+        for ((name, text) in backup.files) {
+            if (!Regex("userdata(-[\\w-]+)?\\.json").matches(name)) continue
+            File(dir, name).writeText(text)
+        }
+        backup.files["profiles.json"]?.let { Profiles.importJson(it) }
+        backup.settings["categories"]?.let { Prefs.putStr("categories", it); CategoryPrefs.load() }
+        backup.settings["reminders"]?.let { Prefs.putStr("reminders", it); Reminders.reload() }
+        restoreUserData()
+        CategoryPrefs.refresh()
+    }
+
+    // endregion
 
     /** Profil wechseln: Nutzerdaten speichern und die des neuen Profils laden. */
     fun switchProfile(id: String) {
         if (id == Profiles.activeId.value) { Profiles.chosen = true; return }
-        saveUserData(notify = false)
+        // sofort schreiben, damit Sicherung und Rückwechsel den neuesten Stand sehen
+        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
+        runCatching { write(Profiles.userDataFile(dir), UserDataFile.serializer(), snapshot) }
         Profiles.setActive(id)
         restoreUserData()
         CategoryPrefs.lock()

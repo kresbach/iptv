@@ -90,6 +90,8 @@ class TvSimulationTest {
         app.iptv.tv.data.Reminders.items.value = emptyList()
         Repository.newEpisodes.value = emptySet()
         Repository.episodeCounts = emptyMap()
+        MainActivity.pendingSearch.value = null
+        app.iptv.tv.data.Prefs.setGridSort(ContentKind.MOVIE, "default")
         app.iptv.tv.data.Prefs.liveStartFavorites = false
         Repository.progress.value = mapOf(movies[4].stableKey to Progress(1_200_000, 5_400_000, now, movies[4]))
     }
@@ -331,6 +333,63 @@ class TvSimulationTest {
     }
 
     @Test
+    fun sprachsucheOeffnetSuche() {
+        start()
+        MainActivity.pendingSearch.value = "Film Nummer 7"
+        settle(1000)
+        expect("Suche")
+        expect("Film Nummer 7")
+        shot("87-sprachsuche")
+    }
+
+    @Test
+    fun filmeSortierenUndAehnliche() {
+        val c = Repository.content.value
+        val rated = c.data.channels.mapIndexed { i, ch -> if (ch.kind == ContentKind.MOVIE) ch.copy(rating = (i % 10) + 0.5f) else ch }
+        val content = LibraryContent(PlaylistData(rated, c.data.shows))
+        Repository.content.value = content
+        Repository.visible.value = content
+        start()
+        right() // Filme
+        ok()
+        expect("Sortieren:")
+        right() // ins Raster
+        up() // in die Sortierleiste
+        shot("88-filme-sortierleiste")
+        app.iptv.tv.data.Prefs.setGridSort(ContentKind.MOVIE, "rating")
+        back()
+        ok() // Filme erneut öffnen (Fokus steht noch auf der Kachel)
+        expect("● Bewertung")
+        expect("★ 9,5")
+        shot("89-filme-nach-bewertung")
+        // ähnliche Filme in der Detailansicht
+        val movie = content.movies.first { it.category == "Action" }
+        check(kotlinx.coroutines.runBlocking { app.iptv.tv.data.Similar.movies(movie, content.movies) }.all { it.category == "Action" })
+    }
+
+    @Test
+    fun sicherungAllerProfile() {
+        val main = Repository.favorites.value.toList()
+        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
+        Repository.switchProfile(kids.id)
+        Repository.toggleFavorite(Repository.content.value.live[7].stableKey)
+        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
+        val backup = Repository.backupSnapshot()
+        check(backup.files.keys.any { it == "userdata-${kids.id}.json" }) { "Kinderprofil fehlt in der Sicherung: ${backup.files.keys}" }
+        // alles weg (neuer Fernseher) …
+        Repository.toggleFavorite(main.first())
+        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
+        // … und zurückholen
+        Repository.restoreBackup(backup)
+        check(Repository.favorites.value.toList() == main) { "Favoriten nicht wiederhergestellt" }
+        check(app.iptv.tv.data.Profiles.list.value.any { it.id == kids.id }) { "Profil nicht wiederhergestellt" }
+        Repository.switchProfile(kids.id)
+        check(Repository.content.value.live[7].stableKey in Repository.favorites.value) { "Favorit des Kinderprofils fehlt" }
+        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
+        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
+    }
+
+    @Test
     fun filmeUndDetail() {
         start()
         right() // Filme
@@ -349,7 +408,7 @@ class TvSimulationTest {
         ok() // Untertitel-Seite
         shot("24-player-untertitel")
         back()
-        down(5) // (Sleep-Timer liegt davor)
+        down(7) // (Bildformat, Ton-Versatz und Sleep-Timer liegen davor)
         ok() // Wiedergabe-Info
         expect("Bildrate Video")
         shot("25-wiedergabe-info")
@@ -495,7 +554,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(15)
+        down(16)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")

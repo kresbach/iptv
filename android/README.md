@@ -109,6 +109,25 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.13
+
+- **Sprachsuche**: „Hey Google, suche Tatort in IPTV“ öffnet die Suche mit dem Begriff. In der Suche
+  startet „🎤 Sprechen“ die Spracheingabe.
+- **Bildformat** im Player-Menü: *Original* (schwarze Ränder), *Zoom* (füllt den Bildschirm, Ränder
+  werden abgeschnitten) oder *Strecken*. Die Wahl bleibt gespeichert.
+- **Ton-Versatz** im Player-Menü: Ton in 50-ms-Schritten früher oder später, wenn die Lippen nicht passen
+  (z. B. mit Soundbar). Geht nur mit dem VLC-Player (bei Live TV Standard).
+- **Filme und Serien sortieren**: Standard, Neu, A–Z, Bewertung, Jahr, dazu der Filter „Nur ★ 7+“.
+  Die Bewertung vom Anbieter steht als Stern auf den Kacheln.
+- **„Das könnte dir auch gefallen“** in der Film- und Serienansicht: mit TMDB-Schlüssel die TMDB-Empfehlungen,
+  sonst ähnliche Titel aus derselben Kategorie. Es erscheinen nur Titel aus der eigenen Playlist.
+- **Trailer**: Liefert der Anbieter keinen, sucht die App mit TMDB-Schlüssel den deutschen Trailer.
+- **Sicherung aller Profile** (Einstellungen → Google Drive): Favoriten, Verlauf und „Weiterschauen“ aller
+  Profile samt Kategorie-Einstellungen und Erinnerungen. „Sicherung wiederherstellen“ holt alles zurück,
+  z. B. auf einem neuen Fernseher.
+- **Schlüssel vom Handy übertragen** (Einstellungen): TMDB, OpenSubtitles und Google in einem Formular
+  per QR-Code.
+
 ## Neu in Version 2.12
 
 - **Verpasste Sendungen (Archiv)**: Bietet der Anbieter für einen Sender ein Archiv an (Xtream „tv_archive“

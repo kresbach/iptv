@@ -49,6 +49,7 @@ sealed class Screen {
     data object TrendsSettings : Screen()
     data object FavoriteOrder : Screen()
     data object Profiles : Screen()
+    data object PhoneKeys : Screen()
     data class EditPlaylist(val id: String) : Screen() {
         override val key get() = "Edit-$id"
     }
@@ -117,6 +118,11 @@ class MainActivity : ComponentActivity() {
 
     /** Link vom Google-TV-Startbildschirm („Weiterschauen“). */
     private fun handleLink(intent: android.content.Intent?) {
+        // Sprachsuche („Hey Google, suche Tatort in IPTV“)
+        if (intent?.action == android.content.Intent.ACTION_SEARCH || intent?.action == "com.google.android.gms.actions.SEARCH_ACTION") {
+            intent.getStringExtra(android.app.SearchManager.QUERY)?.takeIf { it.isNotBlank() }?.let { pendingSearch.value = it.trim() }
+            return
+        }
         val data = intent?.data ?: return
         if (data.scheme == "iptvtv") data.getQueryParameter("key")?.let { pendingOpen.value = it }
     }
@@ -124,6 +130,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Zu öffnender Eintrag (Schlüssel aus „Weiterschauen“). */
         val pendingOpen = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        /** Suchbegriff aus der Sprachsuche. */
+        val pendingSearch = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -193,6 +201,18 @@ fun AppRoot(onExit: () -> Unit) {
         nav.push(Screen.Player(live, i))
     }
 
+    // Sprachsuche: Suche mit dem gesprochenen Begriff öffnen.
+    val searchQuery by MainActivity.pendingSearch.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(searchQuery, restoredState) {
+        val q = searchQuery ?: return@LaunchedEffect
+        if (!restoredState) return@LaunchedEffect
+        MainActivity.pendingSearch.value = null
+        nav.home()
+        Screen.Search.memory.selection = q
+        Screen.Search.memory.focusedKey = null
+        nav.push(Screen.Search)
+    }
+
     // Mehrere Profile: beim Start fragen, wer schaut.
     val profileList by app.iptv.tv.data.Profiles.list.collectAsState()
     var profileChosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(app.iptv.tv.data.Profiles.chosen) }
@@ -235,6 +255,7 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.TrendsSettings -> TrendsSettingsScreen(nav)
                 Screen.FavoriteOrder -> FavoriteOrderScreen(screen.memory)
                 Screen.Profiles -> ProfilesScreen(nav, screen.memory)
+                Screen.PhoneKeys -> PhoneKeysScreen(nav)
                 is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
                 is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)
                 is Screen.Live -> LiveScreen(nav, screen)

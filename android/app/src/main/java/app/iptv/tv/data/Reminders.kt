@@ -24,6 +24,8 @@ object Reminders {
             .filter { it.end > System.currentTimeMillis() }
     }
 
+    fun reload() { loaded = false; load() }
+
     private fun save() = Prefs.putStr("reminders", json.encodeToString(serializer, items.value))
 
     fun isSet(channel: Channel, p: Programme): Boolean {

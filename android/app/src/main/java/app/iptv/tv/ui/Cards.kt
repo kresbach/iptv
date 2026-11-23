@@ -105,12 +105,24 @@ fun PosterCard(
     progress: Float? = null,
     isFavorite: Boolean = false,
     initials: String = "",
+    rating: Float? = null,
 ) {
     Column(modifier.width(112.dp)) {
         FocusSurface(onClick = onClick, onLongClick = onLongClick, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
             Box(Modifier.fillMaxSize().background(Color(0xFF14141A))) {
                 RemoteImage(image, initials, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 if (isFavorite) FavoriteBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+                if (rating != null) {
+                    Text(
+                        "★ " + "%.1f".format(java.util.Locale.GERMANY, rating),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.TopStart).padding(5.dp)
+                            .clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.65f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
                 if (progress != null) {
                     ProgressLine(progress, Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(6.dp))
                 }

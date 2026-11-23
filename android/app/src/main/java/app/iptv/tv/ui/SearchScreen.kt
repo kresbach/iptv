@@ -49,6 +49,12 @@ fun SearchScreen(nav: Navigator, screen: Screen.Search) {
     remember { memory.restored = false; 0 }
 
     var query by remember { mutableStateOf(memory.selection ?: "") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val speech = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { query = it }
+    }
     var results by remember { mutableStateOf(Search.Results()) }
     var searching by remember { mutableStateOf(false) }
 
@@ -84,6 +90,16 @@ fun SearchScreen(nav: Navigator, screen: Screen.Search) {
                         keyboardType = KeyboardType.Text,
                         modifier = Modifier.width(760.dp).rememberFocus(memory, "field", isDefault = true),
                     )
+                    Spacer(Modifier.width(16.dp))
+                    AppButton("🎤 Sprechen", {
+                        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
+                            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Was möchtest du sehen?")
+                        try { speech.launch(intent) } catch (_: Exception) {
+                            android.widget.Toast.makeText(context, "Spracheingabe ist auf diesem Gerät nicht verfügbar – Mikrofon-Taste der Fernbedienung im Textfeld nutzen.", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }, primary = false, modifier = Modifier.rememberFocus(memory, "mic"))
                     Spacer(Modifier.width(20.dp))
                     if (searching) Spinner(size = 30.dp)
                 }

@@ -105,3 +105,70 @@ class UpdateInfoTest {
         assertTrue(info.versionName.isNotEmpty())
     }
 }
+
+class MediaSortTest {
+    private val movies = listOf(
+        Channel("Zorro (1998)", "u1", "A", kind = ContentKind.MOVIE, added = 1, rating = 6.1f),
+        Channel("Ärger im Paradies (2021)", "u2", "A", kind = ContentKind.MOVIE, added = 3, rating = 8.4f),
+        Channel("Matrix (1999)", "u3", "A", kind = ContentKind.MOVIE, added = 2),
+        Channel("DE - Avatar 2009", "u4", "A", kind = ContentKind.MOVIE, added = 4, rating = 7.0f),
+    )
+
+    private fun names(l: List<Channel>) = l.map { it.url }
+
+    @Test
+    fun sortsAndFilters() {
+        assertEquals(listOf("u1", "u2", "u3", "u4"), names(MediaSort.movies(movies, "default", false)))
+        assertEquals(listOf("u4", "u2", "u3", "u1"), names(MediaSort.movies(movies, "new", false)))
+        assertEquals(listOf("u2", "u4", "u1", "u3"), names(MediaSort.movies(movies, "rating", false)))
+        // A–Z ohne Anbieter-Präfix, Umlaute wie im Deutschen
+        assertEquals(listOf("u2", "u4", "u3", "u1"), names(MediaSort.movies(movies, "az", false)))
+        assertEquals(listOf("u2", "u4", "u3", "u1"), names(MediaSort.movies(movies, "year", false)))
+        assertEquals(listOf("u2", "u4"), names(MediaSort.movies(movies, "default", true)))
+    }
+
+    @Test
+    fun readsRatingFromXtream() {
+        val client = XtreamClient(XtreamCredentials("http://srv:80", "u", "p"))
+        val data = client.buildContent(
+            account = Json.parseToJsonElement("""{"user_info":{"auth":1}}""") as JsonObject,
+            liveCategories = emptyList(), vodCategories = emptyList(), seriesCategories = emptyList(),
+            liveStreams = emptyList(),
+            vodStreams = client.parseList("""[{"name":"A","stream_id":1,"rating":"7,5"},{"name":"B","stream_id":2,"rating":"","rating_5based":4},{"name":"C","stream_id":3,"rating":"0"}]"""),
+            series = client.parseList("""[{"name":"S","series_id":5,"rating":"8.1"}]"""),
+        )
+        assertEquals(7.5f, data.channels[0].rating)
+        assertEquals(8f, data.channels[1].rating)
+        assertNull(data.channels[2].rating)
+        assertEquals(8.1f, data.shows[0].rating)
+        val out = ByteArrayOutputStream().also { BinaryStore.writeData(data, it) }
+        assertEquals(data, BinaryStore.readData(ByteArrayInputStream(out.toByteArray())))
+    }
+
+    @Test
+    fun similarWithoutTmdbUsesCategoryAndRating() {
+        val target = Channel("Matrix (1999)", "m0", "SciFi", kind = ContentKind.MOVIE, rating = 8.7f)
+        val all = listOf(
+            target,
+            Channel("Matrix (1999) 4K", "m1", "SciFi", kind = ContentKind.MOVIE, rating = 8.7f), // andere Fassung
+            Channel("Inception (2010)", "m2", "SciFi", kind = ContentKind.MOVIE, rating = 8.8f),
+            Channel("Alien (1979)", "m3", "SciFi", kind = ContentKind.MOVIE, rating = 5.0f),
+            Channel("Titanic (1997)", "m4", "Drama", kind = ContentKind.MOVIE, rating = 8.7f),
+        )
+        val result = kotlinx.coroutines.runBlocking { Similar.movies(target, all) }
+        assertEquals(listOf("m2", "m3"), result.map { it.url })
+    }
+}
+
+class VideoFitModesTest {
+    @Test
+    fun fitZoomStretch() {
+        // 4:3-Video auf 16:9-Fernseher
+        assertEquals(1440 to 1080, app.iptv.tv.player.VideoFit.fit(1920, 1080, 640, 480))
+        assertEquals(1920 to 1440, app.iptv.tv.player.VideoFit.fit(1920, 1080, 640, 480, mode = "zoom"))
+        assertEquals(1920 to 1080, app.iptv.tv.player.VideoFit.fit(1920, 1080, 640, 480, mode = "stretch"))
+        // 21:9-Kinofilm
+        assertEquals(1920 to 822, app.iptv.tv.player.VideoFit.fit(1920, 1080, 2520, 1080))
+        assertEquals(2520 to 1080, app.iptv.tv.player.VideoFit.fit(1920, 1080, 2520, 1080, mode = "zoom"))
+    }
+}

@@ -74,6 +74,11 @@ class XtreamClient(val credentials: XtreamCredentials) {
         return PlaylistData(channels, series.mapNotNull { seriesShow(it, seriesNames) }, serverTimeZone(account))
     }
 
+    /** Bewertung 0–10: „rating“ oder „rating_5based“ × 2. */
+    private fun rating(s: JsonObject): Float? =
+        s.str("rating")?.replace(',', '.')?.toFloatOrNull()?.takeIf { it > 0f && it <= 10f }
+            ?: s.str("rating_5based")?.replace(',', '.')?.toFloatOrNull()?.takeIf { it > 0f && it <= 5f }?.times(2)
+
     private fun serverTimeZone(account: JsonElement): String? =
         ((account as? JsonObject)?.get("server_info") as? JsonObject)?.str("timezone")?.takeIf { it.isNotBlank() }
 
@@ -116,6 +121,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
             logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
             kind = ContentKind.MOVIE,
             added = s.long("added"),
+            rating = rating(s),
         )
     }
 
@@ -128,6 +134,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
             poster = s.str("cover")?.takeIf { it.isNotEmpty() },
             xtreamSeriesId = id,
             added = s.long("last_modified"),
+            rating = rating(s),
         )
     }
 

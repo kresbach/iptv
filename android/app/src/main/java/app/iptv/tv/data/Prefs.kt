@@ -116,6 +116,19 @@ object Prefs {
 
     var lastEpisodeCheck: Long get() = long("lastEpisodeCheck", 0); set(v) = putLong("lastEpisodeCheck", v)
 
+    /** Sortierung der Film-/Serienübersicht: default, new, az, rating, year */
+    fun gridSort(kind: ContentKind): String = str("gridSort_${kind.name}", "default")
+    fun setGridSort(kind: ContentKind, v: String) = putStr("gridSort_${kind.name}", v)
+
+    /** Bildformat im Player: fit, zoom, stretch */
+    var videoMode: String get() = str("videoMode", "fit"); set(v) = putStr("videoMode", v)
+    /** Ton-Versatz in Millisekunden (VLC), z. B. bei Soundbars mit Verzögerung. */
+    var audioDelayMs: Int get() = int("audioDelayMs", 0); set(v) = putInt("audioDelayMs", v)
+
+    /** Alle Profile in Google Drive sichern (eigene Datei, zusätzlich zum Abgleich mit dem iPhone). */
+    var backupAllProfiles: Boolean get() = bool("backupAllProfiles", true); set(v) = putBool("backupAllProfiles", v)
+    var lastBackup: Long get() = long("lastBackup", 0); set(v) = putLong("lastBackup", v)
+
     // App-Updates
     var autoUpdateCheck: Boolean get() = bool("autoUpdateCheck", true); set(v) = putBool("autoUpdateCheck", v)
     var lastUpdateCheck: Long get() = long("lastUpdateCheck", 0); set(v) = putLong("lastUpdateCheck", v)

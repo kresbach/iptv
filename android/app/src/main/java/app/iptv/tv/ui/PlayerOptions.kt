@@ -67,6 +67,7 @@ fun PlayerOptions(
     val text by engine.textTracks.collectAsState()
     val isLive = channel.kind == ContentKind.LIVE
     app.iptv.tv.data.SleepTimer.endsAt.collectAsState().value // neu zeichnen
+    Prefs.version.collectAsState().value // Bildformat / Ton-Versatz
     val scope = rememberCoroutineScope()
     var busy by remember(page) { mutableStateOf(false) }
     var message by remember(page) { mutableStateOf<String?>(null) }
@@ -157,6 +158,12 @@ fun PlayerOptions(
                     }
                     if (isLive && previousChannel != null) row("prev", "Zurück zum letzten Sender", previousChannel.name) { onPreviousChannel() }
                     if (isLive) row("fav", if (isFavorite) "Aus Favoriten entfernen" else "Zu Favoriten hinzufügen") { onToggleFavorite() }
+                    row("format", "Bildformat", app.iptv.tv.player.VideoFit.label(engine.videoMode)) {
+                        val modes = app.iptv.tv.player.VideoFit.modes.map { it.first }
+                        engine.videoMode = modes[(modes.indexOf(engine.videoMode) + 1) % modes.size]
+                        onPage("main")
+                    }
+                    row("delay", "Ton-Versatz", delayLabel(Prefs.audioDelayMs)) { onPage("delay") }
                     row("sleep", "Sleep-Timer", app.iptv.tv.data.SleepTimer.label()) { app.iptv.tv.data.SleepTimer.cycle() }
                     row("info", "Wiedergabe-Info", "Bildrate, Ruckeln, Puffer") { onPage("info") }
                     row("diag", "Verbindung prüfen", "hält den Stream kurz an") { onPage("diag") }
@@ -168,6 +175,16 @@ fun PlayerOptions(
                     past.forEachIndexed { i, p ->
                         row("p$i", "${dayLabel(p.start)}${clock(p.start)}  ${p.title}", first = i == 0) { onArchive(p) }
                     }
+                }
+                "delay" -> {
+                    if (!engine.supportsAudioDelay) {
+                        row("novlc", "Nur mit dem VLC-Player möglich", "Player → VLC wählen", first = true) { onPage("engine") }
+                    } else {
+                        row("later", "Ton später (+50 ms)", delayLabel(Prefs.audioDelayMs), first = true) { engine.setAudioDelay((Prefs.audioDelayMs + 50).coerceAtMost(3000)); onPage("delay") }
+                        row("earlier", "Ton früher (−50 ms)", delayLabel(Prefs.audioDelayMs)) { engine.setAudioDelay((Prefs.audioDelayMs - 50).coerceAtLeast(-3000)); onPage("delay") }
+                        row("reset", "Zurücksetzen (0 ms)") { engine.setAudioDelay(0); onPage("delay") }
+                    }
+                    row("back", "Zurück") { onPage("main") }
                 }
                 "audio" -> {
                     if (audio.isEmpty()) row("none", "Keine Tonspuren erkannt", first = true) { onPage("main") }
@@ -297,4 +314,10 @@ private fun OptionRow(label: String, value: String?, modifier: Modifier, onClick
             value?.let { Text(it, fontSize = 13.sp, color = AppColors.OrangeLight) }
         }
     }
+}
+
+private fun delayLabel(ms: Int) = when {
+    ms == 0 -> "aus"
+    ms > 0 -> "Ton +$ms ms später"
+    else -> "Ton ${-ms} ms früher"
 }

@@ -323,7 +323,7 @@ class PlaybackEngine(private val context: Context) {
             // schwarze Ränder). VLC zeichnet dann nur noch innerhalb dieser Fläche – nie gestreckt.
             val t = p.currentVideoTrack
             val (w, h) = if (t != null && t.width > 0 && t.height > 0) {
-                VideoFit.fit(cw, ch, t.width, t.height, t.sarNum, t.sarDen)
+                VideoFit.fit(cw, ch, t.width, t.height, t.sarNum, t.sarDen, videoMode)
             } else cw to ch
             val lp = layout.layoutParams as? FrameLayout.LayoutParams
             if (lp == null || lp.width != w || lp.height != h) {
@@ -331,7 +331,8 @@ class PlaybackEngine(private val context: Context) {
             }
             p.vlcVout.setWindowSize(w, h)
             p.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
-            p.aspectRatio = null
+            // Strecken: VLC das Seitenverhältnis des Fernsehers vorgeben
+            p.aspectRatio = if (videoMode == VideoFit.MODE_STRETCH) "$cw:$ch" else null
             p.updateVideoSurfaces()
         }
     }
@@ -473,7 +474,35 @@ class PlaybackEngine(private val context: Context) {
         PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
     )
 
+    // region Bildformat und Ton-Versatz
+
+    /** Bildformat: Original (Ränder), Zoom (ohne Ränder, abgeschnitten) oder Strecken. */
+    var videoMode: String = app.iptv.tv.data.Prefs.videoMode
+        set(value) {
+            field = value
+            app.iptv.tv.data.Prefs.videoMode = value
+            (container.getChildAt(0) as? PlayerView)?.resizeMode = exoResizeMode()
+            refreshVideoLayout()
+        }
+
+    private fun exoResizeMode() = when (videoMode) {
+        VideoFit.MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        VideoFit.MODE_STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
+    /** Ton gegenüber dem Bild verschieben (nur VLC kann das). Positiv = Ton später. */
+    val supportsAudioDelay: Boolean get() = vlc != null
+
+    fun setAudioDelay(ms: Int) {
+        app.iptv.tv.data.Prefs.audioDelayMs = ms
+        vlc?.let { runCatching { it.setAudioDelay(ms * 1000L) } }
+    }
+
+    // endregion
+
     private fun onPlaying() {
+        vlc?.let { p -> app.iptv.tv.data.Prefs.audioDelayMs.takeIf { it != 0 }?.let { runCatching { p.setAudioDelay(it * 1000L) } } }
         everPlayed = true
         attempts = 0
         status.value = status.value.copy(buffering = false, playing = true, message = null, failed = false)
@@ -562,7 +591,7 @@ class PlaybackEngine(private val context: Context) {
 
         val view = PlayerView(context).apply {
             useController = false
-            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            resizeMode = exoResizeMode()
             setShutterBackgroundColor(android.graphics.Color.BLACK)
             this.player = player
         }

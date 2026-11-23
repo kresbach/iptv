@@ -51,6 +51,7 @@ import app.iptv.tv.data.Prefs
 import app.iptv.tv.data.Repository
 import app.iptv.tv.data.Subtitles
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
@@ -132,6 +133,8 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Kindersicherung", if (Prefs.hasPin) "PIN aktiv" else "Aus",
             modifier = Modifier.rememberFocus(memory, "parental")) { nav.push(Screen.Parental) }
 
+        SettingRow("Schlüssel vom Handy übertragen", subtitle = "TMDB, OpenSubtitles und Google per QR-Code – nichts abtippen",
+            modifier = Modifier.rememberFocus(memory, "phonekeys")) { nav.push(Screen.PhoneKeys) }
         SettingRow("Trends (Netflix, Prime Video …)", if (app.iptv.tv.data.Trends.isConfigured) "TMDB eingerichtet" else "ohne TMDB",
             "Was bei den Streamingdiensten gerade beliebt ist – kostenloser Schlüssel von themoviedb.org",
             modifier = Modifier.rememberFocus(memory, "trends")) { nav.push(Screen.TrendsSettings) }
@@ -304,6 +307,53 @@ fun PhoneFormPanel(form: PhoneInputServer.Form, onReceived: (Map<String, String>
 
 // endregion
 
+// region Alle Schlüssel vom Handy
+
+/** TMDB-, OpenSubtitles- und Google-Zugang in einem Schritt vom Handy übertragen. */
+@Composable
+fun PhoneKeysScreen(nav: Navigator) {
+    val context = LocalContext.current
+    Prefs.version.collectAsState().value
+    fun state(v: String) = if (v.isBlank()) "fehlt" else "eingerichtet ✓"
+    Row(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 32.dp)) {
+        Column(Modifier.weight(1f).padding(end = 32.dp)) {
+            ScreenTitle(
+                "Schlüssel vom Handy übertragen",
+                "QR-Code mit dem Handy scannen (gleiches WLAN), Felder ausfüllen und senden. Leere Felder bleiben unverändert.",
+            )
+            Text("TMDB (Trends, Empfehlungen, Trailer): ${state(Prefs.tmdbKey)}", fontSize = 16.sp, modifier = Modifier.padding(vertical = 4.dp))
+            Text("OpenSubtitles (Untertitel): ${state(Prefs.subtitleApiKey)}", fontSize = 16.sp, modifier = Modifier.padding(vertical = 4.dp))
+            Text("Google Drive (Abgleich, Sicherung): ${state(Prefs.googleClientId)}", fontSize = 16.sp, modifier = Modifier.padding(vertical = 4.dp))
+            Spacer(Modifier.height(24.dp))
+            AppButton("Fertig", { nav.back() }, icon = AppIcons.Check, modifier = Modifier.rememberFocus(remember { ScreenMemory() }, "done", isDefault = true))
+        }
+        PhoneFormPanel(
+            PhoneInputServer.Form(
+                "Schlüssel für den Fernseher", "Leere Felder bleiben am Fernseher unverändert.",
+                listOf(
+                    PhoneInputServer.Field("tmdb", "TMDB API-Schlüssel oder Lesetoken", hint = "themoviedb.org → Einstellungen → API"),
+                    PhoneInputServer.Field("osKey", "OpenSubtitles API-Key"),
+                    PhoneInputServer.Field("osUser", "OpenSubtitles Benutzername (optional)"),
+                    PhoneInputServer.Field("osPass", "OpenSubtitles Passwort (optional)", password = true),
+                    PhoneInputServer.Field("gId", "Google Client-ID (optional)"),
+                    PhoneInputServer.Field("gSecret", "Google Client-Secret (optional)", password = true),
+                ),
+            ),
+        ) { v ->
+            fun get(k: String) = v[k]?.trim()?.takeIf { it.isNotEmpty() }
+            get("tmdb")?.let { Prefs.tmdbKey = it; app.iptv.tv.data.Trends.refresh(force = true) }
+            get("osKey")?.let { Prefs.subtitleApiKey = it }
+            get("osUser")?.let { Prefs.subtitleUser = it }
+            v["osPass"]?.takeIf { it.isNotEmpty() }?.let { Prefs.subtitlePassword = it }
+            get("gId")?.let { Prefs.googleClientId = it }
+            get("gSecret")?.let { Prefs.googleClientSecret = it }
+            android.widget.Toast.makeText(context, "Schlüssel gespeichert", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+// endregion
+
 // region Untertitel
 
 @Composable
@@ -373,6 +423,9 @@ fun GoogleDriveScreen(nav: Navigator) {
     val login by GoogleSync.login.collectAsState()
     val memory = remember { ScreenMemory() }
     var showSetup by remember { mutableStateOf(!GoogleSync.isConfigured) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    var confirmRestore by remember { mutableStateOf(false) }
+    val backupScope = androidx.compose.runtime.rememberCoroutineScope()
     DisposableEffect(Unit) { onDispose { GoogleSync.cancelSignIn() } }
 
     Row(Modifier.fillMaxSize()) {
@@ -406,6 +459,27 @@ fun GoogleDriveScreen(nav: Navigator) {
                             "Überträgt Playlists samt Zugangsdaten zwischen den Geräten",
                             modifier = Modifier.rememberFocus(memory, "pl"),
                         ) { Prefs.syncPlaylists = !Prefs.syncPlaylists; GoogleSync.syncNow() }
+                        SettingRow("Alle Profile sichern", if (Prefs.backupAllProfiles) "An" else "Aus",
+                            "Favoriten, Verlauf und „Weiterschauen“ aller Profile – z. B. für einen neuen Fernseher" +
+                                (Prefs.lastBackup.takeIf { it > 0 }?.let { " · zuletzt " + java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(java.util.Date(it)) } ?: ""),
+                            modifier = Modifier.rememberFocus(memory, "backup")) { Prefs.backupAllProfiles = !Prefs.backupAllProfiles }
+                        SettingRow("Jetzt sichern", backupMessage, modifier = Modifier.rememberFocus(memory, "backupNow")) {
+                            backupMessage = "…"
+                            backupScope.launch { backupMessage = GoogleSync.backupNow() }
+                        }
+                        SettingRow(if (confirmRestore) "Wirklich wiederherstellen? (ersetzt Favoriten und Verlauf)" else "Sicherung wiederherstellen",
+                            danger = confirmRestore, modifier = Modifier.rememberFocus(memory, "restore")) {
+                            if (!confirmRestore) confirmRestore = true
+                            else {
+                                confirmRestore = false
+                                backupMessage = "…"
+                                backupScope.launch {
+                                    val msg = GoogleSync.restoreBackup()
+                                    backupMessage = msg
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
                         SettingRow("Abmelden", danger = true, modifier = Modifier.rememberFocus(memory, "out")) { GoogleSync.signOut() }
                     }
                     else -> {

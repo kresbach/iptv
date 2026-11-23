@@ -22,7 +22,7 @@ import java.util.IdentityHashMap
 object BinaryStore {
     private const val MAGIC_DATA = 0x49505444 // "IPTD"
     private const val MAGIC_EPG = 0x49505445 // "IPTE"
-    private const val VERSION = 2
+    private const val VERSION = 3
 
     // region Playlist
 
@@ -51,6 +51,7 @@ object BinaryStore {
             out.str(s.plot)
             out.writeInt(s.xtreamSeriesId ?: -1)
             out.writeLong(s.added ?: Long.MIN_VALUE)
+            out.writeFloat(s.rating ?: Float.NaN)
             out.writeInt(s.episodes.size)
             for (e in s.episodes) {
                 writeChannel(out, e.channel, table)
@@ -82,6 +83,7 @@ object BinaryStore {
             val plot = inp.str()
             val seriesId = inp.readInt().takeIf { it != -1 }
             val added = inp.readLong().takeIf { it != Long.MIN_VALUE }
+            val showRating = if (version >= 3) inp.readFloat().takeUnless { it.isNaN() } else null
             val episodeCount = inp.readInt()
             val episodes = ArrayList<Episode>(episodeCount)
             repeat(episodeCount) {
@@ -90,7 +92,7 @@ object BinaryStore {
                 val number = inp.readInt().takeIf { it != Int.MIN_VALUE }
                 episodes += Episode(ch, season, number, inp.str(), inp.str())
             }
-            shows += SeriesShow(title, category, poster, plot, episodes, seriesId, added)
+            shows += SeriesShow(title, category, poster, plot, episodes, seriesId, added, showRating)
         }
         val timeZone = if (version >= 2) inp.str() else null
         return PlaylistData(channels, shows, timeZone)
@@ -159,6 +161,7 @@ object BinaryStore {
         out.writeByte(c.kind.ordinal)
         out.writeLong(c.added ?: Long.MIN_VALUE)
         out.writeInt(c.archiveDays ?: -1)
+        out.writeFloat(c.rating ?: Float.NaN)
     }
 
     private fun readChannel(inp: Reader, table: Array<String>, version: Int): Channel {
@@ -170,7 +173,8 @@ object BinaryStore {
         val kind = ContentKind.entries[inp.readByte().toInt()]
         val added = inp.readLong().takeIf { it != Long.MIN_VALUE }
         val archive = if (version >= 2) inp.readInt().takeIf { it > 0 } else null
-        return Channel(name, url, group, tvgId, logo, kind, added, archive)
+        val rating = if (version >= 3) inp.readFloat().takeUnless { it.isNaN() } else null
+        return Channel(name, url, group, tvgId, logo, kind, added, archive, rating)
     }
 
     /** Link als (Anfang aus der Tabelle, Rest). */
@@ -205,6 +209,7 @@ object BinaryStore {
             pos += 4
             return v
         }
+        fun readFloat(): Float = java.lang.Float.intBitsToFloat(readInt())
         fun readLong(): Long = (readInt().toLong() shl 32) or (readInt().toLong() and 0xFFFFFFFFL)
         fun readByte(): Byte {
             if (pos >= b.size) throw IOException("Datei unvollständig")

@@ -148,7 +148,7 @@ object Trends {
         }
     }
 
-    private fun get(path: String): String {
+    internal fun get(path: String): String {
         val key = Prefs.tmdbKey.trim()
         // Lesezugriffs-Token (v4, beginnt mit „eyJ“) oder klassischer API-Schlüssel (v3)
         val bearer = key.startsWith("eyJ")

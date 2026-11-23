@@ -26,6 +26,8 @@ data class Channel(
     val added: Long? = null,
     /** Sendungsarchiv (Catch-up): wie viele Tage rückwärts abrufbar, sonst null. */
     val archiveDays: Int? = null,
+    /** Bewertung 0–10 (Xtream), für Sortierung und Sterne auf den Kacheln. */
+    val rating: Float? = null,
 ) {
     val category: String get() = group ?: UNGROUPED
 
@@ -115,6 +117,7 @@ data class SeriesShow(
     val episodes: List<Episode> = emptyList(),
     val xtreamSeriesId: Int? = null,
     val added: Long? = null,
+    val rating: Float? = null,
 ) {
     val favoriteKey: String get() = "series|$category|$title"
     val needsEpisodeLoading: Boolean get() = episodes.isEmpty() && xtreamSeriesId != null

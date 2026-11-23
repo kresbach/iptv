@@ -38,6 +38,17 @@ object Profiles {
         activeId.value = stored.activeId.takeIf { id -> list.value.any { it.id == id } } ?: MAIN
     }
 
+    /** Für die Sicherung: Profilliste als JSON. */
+    fun exportJson(): String = json.encodeToString(Stored.serializer(), Stored(list.value, activeId.value))
+
+    fun importJson(text: String) {
+        val stored = runCatching { json.decodeFromString(Stored.serializer(), text) }.getOrNull() ?: return
+        if (stored.profiles.isEmpty()) return
+        list.value = stored.profiles
+        activeId.value = stored.activeId.takeIf { id -> list.value.any { it.id == id } } ?: MAIN
+        save()
+    }
+
     private fun save() {
         runCatching { file?.writeText(json.encodeToString(Stored.serializer(), Stored(list.value, activeId.value))) }
     }

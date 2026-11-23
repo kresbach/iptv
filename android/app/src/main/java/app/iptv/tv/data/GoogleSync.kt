@@ -484,7 +484,7 @@ object GoogleSync {
 
     /** Nach lokalen Änderungen: in 20 Sekunden abgleichen (mehrere Änderungen gebündelt). */
     fun scheduleSync() {
-        if (!signedIn.value || !Profiles.isMain) return
+        if (!signedIn.value) return
         debounce?.cancel()
         debounce = scope.launch {
             delay(20_000)
@@ -498,11 +498,14 @@ object GoogleSync {
 
     suspend fun sync() = withContext(Dispatchers.IO) {
         if (!signedIn.value || !isConfigured || isSyncing.value) return@withContext
-        if (!Profiles.isMain) return@withContext // nur das Hauptprofil wird abgeglichen
         isSyncing.value = true
         lastError.value = null
         try {
             val token = validToken()
+            // Sicherung aller Profile (eigene Datei, nur für Fernseher mit dieser App)
+            if (Prefs.backupAllProfiles) runCatching { uploadBackup(token) }.onFailure { Log.w(TAG, "Sicherung", it) }
+            // Abgleich mit dem iPhone nur für das Hauptprofil
+            if (!Profiles.isMain) return@withContext
             val remoteFile = download(token)
             val remote = remoteFile?.second?.let { runCatching { SyncSnapshot.fromJson(it) }.getOrNull() }
             val local = localSnapshot()
@@ -576,22 +579,55 @@ object GoogleSync {
 
     // region Google Drive (versteckter App-Ordner)
 
-    private fun download(token: String): Pair<String, String>? {
-        val q = URLEncoder.encode("name = '$FILE_NAME'", "UTF-8")
+    // region Sicherung aller Profile
+
+    private const val BACKUP_NAME = "iptv-tv-backup.json"
+    val lastBackup = kotlinx.coroutines.flow.MutableStateFlow<Long?>(null)
+
+    private fun uploadBackup(token: String) {
+        val text = json.encodeToString(Backup.serializer(), Repository.backupSnapshot())
+        upload(token, text, download(token, BACKUP_NAME)?.first, BACKUP_NAME)
+        Prefs.lastBackup = System.currentTimeMillis()
+        lastBackup.value = Prefs.lastBackup
+    }
+
+    /** Sicherung aus Google Drive zurückholen (alle Profile mit Favoriten, Verlauf, Fortschritt). */
+    suspend fun restoreBackup(): String = withContext(Dispatchers.IO) {
+        try {
+            val token = validToken()
+            val text = download(token, BACKUP_NAME)?.second ?: return@withContext "Keine Sicherung gefunden."
+            val backup = json.decodeFromString(Backup.serializer(), text)
+            Repository.restoreBackup(backup)
+            "Sicherung vom ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(java.util.Date(backup.createdAt))} wiederhergestellt (${backup.files.count { it.key.startsWith("userdata") }} Profil(e))."
+        } catch (e: NotSignedIn) {
+            "Bitte zuerst bei Google anmelden."
+        } catch (e: Exception) {
+            "Wiederherstellen fehlgeschlagen: " + Http.message(e)
+        }
+    }
+
+    suspend fun backupNow(): String = withContext(Dispatchers.IO) {
+        try { uploadBackup(validToken()); "Sicherung gespeichert." } catch (e: NotSignedIn) { "Bitte zuerst bei Google anmelden." } catch (e: Exception) { "Sicherung fehlgeschlagen: " + Http.message(e) }
+    }
+
+    // endregion
+
+    private fun download(token: String, name: String = FILE_NAME): Pair<String, String>? {
+        val q = URLEncoder.encode("name = '$name'", "UTF-8")
         val list = get("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=$q&fields=files(id)", token)
         val id = ((json.parseToJsonElement(list) as JsonObject)["files"] as? JsonArray)
             ?.firstOrNull()?.let { (it as JsonObject).str("id") } ?: return null
         return id to get("https://www.googleapis.com/drive/v3/files/$id?alt=media", token)
     }
 
-    private fun upload(token: String, data: String, existingId: String?) {
+    private fun upload(token: String, data: String, existingId: String?, name: String = FILE_NAME) {
         val request = if (existingId != null) {
             Request.Builder().url("https://www.googleapis.com/upload/drive/v3/files/$existingId?uploadType=media")
                 .patch(data.toRequestBody("application/json".toMediaType()))
         } else {
             val boundary = "iptv-" + java.util.UUID.randomUUID()
             val body = "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
-                "{\"name\":\"$FILE_NAME\",\"parents\":[\"appDataFolder\"]}\r\n" +
+                "{\"name\":\"$name\",\"parents\":[\"appDataFolder\"]}\r\n" +
                 "--$boundary\r\nContent-Type: application/json\r\n\r\n$data\r\n--$boundary--\r\n"
             Request.Builder().url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
                 .post(body.toRequestBody("multipart/related; boundary=$boundary".toMediaType()))
@@ -630,3 +666,11 @@ object GoogleSync {
     @Suppress("unused")
     private fun JsonElement.asObj() = this as? JsonObject
 }
+
+/** Sicherung aller Profile: Dateiinhalte (Profile, Nutzerdaten je Profil) und einige Einstellungen. */
+@kotlinx.serialization.Serializable
+data class Backup(
+    val createdAt: Long,
+    val files: Map<String, String>,
+    val settings: Map<String, String> = emptyMap(),
+)

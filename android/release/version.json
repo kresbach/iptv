@@ -1,5 +1,5 @@
 {
-  "versionCode": 20,
-  "versionName": "2.12",
-  "notes": "Verpasste Sendungen aus dem Archiv, Sleep-Timer, Erinnerungen, Profile, neue Folgen, bevorzugte Sprache, Weiterschauen auf dem Startbildschirm"
+  "versionCode": 21,
+  "versionName": "2.13",
+  "notes": "Sprachsuche, Bildformat und Ton-Versatz, Filme sortieren mit Bewertung, ähnliche Filme, Trailer über TMDB, Sicherung aller Profile, Schlüssel vom Handy"
 }

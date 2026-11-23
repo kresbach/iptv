@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import app.iptv.tv.model.SeriesShow
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -27,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,6 +81,8 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
         }
     }
     var selected by remember { mutableStateOf(memory.selection ?: ALL) }
+    var sortMode by remember { mutableStateOf(app.iptv.tv.data.Prefs.gridSort(screen.kind)) }
+    var onlyGood by remember { mutableStateOf(false) }
 
     // Gemerkte Kategorie gibt es nicht mehr (ausgeblendet, gesperrt, letzte Favorit entfernt) → „Alle“.
     LaunchedEffect(categories) {
@@ -116,21 +123,47 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
             }
         }
 
-        Box(Modifier.weight(1f).fillMaxHeight().padding(top = 24.dp)) {
+        Column(Modifier.weight(1f).fillMaxHeight().padding(top = 24.dp)) {
+            // Sortieren und Filtern
+            Row(
+                Modifier.padding(start = 28.dp, end = 40.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Sortieren:", fontSize = 14.sp, color = AppColors.TextSecondary)
+                app.iptv.tv.data.MediaSort.modes.forEach { (id, label) ->
+                    SmallButton(if (id == sortMode) "● $label" else label, Modifier.rememberFocus(memory, "sort-$id")) {
+                        sortMode = id
+                        app.iptv.tv.data.Prefs.setGridSort(screen.kind, id)
+                        memory.scroll.remove("grid")
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                SmallButton(if (onlyGood) "● Nur ★ 7+" else "Nur ★ 7+", Modifier.rememberFocus(memory, "good")) {
+                    onlyGood = !onlyGood
+                    memory.scroll.remove("grid")
+                }
+            }
+            Box(Modifier.weight(1f)) {
             val saved = memory.scroll["grid"]
             val gridState = rememberLazyGridState(saved?.first ?: 0, saved?.second ?: 0)
             DisposableEffect(selected) {
                 onDispose { memory.scroll["grid"] = gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
             }
             if (isMovies) {
-                val movies = remember(content, selected, favorites) {
+                val base = remember(content, selected, favorites) {
                     when (selected) {
                         ALL -> content.movies
                         FAVORITES -> content.movies.filter { it.stableKey in favorites }
                         else -> content.movies(selected)
                     }
                 }
-                if (movies.isEmpty()) EmptyHint("Keine Filme in dieser Kategorie.")
+                // Große Listen im Hintergrund sortieren, damit die Bedienung flüssig bleibt.
+                val movies by produceState(base, base, sortMode, onlyGood) {
+                    value = if (sortMode == "default" && !onlyGood) base
+                    else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { app.iptv.tv.data.MediaSort.movies(base, sortMode, onlyGood) }
+                }
+                if (movies.isEmpty()) EmptyHint(if (onlyGood) "Keine Filme mit ★ 7+ in dieser Kategorie." else "Keine Filme in dieser Kategorie.")
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(112.dp),
                     state = gridState,
@@ -146,19 +179,24 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                             onLongClick = { toggleFavorite(m.stableKey, m.name) },
                             isFavorite = m.stableKey in favorites,
                             progress = progress[m.stableKey]?.let { it.position.toFloat() / it.duration },
+                            rating = m.rating,
                             modifier = Modifier.rememberFocus(memory, "m-${m.stableKey}"),
                         )
                     }
                 }
             } else {
-                val shows = remember(content, selected, favorites) {
+                val base = remember(content, selected, favorites) {
                     when (selected) {
                         ALL -> content.shows
                         FAVORITES -> content.shows.filter { it.favoriteKey in favorites }
                         else -> content.shows(selected)
                     }
                 }
-                if (shows.isEmpty()) EmptyHint("Keine Serien in dieser Kategorie.")
+                val shows by produceState(base, base, sortMode, onlyGood) {
+                    value = if (sortMode == "default" && !onlyGood) base
+                    else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { app.iptv.tv.data.MediaSort.shows(base, sortMode, onlyGood) }
+                }
+                if (shows.isEmpty()) EmptyHint(if (onlyGood) "Keine Serien mit ★ 7+ in dieser Kategorie." else "Keine Serien in dieser Kategorie.")
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(112.dp),
                     state = gridState,
@@ -173,10 +211,12 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
                             onClick = { nav.push(Screen.SeriesDetail(s)) },
                             onLongClick = { toggleFavorite(s.favoriteKey, s.title) },
                             isFavorite = s.favoriteKey in favorites,
+                            rating = s.rating,
                             modifier = Modifier.rememberFocus(memory, "s-${s.favoriteKey}"),
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -231,6 +271,11 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
     val versions by androidx.compose.runtime.produceState(emptyList<app.iptv.tv.model.Channel>(), movie, all) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { MediaInfo.versions(movie, all.movies).take(8) }
     }
+    val visibleContent by Repository.visible.collectAsState()
+    val similar by androidx.compose.runtime.produceState(emptyList<app.iptv.tv.model.Channel>(), movie, visibleContent) {
+        value = runCatching { app.iptv.tv.data.Similar.movies(movie, visibleContent.movies) }.getOrDefault(emptyList())
+    }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize()) {
         Backdrop(info?.backdrop)
@@ -241,7 +286,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                 RemoteImage(info?.poster ?: movie.logo, movie.initials, Modifier.fillMaxSize(), ContentScale.Crop)
             }
             Spacer(Modifier.width(44.dp))
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Text(movie.name, fontSize = 36.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 InfoLine(info)
                 Spacer(Modifier.height(24.dp))
@@ -269,7 +314,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AppButton("Trailer", { openTrailer(context, info?.trailerUrl, movie.name, info?.year) }, primary = false,
+                    AppButton("Trailer", { playTrailer(scope, context, info, movie.name, tv = false) }, primary = false,
                         modifier = Modifier.rememberFocus(memory, "trailer"))
                     AppButton(
                         when {
@@ -308,6 +353,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                 }
                 info?.director?.let { Text("Regie: $it", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 16.dp)) }
                 info?.cast?.let { Text("Mit: $it", fontSize = 16.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)) }
+                SimilarRow(memory, similar, emptyList(), nav)
             }
         }
     }
@@ -348,6 +394,12 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
     }
     val seasonEpisodes = seasons.firstOrNull { it.first == season }?.second ?: emptyList()
 
+    val visibleContent by Repository.visible.collectAsState()
+    val similar by androidx.compose.runtime.produceState(emptyList<SeriesShow>(), show, visibleContent) {
+        value = runCatching { app.iptv.tv.data.Similar.shows(show, visibleContent.shows) }.getOrDefault(emptyList())
+    }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
     fun play(list: List<Episode>, index: Int) {
         val ep = list[index]
         val pos = progress[ep.channel.stableKey]?.position ?: 0
@@ -368,7 +420,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                     icon = AppIcons.Star, primary = false, modifier = Modifier.rememberFocus(memory, "fav"),
                 )
                 Spacer(Modifier.height(10.dp))
-                AppButton("Trailer", { openTrailer(context, info?.trailerUrl, show.title, info?.year) }, primary = false)
+                AppButton("Trailer", { playTrailer(scope, context, info, show.title, tv = true) }, primary = false)
             }
             Spacer(Modifier.width(40.dp))
             Column(Modifier.weight(1f)) {
@@ -435,6 +487,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                                 }
                                 }
                             }
+                            item("similar") { Column { SimilarRow(memory, emptyList(), similar, nav) } }
                         }
                     }
                 }
@@ -444,6 +497,34 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
 }
 
 
+
+
+/** Reihe „Das könnte dir auch gefallen“ (nur Titel aus der eigenen Playlist). */
+@Composable
+private fun SimilarRow(memory: ScreenMemory, movies: List<app.iptv.tv.model.Channel>, shows: List<SeriesShow>, nav: Navigator) {
+    if (movies.isEmpty() && shows.isEmpty()) return
+    Text("Das könnte dir auch gefallen", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 6.dp, horizontal = 4.dp), modifier = Modifier.focusRestorer()) {
+        items(movies.size) { i ->
+            val m = movies[i]
+            PosterCard(m.name, m.logo, onClick = { nav.replace(Screen.MovieDetail(m)) }, onLongClick = {},
+                initials = m.initials, rating = m.rating, modifier = Modifier.rememberFocus(memory, "sim-${m.url}"))
+        }
+        items(shows.size) { i ->
+            val s = shows[i]
+            PosterCard(s.title, s.poster, onClick = { nav.replace(Screen.SeriesDetail(s)) }, onLongClick = {},
+                initials = s.title.take(2).uppercase(), rating = s.rating, modifier = Modifier.rememberFocus(memory, "sim-${s.favoriteKey}"))
+        }
+    }
+}
+
+/** Trailer vom Anbieter, sonst von TMDB, sonst YouTube-Suche. */
+fun playTrailer(scope: kotlinx.coroutines.CoroutineScope, context: android.content.Context, info: MediaInfo?, title: String, tv: Boolean) {
+    scope.launch {
+        val url = info?.trailerUrl ?: app.iptv.tv.data.Similar.trailer(title, info?.year, tv)
+        openTrailer(context, url, title, info?.year)
+    }
+}
 
 /** Öffnet den Trailer in der YouTube-App (oder sucht dort nach „Titel Trailer“). */
 fun openTrailer(context: android.content.Context, url: String?, title: String, year: String?) {
