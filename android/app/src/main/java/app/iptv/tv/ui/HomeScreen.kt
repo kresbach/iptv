@@ -39,8 +39,10 @@ import kotlinx.coroutines.delay
 @Composable
 fun rememberNow(): Long {
     val now by produceState(System.currentTimeMillis()) {
+        // Zur vollen Minute aktualisieren (Anzeigen sind minutengenau) – halb so oft wie vorher
+        // und trotzdem pünktlich, wenn die nächste Sendung beginnt.
         while (true) {
-            delay(30_000)
+            delay(60_000 - System.currentTimeMillis() % 60_000 + 50)
             value = System.currentTimeMillis()
         }
     }

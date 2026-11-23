@@ -1,0 +1,13 @@
+# Startprofil: diese Programmteile werden bei der Installation vorab übersetzt,
+# damit Start, Senderliste und Player sofort flüssig laufen (statt sich erst „einzulaufen“).
+HSPLapp/iptv/tv/**->**(**)**
+Lapp/iptv/tv/**;
+HSPLorg/videolan/libvlc/**->**(**)**
+Lorg/videolan/libvlc/**;
+HSPLandroidx/media3/exoplayer/**->**(**)**
+HSPLandroidx/media3/common/**->**(**)**
+HSPLandroidx/tv/material3/**->**(**)**
+Landroidx/tv/material3/**;
+HSPLcoil/**->**(**)**
+Lcoil/**;
+HSPLkotlinx/serialization/**->**(**)**

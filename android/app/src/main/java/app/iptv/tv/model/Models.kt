@@ -275,11 +275,30 @@ data class EpgGuide(val programmes: Map<String, List<Programme>> = emptyMap(), v
         return emptyList()
     }
 
-    fun current(channel: Channel, now: Long = System.currentTimeMillis()) =
-        schedule(channel).firstOrNull { it.isLive(now) }
+    // Sendungen sind nach Beginn sortiert → binäre Suche statt alles durchzugehen
+    // (mit Archiv stehen bis zu 7 Tage pro Sender in der Liste; die Senderliste fragt das für jede Zeile ab).
+    fun current(channel: Channel, now: Long = System.currentTimeMillis()): Programme? {
+        val list = schedule(channel)
+        val i = lastStartingBefore(list, now)
+        return list.getOrNull(i)?.takeIf { it.isLive(now) }
+    }
 
-    fun next(channel: Channel, now: Long = System.currentTimeMillis()) =
-        schedule(channel).firstOrNull { it.start > now }
+    fun next(channel: Channel, now: Long = System.currentTimeMillis()): Programme? {
+        val list = schedule(channel)
+        return list.getOrNull(lastStartingBefore(list, now) + 1)
+    }
+
+    /** Index der letzten Sendung mit Beginn ≤ [now], sonst -1. */
+    private fun lastStartingBefore(list: List<Programme>, now: Long): Int {
+        var lo = 0
+        var hi = list.lastIndex
+        var found = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (list[mid].start <= now) { found = mid; lo = mid + 1 } else hi = mid - 1
+        }
+        return found
+    }
 
     companion object {
         fun lookupKeys(channel: Channel): List<String> =

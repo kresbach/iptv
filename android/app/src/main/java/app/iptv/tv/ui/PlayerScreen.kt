@@ -65,6 +65,8 @@ import app.iptv.tv.model.ContentKind
 import app.iptv.tv.player.PlaybackEngine
 import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * Vollbild-Player.
@@ -150,6 +152,13 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         val start = if (playingIndex < 0) startPosition else Repository.progress.value[ch.stableKey]?.position ?: 0
         if (playingIndex >= 0 && playingIndex != index) previousIndex = playingIndex
         playingIndex = index
+        // Fernseher schon vor dem Start auf die bekannte Bildrate des Senders stellen (meist 50 Hz).
+        if (ch.kind == ContentKind.LIVE && app.iptv.tv.data.Prefs.autoFrameRate) {
+            app.iptv.tv.player.DisplayRate.init(context)
+            app.iptv.tv.player.DisplayRate.remembered(ch.stableKey)?.let {
+                app.iptv.tv.player.DisplayRate.apply(app.iptv.tv.player.DisplayRate.findActivity(context), it)
+            }
+        }
         engine.preferredBackend = if (ch.kind == ContentKind.LIVE) app.iptv.tv.data.Prefs.playerLive else app.iptv.tv.data.Prefs.playerVod
         val local = app.iptv.tv.data.Downloads.localFile(ch)
         engine.play(ch, start, local, if (ch.kind != ContentKind.LIVE) app.iptv.tv.data.Subtitles.saved(ch) else null)
@@ -172,8 +181,11 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         var ticks = 0
         while (true) {
             delay(500)
-            position = engine.position
-            duration = engine.duration
+            // Live: keine Laufzeit nötig – spart eine Neuberechnung des Bildschirms alle 0,5 s.
+            if (items[index].kind != ContentKind.LIVE) {
+                position = engine.position
+                duration = engine.duration
+            }
             if (++ticks % 20 == 0) saveProgress()
         }
     }
@@ -202,8 +214,13 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
 
     // Bildwiederholrate des Fernsehers an das Video anpassen (gegen Ruckeln, z. B. 50 Hz für deutsches TV).
     val activity = app.iptv.tv.player.DisplayRate.findActivity(context)
-    val videoFps = engine.videoInfo.collectAsState().value.fps
+    // Nur die Bildrate beobachten (nicht jede Zähleränderung der Wiedergabe-Info → weniger Neuberechnungen).
+    val videoFps by remember { engine.videoInfo.map { it.fps }.distinctUntilChanged() }.collectAsState(0f)
     LaunchedEffect(videoFps) {
+        if (videoFps > 0f && playingIndex >= 0 && items[playingIndex].kind == ContentKind.LIVE) {
+            app.iptv.tv.player.DisplayRate.init(context)
+            app.iptv.tv.player.DisplayRate.remember(items[playingIndex].stableKey, videoFps)
+        }
         if (videoFps > 0f && app.iptv.tv.data.Prefs.autoFrameRate) {
             app.iptv.tv.player.DisplayRate.apply(activity, videoFps)
             // Nach dem Umschalten der Bildwiederholrate das Bild neu einpassen (VLC).

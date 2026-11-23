@@ -272,13 +272,19 @@ fun PlayerOptions(
                         "Bildrate Video" to if (v.fps > 0) "%.3g fps".format(v.fps) else "wird gemessen …",
                         "Bildschirm" to (rate?.let { "%.3g Hz".format(it) } ?: "–") +
                             (if (v.fps > 0 && rate != null && app.iptv.tv.player.DisplayRate.bestRefreshRate(v.fps, listOf(rate)) == null) "  ⚠ passt nicht" else ""),
-                        "Deinterlacing" to when (engine.deinterlaceActive) {
-                            "yadif2x" -> "an (Yadif 2x)"; "bob" -> "an (Bob)"
-                            else -> if (engine.backendName == "ExoPlayer") "aus (ExoPlayer)" else "aus"
-                        },
-                        "Verlorene Bilder" to "${v.droppedFrames}",
+                        "Halbbild-Wandlung" to when (engine.deinterlaceActive) {
+                            "yadif2x" -> "Yadif 2x (50 Bilder)"; "bob" -> "Bob (50 Bilder)"
+                            else -> if (engine.backendName == "ExoPlayer") "Fernseher (ExoPlayer)" else "Fernseher"
+                        } + if (Prefs.deinterlace == "auto") " · automatisch" else "",
+                        "Gezeigte Bilder" to if (v.shownFps > 0) "%.0f pro Sekunde".format(v.shownFps) else "–",
+                        "Verlorene Bilder" to "${v.droppedFrames}" + if (v.shownFps > 0) " (zuletzt %.1f %%)".format(v.lostPercent) else "",
+                        "Datenrate" to if (v.mbps > 0) "%.1f Mbit/s".format(v.mbps) else "–",
+                        "Fehler im Stream" to "${v.streamErrors}",
                         "Hänger (Nachladen)" to "${v.rebuffers}",
                         "Puffer" to if (engine.backendName == "VLC") "–" else "%.1f s".format(buffer / 1000f),
+                    ) + listOfNotNull(
+                        if (v.decoder.isNotEmpty() && v.decoder != "VLC") "Dekodierung" to (if (isSoftwareDecoder(v.decoder)) "Software ⚠" else "Hardware") else null,
+                        "Einschätzung" to smoothnessVerdict(v, rate),
                     )
                     Column(Modifier.padding(horizontal = 8.dp).focusRequester(firstFocus).focusable()) {
                         lines.forEach { (k, value) ->
@@ -289,8 +295,8 @@ fun PlayerOptions(
                         }
                         Spacer(Modifier.size(10.dp))
                         Text(
-                            "Viele verlorene Bilder → Bildrate passt nicht oder das Gerät ist überlastet. " +
-                                "Viele Hänger → Verbindung zum Anbieter zu langsam (Einstellungen → großer Puffer).",
+                            "Viele verlorene Bilder → Bildrate passt nicht oder der Fernseher ist überlastet. " +
+                                "Fehler im Stream oder Hänger → Anbieter bzw. Internet (Einstellungen → Puffer „Groß“).",
                             fontSize = 13.sp, color = AppColors.TextSecondary, lineHeight = 18.sp,
                         )
                     }
@@ -320,4 +326,18 @@ private fun delayLabel(ms: Int) = when {
     ms == 0 -> "aus"
     ms > 0 -> "Ton +$ms ms später"
     else -> "Ton ${-ms} ms früher"
+}
+
+/** Software-Dekoder (langsam, ruckelt bei HD) an Namen wie „c2.android.avc.decoder“ erkennen. */
+internal fun isSoftwareDecoder(name: String) =
+    name.startsWith("OMX.google.", true) || name.startsWith("c2.android.", true) || name.contains("ffmpeg", true)
+
+/** Kurze Einschätzung für die Wiedergabe-Info: Woran liegt es, wenn es ruckelt? */
+internal fun smoothnessVerdict(v: app.iptv.tv.player.VideoInfo, displayRate: Float?): String = when {
+    v.fps > 0 && displayRate != null && app.iptv.tv.player.DisplayRate.bestRefreshRate(v.fps, listOf(displayRate)) == null ->
+        "Bildschirmfrequenz passt nicht zum Sender"
+    v.streamErrors > 20 || v.rebuffers > 2 -> "Ruckler kommen vom Anbieter/Internet"
+    v.shownFps > 0 && v.lostPercent >= 6f -> "Fernseher überlastet"
+    v.shownFps > 0 || v.fps > 0 -> "Alles flüssig ✓"
+    else -> "wird gemessen …"
 }

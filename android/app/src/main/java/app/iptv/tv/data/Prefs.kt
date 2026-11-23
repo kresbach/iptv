@@ -93,7 +93,13 @@ object Prefs {
      * Deinterlacing für Live TV (1080i-Sender): "off", "bob" (schonend) oder "yadif2x" (beste Qualität).
      * Nutzt VLC, da ExoPlayer Halbbilder nicht zu 50 Vollbildern zusammensetzt.
      */
-    var deinterlace: String get() = str("deinterlace", "yadif2x"); set(v) = putStr("deinterlace", v)
+    var deinterlace: String get() = str("deinterlace", "auto"); set(v) = putStr("deinterlace", v)
+
+    /**
+     * Stufe bei „Automatisch“: 0 = Yadif 2x, 1 = Bob, 2 = der Fernseher entflechtet selbst.
+     * Steigt von allein, wenn der Fernseher mit der aufwendigeren Stufe Bilder verliert.
+     */
+    var deinterlaceAutoLevel: Int get() = int("deinterlaceAutoLevel", 0); set(v) = putInt("deinterlaceAutoLevel", v)
 
     // endregion
 

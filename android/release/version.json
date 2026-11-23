@@ -1,5 +1,1 @@
-{
-  "versionCode": 21,
-  "versionName": "2.13",
-  "notes": "Sprachsuche, Bildformat und Ton-Versatz, Filme sortieren mit Bewertung, ähnliche Filme, Trailer über TMDB, Sicherung aller Profile, Schlüssel vom Handy"
-}
+{"versionCode":22,"versionName":"2.14","notes":"Flüssigeres Live TV: 50 Hz schon vor dem Senderstart, automatische Halbbild-Wandlung für Fußball, schnelleres Umschalten, Ruckel-Anzeige in der Wiedergabe-Info"}

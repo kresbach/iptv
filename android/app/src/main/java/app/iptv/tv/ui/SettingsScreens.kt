@@ -171,12 +171,19 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
             Prefs.bufferMode = when (Prefs.bufferMode) { "normal" -> "fast"; "fast" -> "big"; else -> "normal" }
         }
         SettingRow(
-            "Deinterlacing für Live TV (1080i-Sender)",
-            when (Prefs.deinterlace) { "bob" -> "Schonend (Bob)"; "yadif2x" -> "Beste Qualität (Yadif 2x)"; else -> "Aus" },
-            "Gegen Ruckeln bei 1080i-Sendern (RTL, ProSieben, Sky …). Nutzt VLC; 720p/1080p bleiben unverändert",
+            "Halbbild-Wandlung für Live TV (1080i-Sender)",
+            when (Prefs.deinterlace) {
+                "auto" -> "Automatisch · " + when (app.iptv.tv.player.PlaybackEngine.DEINTERLACE_LEVELS[Prefs.deinterlaceAutoLevel.coerceIn(0, 2)]) {
+                    "yadif2x" -> "Yadif 2x"; "bob" -> "Bob"; else -> "Fernseher"
+                }
+                "bob" -> "Schonend (Bob)"; "yadif2x" -> "Beste Qualität (Yadif 2x)"; else -> "Aus (Fernseher)"
+            },
+            "Fußball & Sport mit 50 flüssigen Bildern pro Sekunde. Automatisch: beste Qualität; schafft der Fernseher " +
+                "das nicht, wählt die App selbst eine leichtere Stufe. Erneut „Automatisch“ wählen = neu ausprobieren",
             modifier = Modifier.rememberFocus(memory, "deint"),
         ) {
-            Prefs.deinterlace = when (Prefs.deinterlace) { "off" -> "yadif2x"; "yadif2x" -> "bob"; else -> "off" }
+            Prefs.deinterlace = when (Prefs.deinterlace) { "auto" -> "yadif2x"; "yadif2x" -> "bob"; "bob" -> "off"; else -> "auto" }
+            if (Prefs.deinterlace == "auto") Prefs.deinterlaceAutoLevel = 0
         }
         SettingRow("Tunneling (Bild-Ton-Synchronisierung)", if (Prefs.tunneling) "An" else "Aus",
             "Bei manchen Fernsehern flüssiger, bei manchen Streams Probleme – ausprobieren",

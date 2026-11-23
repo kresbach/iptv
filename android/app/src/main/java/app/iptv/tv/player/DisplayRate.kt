@@ -35,7 +35,18 @@ object DisplayRate {
      * Passende Bildschirmfrequenz: ganzzahliges Vielfaches der Bildrate, möglichst genau und möglichst
      * niedriges Vielfaches (25 fps → 50 Hz, 23,976 → 23,976 Hz, 29,97 → 59,94 Hz).
      */
-    fun bestRefreshRate(fps: Float, rates: List<Float>): Float? =
+    fun bestRefreshRate(fps: Float, rates: List<Float>): Float? {
+        // Fernsehen (25/50 Bilder, 1080i) nie auf 25 Hz stellen: nach dem Deinterlacing kommen 50 Bilder,
+        // und 25 Hz flimmert. Ab 25 fps also nur Frequenzen ab ~48 Hz, sofern der Fernseher welche hat.
+        if (fps >= 24.5f) {
+            val high = rates.filter { it >= 47f }
+            matching(fps, high)?.let { return it }
+            if (high.isNotEmpty()) return null
+        }
+        return matching(fps, rates)
+    }
+
+    private fun matching(fps: Float, rates: List<Float>): Float? =
         rates.mapNotNull { r ->
             if (r < 23f) return@mapNotNull null
             val k = r / fps
@@ -91,6 +102,28 @@ object DisplayRate {
             originalModeId = -1
         }
     }
+
+    /**
+     * Bildrate je Sender merken: Beim nächsten Umschalten auf diesen Sender wird der Fernseher schon
+     * vor dem Start passend eingestellt – das kurze Schwarzbild beim Umstellen fällt dann nicht mitten
+     * ins laufende Spiel.
+     */
+    private var store: android.content.SharedPreferences? = null
+
+    fun init(context: android.content.Context) {
+        if (store == null) store = runCatching { context.getSharedPreferences("framerates", android.content.Context.MODE_PRIVATE) }.getOrNull()
+    }
+
+    fun remembered(channelKey: String): Float? = store?.getFloat(channelKey, 0f)?.takeIf { it > 0f }
+        ?: store?.getFloat(LAST_LIVE, 0f)?.takeIf { it > 0f }
+
+    fun remember(channelKey: String, fps: Float) {
+        val s = store ?: return
+        if (s.getFloat(channelKey, 0f) == fps && s.getFloat(LAST_LIVE, 0f) == fps) return
+        s.edit().putFloat(channelKey, fps).putFloat(LAST_LIVE, fps).apply()
+    }
+
+    private const val LAST_LIVE = "_last_live"
 
     fun currentRate(activity: Activity?): Float? = runCatching { displayOf(activity)?.mode?.refreshRate }.getOrNull()
 }

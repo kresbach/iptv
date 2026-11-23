@@ -109,6 +109,16 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.14 – flüssiges Live TV (Fußball)
+
+- **50 Hz schon vor dem Start:** Die App merkt sich die Bildrate jedes Senders und stellt den Fernseher beim Umschalten schon vor dem Start passend ein. Das kurze Schwarzbild beim Umstellen der Frequenz fällt so nicht mehr ins laufende Spiel. Fernsehen wird außerdem nie mehr auf 25 Hz gestellt, sondern immer auf 50 Hz.
+- **Halbbild-Wandlung „Automatisch“** (Einstellungen → Wiedergabe): Sie startet mit der besten Qualität (Yadif 2x, 50 Bilder pro Sekunde). Verliert der Fernseher dabei dauerhaft Bilder, wählt die App selbst eine leichtere Stufe (Bob, danach „Fernseher“) und merkt sich das für dieses Gerät.
+- **Schnelleres Umschalten:** Beim Zappen bleibt die Videofläche stehen und wird nicht jedes Mal neu aufgebaut. Schnelles Durchdrücken verbindet erst, wenn du kurz stehen bleibst. Das gab es schon vorher.
+- **Vorab übersetzte Programmteile:** Die App bringt ein Startprofil für App, Player und Bedienoberfläche mit. Start, Senderliste und Menüs laufen dadurch vom ersten Mal an flüssig.
+- **Senderliste:** Die laufende Sendung wird schneller gefunden, und die Liste aktualisiert sich nur noch zur vollen Minute. Senderlogos werden im Hintergrund vorgeladen.
+- **Hintergrundarbeit wartet:** Abgleich mit Google Drive, der Google-TV-Startbildschirm und das Vorladen von Logos warten, bis du nicht mehr schaust. Aktualisierung, Trends und neue Folgen haben schon vorher gewartet.
+- **Wiedergabe-Info** (OK lange drücken → Wiedergabe-Info): Sie zeigt jetzt die gezeigten Bilder pro Sekunde, den Anteil verlorener Bilder, die Datenrate, Fehler im Stream und, ob der Fernseher in Hardware dekodiert. Eine Einschätzung sagt, woran Ruckler liegen: Frequenz, Anbieter/Internet oder Fernseher.
+
 ## Neu in Version 2.13
 
 - **Sprachsuche**: „Hey Google, suche Tatort in IPTV“ öffnet die Suche mit dem Begriff. In der Suche

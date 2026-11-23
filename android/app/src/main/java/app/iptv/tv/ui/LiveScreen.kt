@@ -133,6 +133,9 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
             if (channels.isEmpty()) {
                 EmptyHint("Keine Sender in dieser Kategorie.")
             } else {
+                // Senderlogos der Kategorie vorab laden, damit beim ersten Durchscrollen nichts nachlädt.
+                val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(channels) { LogoPrefetch.run(context, channels) }
                 val saved = memory.scroll["channels"]
                 val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
                 DisposableEffect(selected) {
@@ -144,7 +147,7 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.focusRestorer(),
                 ) {
-                    itemsIndexed(channels, key = { i, _ -> i }) { index, ch ->
+                    itemsIndexed(channels, key = { i, _ -> i }, contentType = { _, _ -> "channel" }) { index, ch ->
                         ChannelRow(
                             number = index + 1,
                             channel = ch,

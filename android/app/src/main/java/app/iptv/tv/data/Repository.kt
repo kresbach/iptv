@@ -508,9 +508,13 @@ object Repository {
     }
 
     fun restoreBackup(backup: Backup) {
-        for ((name, text) in backup.files) {
-            if (!Regex("userdata(-[\\w-]+)?\\.json").matches(name)) continue
-            File(dir, name).writeText(text)
+        // In derselben Schreib-Warteschlange wie das normale Speichern: noch ausstehende Schreibvorgänge
+        // laufen vorher und können die wiederhergestellten Dateien nicht mehr überschreiben.
+        kotlinx.coroutines.runBlocking(serialIo) {
+            for ((name, text) in backup.files) {
+                if (!Regex("userdata(-[\\w-]+)?\\.json").matches(name)) continue
+                File(dir, name).writeText(text)
+            }
         }
         backup.files["profiles.json"]?.let { Profiles.importJson(it) }
         backup.settings["categories"]?.let { Prefs.putStr("categories", it); CategoryPrefs.load() }

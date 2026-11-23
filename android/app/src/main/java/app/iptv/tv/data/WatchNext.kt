@@ -14,6 +14,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -36,7 +37,11 @@ object WatchNext {
         val app = context.applicationContext
         if (!app.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return
         scope.launch {
-            Repository.progress.drop(1).debounce(5_000).collect { if (Prefs.watchNext) sync(app) }
+            // Während der Wiedergabe nicht schreiben (der Fernseher soll sich ganz aufs Bild konzentrieren).
+            Repository.progress.drop(1).debounce(5_000).collectLatest {
+                while (Repository.playbackActive) kotlinx.coroutines.delay(15_000)
+                if (Prefs.watchNext) sync(app)
+            }
         }
     }
 

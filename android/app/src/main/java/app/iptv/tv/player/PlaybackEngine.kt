@@ -45,6 +45,14 @@ data class VideoInfo(
     val rebuffers: Int = 0,
     val bufferMs: Long = 0,
     val decoder: String = "",
+    /** Tatsächlich gezeigte Bilder pro Sekunde (VLC), 0 = unbekannt. */
+    val shownFps: Float = 0f,
+    /** Anteil verlorener Bilder in den letzten Sekunden (0–100). */
+    val lostPercent: Float = 0f,
+    /** Datenrate vom Anbieter in Mbit/s (VLC). */
+    val mbps: Float = 0f,
+    /** Beschädigte bzw. fehlende Datenpakete im Stream (Anbieter/Internet). */
+    val streamErrors: Int = 0,
 )
 
 /** Eine Ton- oder Untertitelspur zur Auswahl. */
@@ -121,6 +129,7 @@ class PlaybackEngine(private val context: Context) {
         override fun run() {
             val st = status.value
             if (vlc != null && videoInfo.value.fps == 0f) readVlcVideoTrack()
+            if (vlc != null && st.playing && !st.buffering) checkSmoothness()
             if (channel != null && st.buffering && !st.failed && (exo != null || vlc != null)) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (bufferingSince == 0L) bufferingSince = now
@@ -141,7 +150,9 @@ class PlaybackEngine(private val context: Context) {
      */
     fun play(channel: Channel, startPositionMs: Long = 0, localFile: java.io.File? = null, subtitle: java.io.File? = null) {
         main.removeCallbacksAndMessages(null)
-        releasePlayers()
+        val next = chooseBackend(channel)
+        // Beim Zappen zwischen VLC-Sendern die Videofläche behalten (schnelleres, ruhigeres Umschalten).
+        releasePlayers(keepVlcSurface = next == Backend.VLC && vlcAvailable && !surfaceReuseBroken)
         generation++
         this.channel = channel
         attempts = 0
@@ -153,18 +164,20 @@ class PlaybackEngine(private val context: Context) {
         subtitleFile = subtitle
         this.localFile = localFile
         currentUrl = localFile?.let { Uri.fromFile(it).toString() } ?: channel.url
-        backend = when (preferredBackend) {
-            app.iptv.tv.data.PlayerChoice.SYSTEM -> Backend.EXO
-            app.iptv.tv.data.PlayerChoice.VLC -> Backend.VLC
-            app.iptv.tv.data.PlayerChoice.AUTOMATIC -> when {
-                UrlTools.extension(channel.url) in vlcExtensions -> Backend.VLC
-                // Live TV: VLC läuft auf Fernsehern wie Sony (MediaTek) deutlich flüssiger und setzt
-                // 1080i-Halbbilder zusammen; ExoPlayer verwirft dort bei 1080 sehr viele Bilder.
-                channel.kind == ContentKind.LIVE -> Backend.VLC
-                else -> Backend.EXO
-            }
-        }
+        backend = next
         start()
+    }
+
+    private fun chooseBackend(channel: Channel) = when (preferredBackend) {
+        app.iptv.tv.data.PlayerChoice.SYSTEM -> Backend.EXO
+        app.iptv.tv.data.PlayerChoice.VLC -> Backend.VLC
+        app.iptv.tv.data.PlayerChoice.AUTOMATIC -> when {
+            UrlTools.extension(channel.url) in vlcExtensions -> Backend.VLC
+            // Live TV: VLC läuft auf Fernsehern wie Sony (MediaTek) deutlich flüssiger und setzt
+            // 1080i-Halbbilder zusammen; ExoPlayer verwirft dort bei 1080 sehr viele Bilder.
+            channel.kind == ContentKind.LIVE -> Backend.VLC
+            else -> Backend.EXO
+        }
     }
 
     /** Externen Untertitel setzen (Wiedergabe startet an der aktuellen Stelle neu). */
@@ -362,6 +375,55 @@ class PlaybackEngine(private val context: Context) {
         videoInfo.value = videoInfo.value.copy(droppedFrames = lost)
     }
 
+    // region Flüssigkeit überwachen
+
+    private val frames = FrameMonitor()
+    private var playingSince = 0L
+
+    /**
+     * Alle 2 s: VLC-Statistik lesen (gezeigte/verlorene Bilder, Datenrate). Verliert der Fernseher
+     * dauerhaft Bilder, weil die Halbbild-Wandlung zu aufwendig ist, wird automatisch eine leichtere
+     * Stufe gewählt (Yadif 2x → Bob → Fernseher selbst) und für dieses Gerät gemerkt.
+     */
+    private fun checkSmoothness() {
+        val stats = runCatching {
+            vlc?.media?.let { m -> try { m.stats } finally { m.release() } }
+        }.getOrNull() ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val verdict = frames.update(
+            now, stats.displayedPictures, stats.lostPictures,
+            stats.demuxCorrupted + stats.demuxDiscontinuity, now - playingSince,
+        )
+        videoInfo.value = videoInfo.value.copy(
+            droppedFrames = stats.lostPictures,
+            shownFps = frames.shownFps,
+            lostPercent = frames.lostPercent,
+            // VLC liefert Bytes pro Millisekunde → ×8 = Mbit/s
+            mbps = stats.inputBitrate * 8f,
+            streamErrors = stats.demuxCorrupted + stats.demuxDiscontinuity,
+        )
+        if (verdict && isLive && deinterlaceActive != null && app.iptv.tv.data.Prefs.deinterlace == "auto") {
+            val level = app.iptv.tv.data.Prefs.deinterlaceAutoLevel
+            if (level >= DEINTERLACE_LEVELS.lastIndex) return
+            app.iptv.tv.data.Prefs.deinterlaceAutoLevel = level + 1
+            Log.i(TAG, "Zu viele verlorene Bilder (${frames.lostPercent} %) → Deinterlacing ${DEINTERLACE_LEVELS[level + 1] ?: "Fernseher"}")
+            restartSame("Bild wird für diesen Fernseher optimiert …")
+        }
+    }
+
+    /** Denselben Stream neu starten (z. B. mit anderer Halbbild-Wandlung). */
+    private fun restartSame(message: String? = null) {
+        if (channel == null) return
+        main.removeCallbacksAndMessages(null)
+        releasePlayers(keepVlcSurface = backend == Backend.VLC && !surfaceReuseBroken)
+        generation++
+        attempts = 0
+        start()
+        if (message != null) status.value = status.value.copy(message = message)
+    }
+
+    // endregion
+
     /** Vorrat im Puffer (ms), nur ExoPlayer. */
     val bufferedMs: Long get() = exo?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0) } ?: 0L
 
@@ -505,6 +567,20 @@ class PlaybackEngine(private val context: Context) {
         vlc?.let { p -> app.iptv.tv.data.Prefs.audioDelayMs.takeIf { it != 0 }?.let { runCatching { p.setAudioDelay(it * 1000L) } } }
         everPlayed = true
         attempts = 0
+        playingSince = android.os.SystemClock.elapsedRealtime()
+        frames.reset()
+        // Wiederverwendete Videofläche: kommt kein Bild, einmal mit frischer Fläche neu starten.
+        if (vlc != null && surfaceReused) {
+            val gen = generation
+            main.postDelayed({
+                val p = vlc
+                if (gen == generation && p != null && !voutSeen && runCatching { p.videoTracksCount }.getOrDefault(0) > 0) {
+                    Log.w(TAG, "Kein Bild auf wiederverwendeter Videofläche → neue Fläche")
+                    surfaceReuseBroken = true
+                    restartSame()
+                }
+            }, 5_000)
+        }
         status.value = status.value.copy(buffering = false, playing = true, message = null, failed = false)
         refreshTracks()
     }
@@ -514,6 +590,8 @@ class PlaybackEngine(private val context: Context) {
     // region ExoPlayer
 
     private fun startExo(url: String) {
+        // Eine evtl. behaltene VLC-Fläche entfernen.
+        if (vlcLayout != null) { container.removeAllViews(); vlcLayout = null }
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(Http.USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
@@ -676,7 +754,11 @@ class PlaybackEngine(private val context: Context) {
 
     /** Gewähltes Deinterlacing ("bob"/"yadif2x") oder null. */
     private val deinterlaceMode: String?
-        get() = app.iptv.tv.data.Prefs.deinterlace.takeIf { it == "bob" || it == "yadif2x" }
+        get() = when (val d = app.iptv.tv.data.Prefs.deinterlace) {
+            "auto" -> DEINTERLACE_LEVELS[app.iptv.tv.data.Prefs.deinterlaceAutoLevel.coerceIn(0, DEINTERLACE_LEVELS.lastIndex)]
+            "bob", "yadif2x" -> d
+            else -> null
+        }
 
     /** Für die Wiedergabe-Info. */
     val deinterlaceActive: String?
@@ -700,8 +782,12 @@ class PlaybackEngine(private val context: Context) {
                 }
             },
         ).also { libVlc = it; libVlcDeinterlace = wanted }
-        val layout = VLCVideoLayout(context)
-        container.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.CENTER))
+        surfaceReused = vlcLayout != null && vlcLayout?.parent === container
+        voutSeen = false
+        val layout = vlcLayout?.takeIf { surfaceReused } ?: VLCVideoLayout(context).also {
+            container.removeAllViews()
+            container.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.CENTER))
+        }
         vlcLayout = layout
         val player = MediaPlayer(lib)
         vlc = player
@@ -715,6 +801,7 @@ class PlaybackEngine(private val context: Context) {
             when (event.type) {
                 MediaPlayer.Event.Playing -> onPlaying()
                 MediaPlayer.Event.Vout -> {
+                    if (event.voutCount > 0) voutSeen = true
                     readVlcVideoTrack()
                     // Bildausgabe steht: Bildschirmgröße mitteilen (sonst landet z. B. 720p unskaliert in der Ecke).
                     refreshVideoLayout()
@@ -762,7 +849,10 @@ class PlaybackEngine(private val context: Context) {
 
     // endregion
 
-    private fun releasePlayers() {
+    private var surfaceReused = false
+    private var voutSeen = false
+
+    private fun releasePlayers(keepVlcSurface: Boolean = false) {
         exo?.let {
             it.stop()
             it.release()
@@ -785,8 +875,14 @@ class PlaybackEngine(private val context: Context) {
             }, "vlc-release").start()
         }
         vlc = null
-        vlcLayout = null
-        container.removeAllViews()
+        val keep = vlcLayout?.takeIf { keepVlcSurface }
+        if (keep != null) {
+            // nur andere Ansichten (z. B. ExoPlayer) entfernen, die VLC-Fläche bleibt stehen
+            for (i in container.childCount - 1 downTo 0) if (container.getChildAt(i) !== keep) container.removeViewAt(i)
+        } else {
+            vlcLayout = null
+            container.removeAllViews()
+        }
         audioTracks.value = emptyList()
         textTracks.value = emptyList()
     }
@@ -794,6 +890,10 @@ class PlaybackEngine(private val context: Context) {
     companion object {
         /** Gemeinsam für alle Player: ein neuer Player wartet, bis der alte seine Verbindung geschlossen hat. */
         private val releasing = java.util.concurrent.atomic.AtomicInteger(0)
+        /** Stufen der automatischen Halbbild-Wandlung; null = der Fernseher macht es selbst. */
+        val DEINTERLACE_LEVELS = listOf("yadif2x", "bob", null)
+        /** Liefert eine wiederverwendete Videofläche kein Bild, für den Rest der Sitzung immer neue Flächen. */
+        @Volatile private var surfaceReuseBroken = false
         private const val TAG = "PlaybackEngine"
         private const val STALL_TIMEOUT_MS = 30_000L
         private val vlcExtensions = setOf("avi", "wmv", "flv", "mpg", "mpeg", "divx", "rmvb", "3gp", "vob", "ogm", "asf", "m2ts", "mts")

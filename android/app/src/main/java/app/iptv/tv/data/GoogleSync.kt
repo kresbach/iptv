@@ -488,6 +488,8 @@ object GoogleSync {
         debounce?.cancel()
         debounce = scope.launch {
             delay(20_000)
+            // Abgleich nach dem Schauen (Fernsehbild hat Vorrang)
+            while (Repository.playbackActive) delay(15_000)
             sync()
         }
     }
