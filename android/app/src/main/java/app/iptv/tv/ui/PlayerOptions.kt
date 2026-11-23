@@ -59,6 +59,8 @@ fun PlayerOptions(
     onClose: () -> Unit,
     onToggleFavorite: () -> Unit,
     onEngineChange: (PlayerChoice) -> Unit,
+    previousChannel: Channel? = null,
+    onPreviousChannel: () -> Unit = {},
 ) {
     val audio by engine.audioTracks.collectAsState()
     val text by engine.textTracks.collectAsState()
@@ -138,6 +140,7 @@ fun PlayerOptions(
                     row("text", "Untertitel", text.firstOrNull { it.selected }?.label ?: "Aus") { onPage("text") }
                     if (!isLive) row("search", "Untertitel suchen (OpenSubtitles)", if (Subtitles.isConfigured) null else "nicht eingerichtet") { onPage("search") }
                     row("engine", "Player", "${engine.backendName} · ${(if (isLive) Prefs.playerLive else Prefs.playerVod).title}") { onPage("engine") }
+                    if (isLive && previousChannel != null) row("prev", "Zurück zum letzten Sender", previousChannel.name) { onPreviousChannel() }
                     if (isLive) row("fav", if (isFavorite) "Aus Favoriten entfernen" else "Zu Favoriten hinzufügen") { onToggleFavorite() }
                     row("info", "Wiedergabe-Info", "Bildrate, Ruckeln, Puffer") { onPage("info") }
                     row("diag", "Verbindung prüfen", "hält den Stream kurz an") { onPage("diag") }

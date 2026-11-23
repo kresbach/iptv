@@ -42,10 +42,14 @@ class IptvApp : Application(), ImageLoaderFactory {
         fun crashFile(context: android.content.Context) = java.io.File(context.filesDir, "last_crash.txt")
     }
 
+    /** Direkt aus den Einstellungen lesen (Bilder können vor Prefs.init geladen werden). */
+    private fun imageCacheBytes(): Long =
+        getSharedPreferences("settings", MODE_PRIVATE).getInt("imageCacheMb", 150).coerceIn(50, 1000) * 1024L * 1024L
+
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient { Http.client }
         .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.15).build() }
-        .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(150L * 1024 * 1024).build() }
+        .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(imageCacheBytes()).build() }
         // Kein Einblenden: beim schnellen Scrollen liefen sonst Dutzende Animationen gleichzeitig.
         .crossfade(false)
         // Cover/Logos mit halbem Speicherbedarf dekodieren (auf dem Fernseher nicht sichtbar).

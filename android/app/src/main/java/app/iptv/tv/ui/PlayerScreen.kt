@@ -96,6 +96,10 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     /** Optionsmenü (OK lange drücken): null = zu, sonst Seite. */
     var options by remember { mutableStateOf<String?>(null) }
     var okLong by remember { mutableStateOf(false) }
+    /** Eingetippte Sendernummer (Zifferntasten der Fernbedienung). */
+    var digits by remember { mutableStateOf("") }
+    /** Zuletzt gesehener Sender (Taste „Letzter Sender“ bzw. im Menü). */
+    var previousIndex by remember { mutableIntStateOf(-1) }
 
     val channel = items[index]
     val isLive = channel.kind == ContentKind.LIVE
@@ -122,6 +126,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         saveProgress()
         val ch = items[index]
         val start = if (playingIndex < 0) startPosition else Repository.progress.value[ch.stableKey]?.position ?: 0
+        if (playingIndex >= 0 && playingIndex != index) previousIndex = playingIndex
         playingIndex = index
         engine.preferredBackend = if (ch.kind == ContentKind.LIVE) app.iptv.tv.data.Prefs.playerLive else app.iptv.tv.data.Prefs.playerVod
         val local = app.iptv.tv.data.Downloads.localFile(ch)
@@ -129,6 +134,15 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         // Offline-Wiedergabe belegt keine Verbindung – Downloads dürfen weiterlaufen.
         Repository.playbackActive = local == null
         Repository.addRecent(ch, screen.showKey ?: Repository.showKeyFor(ch))
+    }
+
+    // Sendernummer: 1,5 s nach der letzten Ziffer umschalten.
+    LaunchedEffect(digits) {
+        if (digits.isEmpty()) return@LaunchedEffect
+        delay(1_500)
+        val n = digits.toIntOrNull()
+        digits = ""
+        if (n != null && n in 1..items.size && n - 1 != index) { index = n - 1; showInfo = true; infoTick++ }
     }
 
     // Laufzeit für Filme aktualisieren und regelmäßig den Fortschritt speichern.
@@ -311,6 +325,22 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                     KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { options = "main"; true }
                     KeyEvent.KEYCODE_INFO -> { showInfo = !showInfo; infoTick++; true }
                     KeyEvent.KEYCODE_CAPTIONS -> { options = "text"; true }
+                    KeyEvent.KEYCODE_LAST_CHANNEL -> {
+                        if (isLive && previousIndex in items.indices) { index = previousIndex; showInfo = true; infoTick++ }
+                        true
+                    }
+                    in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9, in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> {
+                        if (isLive) {
+                            val d = if (code >= KeyEvent.KEYCODE_NUMPAD_0) code - KeyEvent.KEYCODE_NUMPAD_0 else code - KeyEvent.KEYCODE_0
+                            digits = (digits + d).takeLast(4)
+                            if (digits.length >= items.size.toString().length) {
+                                // Nummer vollständig → sofort umschalten
+                                val n = digits.toInt(); digits = ""
+                                if (n in 1..items.size && n - 1 != index) { index = n - 1; showInfo = true; infoTick++ }
+                            }
+                        }
+                        true
+                    }
                     else -> false
                 }
             }
@@ -318,6 +348,17 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             .focusable(enabled = okLong || (!showList && options == null)),
     ) {
         AndroidView(factory = { engine.container }, modifier = Modifier.fillMaxSize())
+
+        if (digits.isNotEmpty()) {
+            Text(
+                digits,
+                fontSize = 56.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColors.Orange,
+                modifier = Modifier.align(Alignment.TopEnd).padding(40.dp)
+                    .clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+        }
 
         // Laden / Wiederverbinden / Fehler
         if (status.buffering || status.message != null) {
@@ -381,7 +422,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                                 Text("Danach: ${clock(it.start)}  ${it.title}", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
                             }
                             Text(
-                                "▲▼ Sender wechseln   ◀ Senderliste   OK Info   OK lange = Optionen   Zurück = Schließen",
+                                "▲▼ Sender wechseln   0–9 Sendernummer   ◀ Senderliste   OK Info   OK lange = Optionen   Zurück = Schließen",
                                 fontSize = 13.sp, color = AppColors.TextSecondary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 12.dp),
                             )
                         }
@@ -424,6 +465,8 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                 onPage = { options = it },
                 onClose = { options = null },
                 onToggleFavorite = { toggleFavorite(channel.stableKey, channel.name) },
+                previousChannel = items.getOrNull(previousIndex)?.takeIf { previousIndex != index },
+                onPreviousChannel = { options = null; index = previousIndex; showInfo = true; infoTick++ },
                 onEngineChange = { choice ->
                     if (isLive) app.iptv.tv.data.Prefs.playerLive = choice else app.iptv.tv.data.Prefs.playerVod = choice
                     app.iptv.tv.data.GoogleSync.scheduleSync()

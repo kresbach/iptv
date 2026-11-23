@@ -153,6 +153,7 @@ fun ChannelRow(
     modifier: Modifier = Modifier,
     isFavorite: Boolean = false,
     isPlaying: Boolean = false,
+    next: Programme? = null,
 ) {
     FocusSurface(
         onClick = onClick,
@@ -192,13 +193,29 @@ fun ChannelRow(
                     }
                 }
                 if (programme != null) {
-                    Text(
-                        "${clock(programme.start)}  ${programme.title}",
-                        fontSize = 12.sp,
-                        color = AppColors.TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${clock(programme.start)}  ${programme.title}",
+                            fontSize = 12.sp,
+                            color = AppColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        val left = ((programme.end - now) / 60_000).coerceAtLeast(0)
+                        Text("  · noch $left Min.", fontSize = 12.sp, color = AppColors.OrangeLight, maxLines = 1)
+                        if (next != null) {
+                            Spacer(Modifier.width(16.dp))
+                            Text(
+                                "Danach ${clock(next.start)}  ${next.title}",
+                                fontSize = 12.sp,
+                                color = AppColors.TextSecondary.copy(alpha = 0.75f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(3.dp))
                     ProgressLine(programme.progress(now), Modifier.fillMaxWidth(0.6f), 2.dp)
                 }

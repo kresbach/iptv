@@ -109,6 +109,20 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Live TV bequemer (seit Version 2.11)
+
+- **Sendernummer eintippen**: Im Player mit den Zifferntasten der Fernbedienung direkt zu einem Sender
+  springen (die Nummer steht in der Senderliste). Die Taste „Letzter Sender“ bzw. im Menü
+  (OK lange drücken) „Zurück zum letzten Sender“ wechselt zum vorherigen Sender.
+- **Puffer (Live TV)** unter Einstellungen → Wiedergabe: *Schnell* (Sender kommen schneller, ca. 1,5 s),
+  *Normal* oder *Groß* (für wackelige Verbindungen).
+- **Senderliste** zeigt die laufende Sendung, die Restzeit („noch 23 Min.“) und was danach kommt.
+- **Favoriten sortieren**: Lieblingssender nach oben (Live TV → „Favoriten sortieren“ oder Einstellungen).
+  Live TV startet mit den Favoriten (abschaltbar).
+- **Kindersicherung**: Erwachsenen-Kategorien („XXX“, „Adult“, „18+“ …) werden bei aktiver PIN
+  automatisch gesperrt – auch neue. „Kategorien bearbeiten“ ist dann ebenfalls durch die PIN geschützt.
+- **Bildspeicher** (Logos, Cover) unter Einstellungen → Speicher begrenzen oder leeren.
+
 ## Startseite und Trends
 
 - **Weiterschauen**: angefangene Filme und Episoden. **Zuletzt gesehen**: nur Live-Sender.

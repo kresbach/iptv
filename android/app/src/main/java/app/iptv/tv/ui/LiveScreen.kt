@@ -33,10 +33,12 @@ import app.iptv.tv.model.Channel
 const val ALL = "\u0000alle"
 const val FAVORITES = "\u0000favoriten"
 const val UNLOCK = "\u0000entsperren"
+const val SORT_FAVORITES = "\u0000sortieren"
 
 fun liveChannels(content: LibraryContent, category: String, favorites: Set<String>): List<Channel> = when (category) {
     ALL -> content.live
-    FAVORITES -> content.live.filter { it.stableKey in favorites }
+    // In der eigenen Reihenfolge (Einstellungen → Favoriten sortieren)
+    FAVORITES -> favorites.mapNotNull { content.channel(it) }.filter { it.kind == app.iptv.tv.model.ContentKind.LIVE }
     else -> content.live(category)
 }
 
@@ -54,14 +56,21 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
 
     val categories = remember(content, favorites, catVersion) {
         buildList {
-            if (content.live.any { it.stableKey in favorites }) add(Triple(FAVORITES, "★ Favoriten", null as Int?))
+            val favCount = content.live.count { it.stableKey in favorites }
+            if (favCount > 0) add(Triple(FAVORITES, "★ Favoriten", favCount as Int?))
+            if (favCount > 1) add(Triple(SORT_FAVORITES, "⇅ Favoriten sortieren", null))
             add(Triple(ALL, "Alle Sender", content.live.size))
             app.iptv.tv.data.CategoryPrefs.arranged(content.liveCategories, app.iptv.tv.model.ContentKind.LIVE)
                 .forEach { add(Triple(it.name, it.name, it.count)) }
             if (app.iptv.tv.data.CategoryPrefs.hasLocked(app.iptv.tv.model.ContentKind.LIVE) && !app.iptv.tv.data.CategoryPrefs.unlocked.value) add(Triple(UNLOCK, "🔒 Gesperrte freischalten", null))
         }
     }
-    var selected by remember { mutableStateOf(memory.selection ?: screen.startCategory ?: categories.firstOrNull { it.first != FAVORITES }?.first ?: ALL) }
+    var selected by remember {
+        mutableStateOf(
+            memory.selection ?: screen.startCategory
+                ?: categories.firstOrNull { it.first != FAVORITES || app.iptv.tv.data.Prefs.liveStartFavorites }?.first ?: ALL,
+        )
+    }
 
     // Gemerkte Kategorie gibt es nicht mehr (ausgeblendet, gesperrt, letzte Favorit entfernt) → „Alle“.
     LaunchedEffect(categories) {
@@ -93,13 +102,19 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                         count = count,
                         selected = id == selected,
                         onFocus = {
-                            if (selected != id && id != UNLOCK) {
+                            if (selected != id && id != UNLOCK && id != SORT_FAVORITES) {
                                 selected = id
                                 memory.selection = id
                                 memory.scroll.remove("channels")
                             }
                         },
-                        onClick = { if (id == UNLOCK) nav.push(Screen.Unlock) else { selected = id; memory.selection = id } },
+                        onClick = {
+                            when (id) {
+                                UNLOCK -> nav.push(Screen.Unlock)
+                                SORT_FAVORITES -> nav.push(Screen.FavoriteOrder)
+                                else -> { selected = id; memory.selection = id }
+                            }
+                        },
                         modifier = Modifier.rememberFocus(memory, "cat-$id", isDefault = id == selected && memory.focusedKey == null),
                     )
                 }
@@ -134,6 +149,7 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                             number = index + 1,
                             channel = ch,
                             programme = epg?.current(ch, now),
+                            next = epg?.next(ch, now),
                             now = now,
                             onClick = {
                                 memory.selection = selected

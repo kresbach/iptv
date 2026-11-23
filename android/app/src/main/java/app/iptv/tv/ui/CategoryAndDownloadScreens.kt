@@ -43,6 +43,21 @@ import app.iptv.tv.model.ContentKind
 /** Kategorien ausblenden, sperren (mit PIN) und sortieren – je Bereich. */
 @Composable
 fun CategoryEditScreen(nav: Navigator, screen: Screen.CategoryEdit) {
+    val unlocked by CategoryPrefs.unlocked.collectAsState()
+    Prefs.version.collectAsState().value
+    if (Prefs.hasPin && !unlocked) {
+        // Sonst könnten Kinder hier die Sperren einfach aufheben.
+        var message by remember { mutableStateOf<String?>(null) }
+        PinPad("PIN eingeben", message ?: "Kategorien bearbeiten ist durch die Kindersicherung geschützt", onComplete = { pin ->
+            if (!CategoryPrefs.unlock(pin)) message = "Falsche PIN – bitte erneut versuchen."
+        })
+    } else {
+        CategoryEditContent(nav, screen)
+    }
+}
+
+@Composable
+private fun CategoryEditContent(nav: Navigator, screen: Screen.CategoryEdit) {
     val content by Repository.content.collectAsState()
     CategoryPrefs.version.collectAsState().value
     Prefs.version.collectAsState().value
@@ -99,6 +114,40 @@ fun CategoryEditScreen(nav: Navigator, screen: Screen.CategoryEdit) {
                     }
                     SmallButton("▲") { CategoryPrefs.move(kind, categories, index, -1) }
                     SmallButton("▼") { CategoryPrefs.move(kind, categories, index, 1) }
+                }
+            }
+        }
+    }
+}
+
+/** Eigene Reihenfolge der Favoriten (Sender, Filme, Serien). */
+@Composable
+fun FavoriteOrderScreen(memory: ScreenMemory) {
+    val content by Repository.visible.collectAsState()
+    val favorites by Repository.favorites.collectAsState()
+    remember { memory.restored = false; 0 }
+    val entries = remember(content, favorites) {
+        favorites.mapNotNull { key ->
+            content.channel(key)?.let { Triple(key, it.name, if (it.kind == ContentKind.LIVE) "Sender" else "Film") }
+                ?: content.show(key)?.let { Triple(key, it.title, "Serie") }
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(start = 56.dp, end = 56.dp, top = 28.dp)) {
+        ScreenTitle("Favoriten sortieren", "▲▼ verschiebt, „Nach oben“ setzt an die erste Stelle. Gilt für Live TV und die Startseite.")
+        if (entries.isEmpty()) EmptyHint("Noch keine Favoriten. OK lange drücken fügt einen Sender hinzu.")
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 40.dp, top = 4.dp)) {
+            itemsIndexed(entries, key = { _, e -> e.first }) { index, (key, title, type) ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AppColors.Surface).padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("${index + 1}", fontSize = 14.sp, color = AppColors.TextSecondary, modifier = Modifier.width(32.dp))
+                    Text(title, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(type, fontSize = 13.sp, color = AppColors.TextSecondary)
+                    SmallButton("Nach oben", Modifier.rememberFocus(memory, "top-$key", isDefault = index == 0)) { Repository.moveFavoriteToTop(key) }
+                    SmallButton("▲", Modifier.rememberFocus(memory, "up-$key")) { Repository.moveFavorite(key, -1) }
+                    SmallButton("▼", Modifier.rememberFocus(memory, "down-$key")) { Repository.moveFavorite(key, 1) }
                 }
             }
         }

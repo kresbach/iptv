@@ -47,6 +47,11 @@ object Prefs {
     private fun putBool(key: String, value: Boolean) {
         sp.edit().putBoolean(key, value).apply(); version.value++
     }
+    private fun int(key: String, default: Int) = if (initialized) sp.getInt(key, default) else default
+    private fun putInt(key: String, value: Int) {
+        if (!initialized) return
+        sp.edit().putInt(key, value).apply(); version.value++
+    }
     private fun long(key: String, default: Long) = if (initialized) sp.getLong(key, default) else default
     private fun putLong(key: String, value: Long) {
         sp.edit().putLong(key, value).apply(); version.value++
@@ -69,7 +74,18 @@ object Prefs {
     /** Bildwiederholrate des Fernsehers an das Video anpassen (z. B. 50 Hz für deutsches TV). */
     var autoFrameRate: Boolean get() = bool("afr", true); set(v) = putBool("afr", v)
     /** Größerer Puffer für Live TV (wackelige Verbindung, dafür langsameres Umschalten). */
-    var bigBuffer: Boolean get() = bool("bigBuffer", false); set(v) = putBool("bigBuffer", v)
+    var bigBuffer: Boolean get() = bufferMode == "big"; set(v) { bufferMode = if (v) "big" else "normal" }
+    /** Live-Puffer: "fast" (schnell umschalten), "normal", "big" (stabil bei wackeliger Verbindung). */
+    var bufferMode: String
+        get() = str("bufferMode", if (bool("bigBuffer", false)) "big" else "normal")
+        set(v) = putStr("bufferMode", v)
+    val fastZap: Boolean get() = bufferMode == "fast"
+    /** Höchstgröße des Bildspeichers (Logos, Cover) in MB – gilt nach Neustart der App. */
+    /** Kindersicherung: Kategorien wie „XXX“, „Adult“, „18+“ automatisch sperren (auch neue). */
+    var autoLockAdult: Boolean get() = bool("autoLockAdult", true); set(v) = putBool("autoLockAdult", v)
+    /** Live TV öffnet mit der Kategorie „Favoriten“ (falls vorhanden). */
+    var liveStartFavorites: Boolean get() = bool("liveStartFavorites", true); set(v) = putBool("liveStartFavorites", v)
+    var imageCacheMb: Int get() = int("imageCacheMb", 150); set(v) = putInt("imageCacheMb", v)
     /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */
     var tunneling: Boolean get() = bool("tunneling", false); set(v) = putBool("tunneling", v)
 
@@ -140,6 +156,8 @@ object CategoryPrefs {
     private data class Stored(
         val hidden: Set<String> = emptySet(),
         val locked: Set<String> = emptySet(),
+        /** Automatisch erkannte Erwachsenen-Kategorien, die bewusst entsperrt wurden. */
+        val unlockedAdult: Set<String> = emptySet(),
         val order: Map<String, List<String>> = emptyMap(),
     )
 
@@ -163,12 +181,30 @@ object CategoryPrefs {
     private fun key(kind: ContentKind, name: String) = "${kind.name.lowercase()}|$name"
 
     fun isHidden(kind: ContentKind, name: String) = key(kind, name) in stored.hidden
-    fun isLocked(kind: ContentKind, name: String) = key(kind, name) in stored.locked
-    fun isBlocked(kind: ContentKind, name: String) = Prefs.hasPin && !unlocked.value && isLocked(kind, name)
-    val hasLocked: Boolean get() = Prefs.hasPin && stored.locked.isNotEmpty()
-    fun hasLocked(kind: ContentKind): Boolean = Prefs.hasPin && stored.locked.any { it.startsWith(kind.name.lowercase() + "|") }
+    fun isLocked(kind: ContentKind, name: String) =
+        key(kind, name) in stored.locked || (Prefs.autoLockAdult && isAdult(name) && key(kind, name) !in stored.unlockedAdult)
 
-    private val hasRestrictions get() = stored.hidden.isNotEmpty() || (Prefs.hasPin && !unlocked.value && stored.locked.isNotEmpty())
+    private val adultPattern = Regex(
+        """(?i)(\bxxx\b|\badults?\b|\beroti[ck]|\bporn|\b18\s*\+|\+\s*18\b|\bsexy?\b|nur für erwachsene|for adults|\bhentai\b|\bplayboy\b)""",
+    )
+    private val adultMemo = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    /** Klingt der Kategoriename nach Erwachseneninhalt? */
+    fun isAdult(name: String): Boolean = adultMemo.getOrPut(name) { adultPattern.containsMatchIn(name) }
+
+    private fun hasAdult(kind: ContentKind): Boolean {
+        if (!Prefs.autoLockAdult) return false
+        val c = Repository.content.value
+        val cats = when (kind) { ContentKind.LIVE -> c.liveCategories; ContentKind.MOVIE -> c.movieCategories; ContentKind.SERIES -> c.showCategories }
+        return cats.any { isAdult(it.name) && key(kind, it.name) !in stored.unlockedAdult }
+    }
+    fun isBlocked(kind: ContentKind, name: String) = Prefs.hasPin && !unlocked.value && isLocked(kind, name)
+    val hasLocked: Boolean get() = Prefs.hasPin && (stored.locked.isNotEmpty() || ContentKind.entries.any(::hasAdult))
+    fun hasLocked(kind: ContentKind): Boolean =
+        Prefs.hasPin && (stored.locked.any { it.startsWith(kind.name.lowercase() + "|") } || hasAdult(kind))
+
+    private val hasRestrictions get() = stored.hidden.isNotEmpty() ||
+        (Prefs.hasPin && !unlocked.value && (stored.locked.isNotEmpty() || Prefs.autoLockAdult))
 
     fun isVisible(c: Channel) = !isHidden(c.kind, c.category) && !isBlocked(c.kind, c.category)
     fun isVisible(s: SeriesShow) = !isHidden(ContentKind.SERIES, s.category) && !isBlocked(ContentKind.SERIES, s.category)
@@ -193,7 +229,16 @@ object CategoryPrefs {
 
     fun setLocked(kind: ContentKind, name: String, locked: Boolean) {
         val k = key(kind, name)
-        stored = stored.copy(locked = if (locked) stored.locked + k else stored.locked - k); save()
+        stored = stored.copy(
+            locked = if (locked) stored.locked + k else stored.locked - k,
+            unlockedAdult = if (!locked && isAdult(name)) stored.unlockedAdult + k else stored.unlockedAdult - k,
+        ); save()
+    }
+
+    /** Automatische Erkennung an/aus (neu berechnen). */
+    fun setAutoLockAdult(on: Boolean) {
+        Prefs.autoLockAdult = on
+        version.value++
     }
 
     /** Verschiebt eine Kategorie um `delta` Plätze (in der aktuell angezeigten Reihenfolge). */
@@ -227,7 +272,7 @@ object CategoryPrefs {
         if (pin.isNullOrEmpty()) {
             Prefs.pinHash = ""
             unlocked.value = false
-            stored = stored.copy(locked = emptySet()); save()
+            stored = stored.copy(locked = emptySet(), unlockedAdult = emptySet()); save()
         } else {
             Prefs.pinHash = Prefs.hash(pin)
             unlocked.value = true

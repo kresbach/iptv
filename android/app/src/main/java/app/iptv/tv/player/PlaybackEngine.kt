@@ -501,12 +501,13 @@ class PlaybackEngine(private val context: Context) {
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         // Live: etwas Vorrat vor dem Start, damit kleine Netzaussetzer nicht sofort zum Hänger werden.
         val big = app.iptv.tv.data.Prefs.bigBuffer
+        val fast = app.iptv.tv.data.Prefs.fastZap && isLive
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 if (big) 30_000 else 15_000,
                 if (big) 90_000 else 50_000,
-                when { !isLive -> 1_500; big -> 6_000; else -> 2_500 },
-                when { !isLive -> 3_000; big -> 10_000; else -> 5_000 },
+                when { !isLive -> 1_500; big -> 6_000; fast -> 1_000; else -> 2_500 },
+                when { !isLive -> 3_000; big -> 10_000; fast -> 3_000; else -> 5_000 },
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -701,7 +702,11 @@ class PlaybackEngine(private val context: Context) {
 
         val media = Media(lib, Uri.parse(url)).apply {
             addOption(":http-user-agent=${Http.USER_AGENT}")
-            addOption(":network-caching=" + if (app.iptv.tv.data.Prefs.bigBuffer) 6000 else 3000)
+            addOption(":network-caching=" + when {
+                app.iptv.tv.data.Prefs.bigBuffer -> 6000
+                app.iptv.tv.data.Prefs.fastZap && isLive -> 1500
+                else -> 3000
+            })
             if (wanted != null) {
                 // Hardware dekodiert, Bild aber über VLC ausgeben – nur so greift der Deinterlace-Filter.
                 setHWDecoderEnabled(true, true)

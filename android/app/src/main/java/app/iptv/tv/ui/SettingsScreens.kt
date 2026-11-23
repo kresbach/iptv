@@ -109,6 +109,10 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
             modifier = Modifier.rememberFocus(memory, "playlists", isDefault = true)) { nav.push(Screen.Playlists) }
         SettingRow("Kategorien bearbeiten", subtitle = "Ausblenden, sortieren und mit PIN sperren",
             modifier = Modifier.rememberFocus(memory, "cats")) { nav.push(Screen.CategoryEdit()) }
+        SettingRow("Favoriten sortieren", subtitle = "Lieblingssender nach oben – gilt für Live TV und die Startseite",
+            modifier = Modifier.rememberFocus(memory, "favorder")) { nav.push(Screen.FavoriteOrder) }
+        SettingRow("Live TV startet mit Favoriten", if (Prefs.liveStartFavorites) "An" else "Aus",
+            modifier = Modifier.rememberFocus(memory, "livefav")) { Prefs.liveStartFavorites = !Prefs.liveStartFavorites }
         SettingRow("Kindersicherung", if (Prefs.hasPin) "PIN aktiv" else "Aus",
             modifier = Modifier.rememberFocus(memory, "parental")) { nav.push(Screen.Parental) }
 
@@ -130,9 +134,11 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Bildwiederholrate anpassen", if (Prefs.autoFrameRate) "An" else "Aus",
             "Gegen Ruckeln: Fernseher schaltet z. B. für deutsches TV auf 50 Hz",
             modifier = Modifier.rememberFocus(memory, "afr")) { Prefs.autoFrameRate = !Prefs.autoFrameRate }
-        SettingRow("Puffer", if (Prefs.bigBuffer) "Groß" else "Normal",
-            "Groß: weniger Hänger bei wackeliger Verbindung, dafür langsameres Umschalten",
-            modifier = Modifier.rememberFocus(memory, "buffer")) { Prefs.bigBuffer = !Prefs.bigBuffer }
+        SettingRow("Puffer (Live TV)", when (Prefs.bufferMode) { "fast" -> "Schnell"; "big" -> "Groß"; else -> "Normal" },
+            "Schnell: Sender kommen schneller · Groß: weniger Hänger bei wackeliger Verbindung",
+            modifier = Modifier.rememberFocus(memory, "buffer")) {
+            Prefs.bufferMode = when (Prefs.bufferMode) { "normal" -> "fast"; "fast" -> "big"; else -> "normal" }
+        }
         SettingRow(
             "Deinterlacing für Live TV (1080i-Sender)",
             when (Prefs.deinterlace) { "bob" -> "Schonend (Bob)"; "yadif2x" -> "Beste Qualität (Yadif 2x)"; else -> "Aus" },
@@ -181,6 +187,23 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
                 confirmClear = false
                 Toast.makeText(context, "Verlauf gelöscht", Toast.LENGTH_SHORT).show()
             } else confirmClear = true
+        }
+
+        SettingsHeader("Speicher")
+        var imageBytes by remember { mutableStateOf(-1L) }
+        val loader = coil.Coil.imageLoader(context)
+        LaunchedEffect(Unit) { imageBytes = kotlinx.coroutines.withContext(Dispatchers.IO) { loader.diskCache?.size ?: 0L } }
+        SettingRow("Bildspeicher (Logos, Cover)", "max. ${Prefs.imageCacheMb} MB",
+            "Kleiner = mehr Platz auf dem Fernseher, Bilder werden öfter neu geladen · gilt nach Neustart",
+            modifier = Modifier.rememberFocus(memory, "imgcache")) {
+            Prefs.imageCacheMb = when (Prefs.imageCacheMb) { 50 -> 100; 100 -> 150; 150 -> 300; 300 -> 500; else -> 50 }
+        }
+        SettingRow("Bildspeicher leeren", if (imageBytes < 0) "…" else "${imageBytes / (1024 * 1024)} MB belegt",
+            modifier = Modifier.rememberFocus(memory, "imgclear")) {
+            loader.memoryCache?.clear()
+            Thread { runCatching { loader.diskCache?.clear() } }.start()
+            imageBytes = 0
+            Toast.makeText(context, "Bildspeicher geleert", Toast.LENGTH_SHORT).show()
         }
 
         SettingsHeader("Info")
@@ -489,7 +512,8 @@ fun ParentalScreen(nav: Navigator) {
             ScreenTitle(
                 "Kindersicherung",
                 "Mit einer PIN lassen sich Kategorien sperren (Einstellungen → Kategorien bearbeiten → „Sperren“). " +
-                    "Gesperrte Kategorien sind erst nach Eingabe der PIN sichtbar – bis die App verlassen wird.",
+                    "Gesperrte Kategorien sind erst nach Eingabe der PIN sichtbar – bis die App verlassen wird. " +
+                    "Erwachsenen-Kategorien werden automatisch erkannt und gesperrt.",
             )
             if (!Prefs.hasPin) {
                 SettingRow("PIN festlegen", modifier = Modifier.rememberFocus(memory, "set", isDefault = true)) { step = "new" }
@@ -498,6 +522,9 @@ fun ParentalScreen(nav: Navigator) {
                     modifier = Modifier.rememberFocus(memory, "cats", isDefault = true)) { nav.push(Screen.CategoryEdit()) }
                 SettingRow("PIN ändern", modifier = Modifier.rememberFocus(memory, "change")) { step = "new" }
                 if (unlocked) SettingRow("Jetzt wieder sperren", modifier = Modifier.rememberFocus(memory, "lock")) { CategoryPrefs.lock() }
+                SettingRow("Erwachseneninhalte automatisch sperren", if (Prefs.autoLockAdult) "An" else "Aus",
+                    "Kategorien wie „XXX“, „Adult“, „18+“ – auch neue nach einer Aktualisierung",
+                    modifier = Modifier.rememberFocus(memory, "adult")) { CategoryPrefs.setAutoLockAdult(!Prefs.autoLockAdult) }
                 SettingRow("Kindersicherung ausschalten", "hebt alle Sperren auf", danger = true, modifier = Modifier.rememberFocus(memory, "off")) {
                     CategoryPrefs.setPin(null)
                     Toast.makeText(context, "Kindersicherung ausgeschaltet", Toast.LENGTH_SHORT).show()

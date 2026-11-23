@@ -41,6 +41,7 @@ sealed class Screen {
     data object SubtitleSettings : Screen()
     data object Unlock : Screen()
     data object TrendsSettings : Screen()
+    data object FavoriteOrder : Screen()
     data class EditPlaylist(val id: String) : Screen() {
         override val key get() = "Edit-$id"
     }
@@ -149,6 +150,7 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.SubtitleSettings -> SubtitleSettingsScreen(nav)
                 Screen.Unlock -> UnlockScreen(nav)
                 Screen.TrendsSettings -> TrendsSettingsScreen(nav)
+                Screen.FavoriteOrder -> FavoriteOrderScreen(screen.memory)
                 is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
                 is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)
                 is Screen.Live -> LiveScreen(nav, screen)

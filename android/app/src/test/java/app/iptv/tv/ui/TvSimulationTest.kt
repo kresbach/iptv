@@ -83,7 +83,8 @@ class TvSimulationTest {
             },
             now,
         )
-        Repository.favorites.value = setOf(live[1].stableKey, movies[2].stableKey)
+        Repository.favorites.value = app.iptv.tv.data.OrderedKeys(listOf(live[1].stableKey, movies[2].stableKey))
+        app.iptv.tv.data.Prefs.liveStartFavorites = false
         Repository.progress.value = mapOf(movies[4].stableKey to Progress(1_200_000, 5_400_000, now, movies[4]))
     }
 
@@ -185,6 +186,56 @@ class TvSimulationTest {
     }
 
     @Test
+    fun favoritenReihenfolgeUndSendernummer() {
+        val live = Repository.content.value.live
+        Repository.favorites.value = app.iptv.tv.data.OrderedKeys(listOf(live[5].stableKey, live[1].stableKey, live[20].stableKey))
+        Repository.moveFavoriteToTop(live[20].stableKey)
+        check(liveChannels(Repository.content.value, FAVORITES, Repository.favorites.value) == listOf(live[20], live[5], live[1])) {
+            "Favoriten nicht in eigener Reihenfolge: ${Repository.favorites.value} → ${liveChannels(Repository.content.value, FAVORITES, Repository.favorites.value).map { it.name }}"
+        }
+        app.iptv.tv.data.Prefs.liveStartFavorites = true
+        start()
+        ok() // Live TV startet mit Favoriten
+        expect("★ Favoriten")
+        expect("noch ")
+        expect("Danach ")
+        shot("16-live-favoriten")
+        down() // → „Favoriten sortieren“ (direkt unter Favoriten)
+        ok()
+        expect("Favoriten sortieren")
+        shot("17-favoriten-sortieren")
+        down() // zweiter Eintrag „Nach oben“
+        ok()
+        check(Repository.favorites.value.first() == live[5].stableKey) { "„Nach oben“ hat nicht gewirkt: ${Repository.favorites.value}" }
+        back()
+        shot("17b-nach-sortieren")
+        right() // in die Senderliste
+        ok() // ersten Favoriten abspielen
+        shot("17c-player")
+        key(androidx.compose.ui.input.key.Key.Three) // Reihenfolge jetzt 6, 21, 2 → Nummer 3 = Sender 2
+        settle(1000)
+        expect(live[1].name)
+        shot("18-player-sendernummer")
+    }
+
+    @Test
+    fun erwachseneninhalteAutomatischGesperrt() {
+        val prefs = app.iptv.tv.data.CategoryPrefs
+        check(prefs.isAdult("XXX | Adult")); check(prefs.isAdult("Erotik 18+")); check(prefs.isAdult("FOR ADULTS"))
+        check(!prefs.isAdult("Sport")); check(!prefs.isAdult("Sachsen")); check(!prefs.isAdult("Essex TV")); check(!prefs.isAdult("Kinder"))
+        val adult = Channel("Heiß", "http://x/live/u/p/x.ts", "XXX | Adult")
+        prefs.setPin("1234"); prefs.lock()
+        check(prefs.isLocked(ContentKind.LIVE, "XXX | Adult"))
+        check(prefs.filterChannels(listOf(adult)).isEmpty()) { "Erwachsenen-Sender trotz PIN sichtbar" }
+        check(prefs.unlock("1234"))
+        check(prefs.filterChannels(listOf(adult)).size == 1)
+        // bewusst entsperrt → bleibt entsperrt
+        prefs.setLocked(ContentKind.LIVE, "XXX | Adult", false); prefs.lock()
+        check(!prefs.isLocked(ContentKind.LIVE, "XXX | Adult"))
+        prefs.setPin(null)
+    }
+
+    @Test
     fun filmeUndDetail() {
         start()
         right() // Filme
@@ -263,7 +314,7 @@ class TvSimulationTest {
         expect("Kategorien bearbeiten")
         shot("61-kategorien")
         back()
-        down()
+        down(3)
         ok() // Kindersicherung
         ok() // PIN festlegen
         shot("62-pin")
@@ -321,7 +372,8 @@ class TvSimulationTest {
         right()
         down(4) // vom Sender auf Höhe der Kategorie (Sender 2) vier weiter → Sender 6
         longOk()
-        check(Repository.favorites.value.contains(Repository.content.value.live[5].stableKey)) { "Favorit nicht gesetzt" }
+        shot("71-favorit-gesetzt")
+        check(Repository.favorites.value.contains(Repository.content.value.live[5].stableKey)) { "Favorit nicht gesetzt: ${Repository.favorites.value}" }
         shot("71-favorit-gesetzt")
         back()
         down() // Reihe „Weiterschauen“
@@ -348,7 +400,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(10)
+        down(12)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")

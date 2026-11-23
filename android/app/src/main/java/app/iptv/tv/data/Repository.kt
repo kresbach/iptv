@@ -93,7 +93,7 @@ object Repository {
     val contentLoading = MutableStateFlow(false)
     val statusMessage = MutableStateFlow<String?>(null)
 
-    val favorites = MutableStateFlow<Set<String>>(emptySet())
+    val favorites = MutableStateFlow(OrderedKeys(emptyList()))
     val recents = MutableStateFlow<List<RecentEntry>>(emptyList())
     val progress = MutableStateFlow<Map<String, Progress>>(emptyMap())
     val deletedPlaylists = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -392,10 +392,28 @@ object Repository {
     /** Schaltet Favorit um; Rückgabe: jetzt Favorit? */
     fun toggleFavorite(key: String): Boolean {
         val now = key !in favorites.value
-        favorites.value = if (now) favorites.value + key else favorites.value - key
+        favorites.value = OrderedKeys(if (now) favorites.value + key else favorites.value - key)
         favoriteChanges = favoriteChanges + (key to System.currentTimeMillis())
         saveUserData()
         return now
+    }
+
+    /** Favorit um `delta` Plätze verschieben (eigene Reihenfolge, z. B. Lieblingssender ganz oben). */
+    fun moveFavorite(key: String, delta: Int) {
+        val list = favorites.value.toMutableList()
+        val i = list.indexOf(key)
+        val target = i + delta
+        if (i < 0 || target !in list.indices) return
+        list.add(target, list.removeAt(i))
+        favorites.value = OrderedKeys(list)
+        saveUserData()
+    }
+
+    /** Favorit ganz nach oben. */
+    fun moveFavoriteToTop(key: String) {
+        if (key !in favorites.value) return
+        favorites.value = OrderedKeys(listOf(key) + favorites.value)
+        saveUserData()
     }
 
     /** „Weiterschauen“: angefangene Filme/Episoden (mind. 30 s, noch nicht fertig), neueste zuerst. */
@@ -416,7 +434,8 @@ object Repository {
 
     /** Vom Sync: zusammengeführte Nutzerdaten übernehmen (ohne erneuten Sync auszulösen). */
     fun applySyncedUserData(favs: Set<String>, changes: Map<String, Long>, history: List<RecentEntry>, prog: Map<String, Progress>) {
-        favorites.value = favs
+        // Eigene Reihenfolge behalten, neue Favorite hinten anhängen.
+        favorites.value = OrderedKeys(favorites.value.filter { it in favs } + favs)
         favoriteChanges = changes
         recents.value = history.take(40)
         progress.value = trimProgress(prog)
@@ -449,7 +468,7 @@ object Repository {
 
     private fun restoreUserData() {
         read(File(dir, "userdata.json"), UserDataFile.serializer())?.let {
-            favorites.value = it.favorites.toSet()
+            favorites.value = OrderedKeys(it.favorites)
             recents.value = it.recents
             progress.value = it.progress
             favoriteChanges = it.favoriteChanges
@@ -549,4 +568,15 @@ object Repository {
     }
 
     // endregion
+}
+
+/**
+ * Favoriten-Menge, bei der auch die Reihenfolge zählt. Sonst würde ein reines Umsortieren als
+ * „keine Änderung“ gelten (StateFlow und Compose vergleichen mit equals) und nicht angezeigt.
+ */
+class OrderedKeys(keys: Collection<String>) : Set<String> by LinkedHashSet(keys) {
+    private val order = LinkedHashSet(keys).toList()
+    override fun equals(other: Any?) = other is OrderedKeys && other.order == order
+    override fun hashCode() = order.hashCode()
+    override fun toString() = order.toString()
 }
