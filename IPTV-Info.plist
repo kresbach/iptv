@@ -12,6 +12,9 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Nur Standard-Verschlüsselung (HTTPS): keine Exportkontroll-Frage bei jedem Upload -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- Für Server im Heimnetz (z. B. 192.168.x.x) -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Damit Playlists und Streams von Servern in deinem Heimnetz geladen werden können.</string>
