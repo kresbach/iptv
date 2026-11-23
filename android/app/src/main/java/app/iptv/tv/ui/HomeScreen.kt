@@ -138,6 +138,34 @@ private fun HomeContent(
     app.iptv.tv.data.Profiles.activeId.collectAsState().value
     val profileCount = app.iptv.tv.data.Profiles.list.collectAsState().value.size
     val context = androidx.compose.ui.platform.LocalContext.current
+    val reminders by app.iptv.tv.data.Reminders.items.collectAsState()
+
+    // „Sport jetzt live“ aus dem TV-Programm (im Hintergrund berechnet)
+    val sportEvents by produceState(emptyList<app.iptv.tv.data.Sport.Event>(), epg, content, favorites, now) {
+        value = if (!app.iptv.tv.data.Prefs.sportRow) emptyList() else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            app.iptv.tv.data.Sport.events(epg, content.live, favorites, now)
+        }
+    }
+    fun playLive(ch: app.iptv.tv.model.Channel) {
+        val list = content.live.ifEmpty { listOf(ch) }
+        val idx = list.indexOfFirst { it.stableKey == ch.stableKey }
+        nav.push(if (idx >= 0) Screen.Player(list, idx) else Screen.Player(listOf(ch), 0))
+    }
+
+    // Großes Titelbild: laufende Spiele, dann Trends bzw. die neuesten Filme
+    val heroItems = remember(trendRows, sportEvents, content) {
+        if (!app.iptv.tv.data.Prefs.heroBanner) return@remember emptyList()
+        val sport = sportEvents.filter { it.isLive(System.currentTimeMillis()) }.take(2).map {
+            HeroItem(it.programme.title, null, null, null, sport = it)
+        }
+        val trend = trendRows.firstOrNull()
+        val titles = trend?.items?.take(5)?.map {
+            HeroItem(it.title, trend.title, null, it.poster ?: it.movie?.logo ?: it.show?.poster, it.movie, it.show)
+        } ?: content.movies.filter { it.added != null }.sortedByDescending { it.added }.take(5).map {
+            HeroItem(it.name, "Neu", null, it.logo, movie = it)
+        }
+        sport + titles
+    }
 
     val saved = memory.scroll["home"]
     val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
@@ -162,6 +190,25 @@ private fun HomeContent(
                     Text(status, fontSize = 15.sp, color = AppColors.OrangeLight, maxLines = 1)
                 }
             }
+        }
+
+        if (heroItems.isNotEmpty()) item("hero") {
+            HeroBanner(
+                heroItems, memory,
+                onPlay = { h ->
+                    when {
+                        h.sport != null -> playLive(h.sport.channel)
+                        h.movie != null -> nav.push(Screen.Player(listOf(h.movie), 0, progress[h.movie.stableKey]?.position ?: 0))
+                        h.show != null -> nav.push(Screen.SeriesDetail(h.show))
+                    }
+                },
+                onDetails = { h ->
+                    when {
+                        h.movie != null -> nav.push(Screen.MovieDetail(h.movie))
+                        h.show != null -> nav.push(Screen.SeriesDetail(h.show))
+                    }
+                },
+            )
         }
 
         homeRow("tiles", null, memory) {
@@ -240,6 +287,29 @@ private fun HomeContent(
                     modifier = Modifier.rememberFocus(memory, "tile-settings"),
                     highlighted = false,
                 )
+            }
+        }
+
+        if (sportEvents.isNotEmpty()) {
+            homeRow("sport", "⚽ Sport jetzt live", memory) {
+                itemsIndexed(sportEvents, key = { i, _ -> "s-$i" }) { _, ev ->
+                    val reminded = reminders.any { it.channelKey == ev.channel.stableKey && it.start == ev.programme.start }
+                    SportCard(
+                        ev, now, reminded,
+                        onClick = {
+                            if (ev.isLive(System.currentTimeMillis())) playLive(ev.channel)
+                            else {
+                                val on = app.iptv.tv.data.Reminders.toggle(ev.channel, ev.programme)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    if (on) "Erinnerung um ${clock(ev.programme.start)} gesetzt" else "Erinnerung entfernt",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.rememberFocus(memory, "sport-${ev.channel.stableKey}-${ev.programme.start}"),
+                    )
+                }
             }
         }
 

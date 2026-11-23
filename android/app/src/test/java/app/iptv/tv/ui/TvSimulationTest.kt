@@ -93,6 +93,11 @@ class TvSimulationTest {
         MainActivity.pendingSearch.value = null
         app.iptv.tv.data.Prefs.setGridSort(ContentKind.MOVIE, "default")
         app.iptv.tv.data.Prefs.liveStartFavorites = false
+        app.iptv.tv.data.Prefs.onboardingDone = true
+        app.iptv.tv.data.Prefs.livePreview = false
+        app.iptv.tv.data.Prefs.heroBanner = false
+        app.iptv.tv.data.Prefs.sportRow = true
+        app.iptv.tv.data.Prefs.startLastChannel = false
         Repository.progress.value = mapOf(movies[4].stableKey to Progress(1_200_000, 5_400_000, now, movies[4]))
     }
 
@@ -559,7 +564,7 @@ class TvSimulationTest {
         expect("API-Key")
         shot("76-untertitel")
         back()
-        down(6) // Google Drive
+        down(11) // Google Drive (nach „Startseite & Bedienung“)
         shot("74-einstellungen-unten")
         ok()
         expect("Google-Zugang einrichten")
@@ -583,5 +588,81 @@ class TvSimulationTest {
         back()
         expect("Willkommen")
         shot("77-nach-loeschen")
+    }
+
+    @Test
+    fun einfuehrungBeimErstenStart() {
+        app.iptv.tv.data.Prefs.onboardingDone = false
+        start()
+        expect("Sender wechseln")
+        shot("90-einfuehrung-1")
+        ok() // Weiter
+        expect("Menü & Favoriten")
+        ok()
+        expect("Sport jetzt live")
+        shot("91-einfuehrung-3")
+        ok() // Los geht's
+        check(app.iptv.tv.data.Prefs.onboardingDone) { "Einführung nicht als gesehen gemerkt" }
+        expect("Live TV")
+    }
+
+    @Test
+    fun startMitLetztemSender() {
+        app.iptv.tv.data.Prefs.startLastChannel = true
+        Repository.recents.value = listOf(app.iptv.tv.data.RecentEntry(Repository.content.value.live[3], 1))
+        start()
+        settle(1000)
+        expect("Sender 4 HD")
+        check(!see("Weiterschauen")) { "Startseite statt Sender" }
+        shot("92-start-letzter-sender")
+    }
+
+    @Test
+    fun sportJetztLiveUndTitelbild() {
+        app.iptv.tv.data.Prefs.heroBanner = true
+        val now = System.currentTimeMillis()
+        val live = Repository.content.value.live
+        Repository.epg.value = EpgGuide(
+            Repository.epg.value!!.programmes + mapOf(
+                "s10" to listOf(Programme("Bundesliga: FC Bayern München - Borussia Dortmund", "Topspiel des Spieltags", now - 1800_000, now + 3600_000)),
+                "s20" to listOf(Programme("Champions League: Real Madrid - Manchester City", null, now + 7200_000, now + 13_000_000)),
+            ),
+            now,
+        )
+        start()
+        expect("Sport jetzt live")
+        expect("FC Bayern München - Borussia Dortmund")
+        expect("Jetzt einschalten") // großes Titelbild mit dem laufenden Spiel
+        shot("93-sport-und-titelbild")
+        // zur Sport-Reihe: Kacheln → Sport
+        down()
+        val ev = app.iptv.tv.data.Sport.events(Repository.epg.value, live, emptySet(), now)
+        check(ev.size == 2 && ev[0].isLive(now)) { "Sport-Erkennung: $ev" }
+        right() // späteres Spiel → Erinnerung
+        ok()
+        check(app.iptv.tv.data.Reminders.items.value.any { it.title.startsWith("Champions League") }) { "Erinnerung nicht gesetzt" }
+        left()
+        ok() // laufendes Spiel → Player
+        settle(800)
+        expect("Bundesliga")
+        shot("94-sport-player")
+    }
+
+    @Test
+    fun vorschauInDerSenderliste() {
+        app.iptv.tv.data.Prefs.livePreview = true
+        val before = LivePreview.adoptions
+        start()
+        ok() // Live TV
+        right()
+        down(2)
+        settle(1500) // kurz stehen bleiben → Vorschau startet
+        expect("OK = Vollbild")
+        shot("95-live-vorschau")
+        ok() // Vollbild: Player übernimmt die laufende Vorschau
+        settle(800)
+        check(LivePreview.adoptions == before + 1) { "Vorschau wurde nicht übernommen" }
+        back()
+        expect("Alle Sender")
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,11 +79,57 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
     }
     val channels = remember(content, selected, favorites) { liveChannels(content, selected, favorites) }
 
+    // Vorschau: markierter Sender läuft nach 1 s im kleinen Fenster (immer nur eine Verbindung).
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val previewOn = remember { app.iptv.tv.data.Prefs.livePreview }
+    val preview = remember { if (previewOn) app.iptv.tv.player.PlaybackEngine(context.applicationContext) else null }
+    var focusedChannel by remember { mutableStateOf<Channel?>(null) }
+    var previewKey by remember { mutableStateOf<String?>(null) }
+    val handedOver = remember { booleanArrayOf(false) }
+    if (preview != null) {
+        LaunchedEffect(focusedChannel) {
+            val ch = focusedChannel ?: return@LaunchedEffect
+            if (ch.stableKey == previewKey) return@LaunchedEffect
+            kotlinx.coroutines.delay(1_000)
+            previewKey = ch.stableKey
+            preview.preferredBackend = app.iptv.tv.data.Prefs.playerLive
+            Repository.playbackActive = true
+            preview.play(ch)
+        }
+        val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(lifecycle) {
+            // Fernseher geht in Standby/Home: Verbindung sofort freigeben.
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                    preview.stop(); previewKey = null; Repository.playbackActive = false
+                }
+            }
+            lifecycle.addObserver(observer)
+            onDispose {
+                lifecycle.removeObserver(observer)
+                if (!handedOver[0]) {
+                    preview.release()
+                    Repository.playbackActive = false
+                }
+            }
+        }
+    }
+    fun open(index: Int) {
+        memory.selection = selected
+        val ch = channels[index]
+        val p = preview
+        if (p != null && previewKey == ch.stableKey && !p.status.value.failed) {
+            handedOver[0] = true
+            LivePreview.handOver(p, ch.stableKey)
+        }
+        nav.push(Screen.Player(channels, index))
+    }
+
     Row(Modifier.fillMaxSize()) {
         // Kategorien
         Column(
             Modifier
-                .width(260.dp)
+                .width(if (preview != null) 200.dp else 260.dp)
                 .fillMaxHeight()
                 .background(AppColors.Surface.copy(alpha = 0.5f))
                 .padding(top = 32.dp),
@@ -154,17 +201,25 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
                             programme = epg?.current(ch, now),
                             next = epg?.next(ch, now),
                             now = now,
-                            onClick = {
-                                memory.selection = selected
-                                nav.push(Screen.Player(channels, index))
-                            },
+                            onClick = { open(index) },
                             onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
                             isFavorite = ch.stableKey in favorites,
-                            modifier = Modifier.rememberFocus(memory, "ch-${ch.stableKey}"),
+                            isPlaying = preview != null && ch.stableKey == previewKey,
+                            compact = preview != null,
+                            modifier = Modifier.rememberFocus(memory, "ch-${ch.stableKey}")
+                                .onFocusChanged { if (it.hasFocus) focusedChannel = ch },
                         )
                     }
                 }
             }
+        }
+        if (preview != null) {
+            // Angezeigt wird der markierte Sender; das Video gehört zu ihm, sobald die Vorschau umgeschaltet hat.
+            PreviewPanel(
+                preview, focusedChannel, epg, now,
+                active = previewKey != null && previewKey == focusedChannel?.stableKey,
+                modifier = Modifier.width(340.dp),
+            )
         }
     }
 }

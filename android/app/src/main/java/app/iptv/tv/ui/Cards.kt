@@ -166,6 +166,8 @@ fun ChannelRow(
     isFavorite: Boolean = false,
     isPlaying: Boolean = false,
     next: Programme? = null,
+    /** Schmale Liste (neben der Vorschau): „Danach“ weglassen, die Vorschau zeigt es. */
+    compact: Boolean = false,
 ) {
     FocusSurface(
         onClick = onClick,
@@ -216,7 +218,7 @@ fun ChannelRow(
                         )
                         val left = ((programme.end - now) / 60_000).coerceAtLeast(0)
                         Text("  · noch $left Min.", fontSize = 12.sp, color = AppColors.OrangeLight, maxLines = 1)
-                        if (next != null) {
+                        if (next != null && !compact) {
                             Spacer(Modifier.width(16.dp))
                             Text(
                                 "Danach ${clock(next.start)}  ${next.title}",

@@ -223,6 +223,28 @@ fun AppRoot(onExit: () -> Unit) {
         return
     }
 
+    // Erster Start: kurze Einführung in die wichtigsten Tasten.
+    var onboarding by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(!app.iptv.tv.data.Prefs.onboardingDone) }
+    if (restoredState && onboarding && pending == null) {
+        Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+            Onboarding(onDone = { app.iptv.tv.data.Prefs.onboardingDone = true; onboarding = false })
+        }
+        return
+    }
+
+    // Wie ein normaler Fernseher: gleich mit dem zuletzt gesehenen Sender starten (Einstellungen).
+    var autoStarted by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(restoredState, loaded) {
+        if (autoStarted || !restoredState || !loaded) return@LaunchedEffect
+        autoStarted = true
+        if (!app.iptv.tv.data.Prefs.startLastChannel || pending != null || MainActivity.pendingSearch.value != null) return@LaunchedEffect
+        if (nav.current != Screen.Home) return@LaunchedEffect
+        val last = Repository.recents.value.firstOrNull { it.channel.kind == app.iptv.tv.model.ContentKind.LIVE }?.channel ?: return@LaunchedEffect
+        val live = Repository.visible.value.live
+        val i = live.indexOfFirst { it.stableKey == last.stableKey }
+        if (i >= 0) nav.push(Screen.Player(live, i))
+    }
+
     Box(
         Modifier.fillMaxSize().background(AppColors.Background).onPreviewKeyEvent { e ->
             val r = dueReminder ?: return@onPreviewKeyEvent false

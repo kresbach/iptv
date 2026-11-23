@@ -82,3 +82,43 @@ class SmoothnessTest {
         assertNull(guide.current(ch, 600_000))
     }
 }
+
+class DetailExtrasTest {
+    @Test
+    fun altersfreigabe() {
+        assertEquals(12, app.iptv.tv.model.MediaInfo.parseAge("12+"))
+        assertEquals(16, app.iptv.tv.model.MediaInfo.parseAge("FSK 16"))
+        assertEquals(12, app.iptv.tv.model.MediaInfo.parseAge("PG-13"))
+        assertEquals(16, app.iptv.tv.model.MediaInfo.parseAge("TV-MA"))
+        assertNull(app.iptv.tv.model.MediaInfo.parseAge(""))
+        assertNull(app.iptv.tv.model.MediaInfo.parseAge("99"))
+    }
+
+    @Test
+    fun tmdbErgaenzungen() {
+        val o = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"backdrop_path":"/b.jpg","overview":"Text","release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"R"}]},
+            {"iso_3166_1":"DE","release_dates":[{"certification":""},{"certification":"12"}]}]},
+            "credits":{"cast":[{"name":"A"},{"name":"B"}]}}""",
+        ) as kotlinx.serialization.json.JsonObject
+        val e = Similar.parseExtras(o, tv = false)
+        assertEquals("https://image.tmdb.org/t/p/w1280/b.jpg", e.backdrop)
+        assertEquals(12, e.age)
+        assertEquals("A, B", e.cast)
+        val merged = Similar.merge(app.iptv.tv.model.MediaInfo(plot = "Anbieter"), e)!!
+        assertEquals("Anbieter", merged.plot) // Anbieter-Angaben haben Vorrang
+        assertEquals(12, merged.age)
+    }
+
+    @Test
+    fun sportErkennung() {
+        val sky = Channel(name = "Sky Sport 1 HD", url = "u", group = "Sport", kind = ContentKind.LIVE)
+        val ard = Channel(name = "Das Erste", url = "u2", group = "Vollprogramm", kind = ContentKind.LIVE)
+        fun p(t: String) = Programme(t, start = 0, end = 1)
+        assertTrue(Sport.isSport(ard, p("Fußball: Länderspiel Deutschland - Frankreich")))
+        assertTrue(Sport.isSport(sky, p("FC Bayern München - Borussia Dortmund")))
+        assertFalse(Sport.isSport(ard, p("Tatort - Der Fall")))     // Bindestrich allein reicht nicht
+        assertFalse(Sport.isSport(sky, p("Sky Sport News")))
+        assertFalse(Sport.isSport(ard, p("Bundesliga Magazin")))
+    }
+}

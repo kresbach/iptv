@@ -244,6 +244,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
             backdrop = backdrop,
             poster = value("movie_image", "cover_big", "cover"),
             trailerUrl = MediaInfo.trailerUrl(value("youtube_trailer", "trailer")),
+            age = MediaInfo.parseAge(value("age", "mpaa_rating", "certification")),
         )
         return info.takeUnless { it.isEmpty }
     }

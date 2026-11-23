@@ -176,6 +176,8 @@ data class MediaInfo(
     val poster: String? = null,
     /** YouTube-Link zum Trailer (nur echte YouTube-Adressen). */
     val trailerUrl: String? = null,
+    /** Altersfreigabe als Zahl (FSK), z. B. 12. */
+    val age: Int? = null,
 ) {
     val year: String? get() = releaseDate?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
 
@@ -195,6 +197,20 @@ data class MediaInfo(
     val isEmpty: Boolean get() = this == MediaInfo()
 
     companion object {
+        /** Altersfreigabe aus Angaben wie „12+“, „FSK 16“, „PG-13“ oder „TV-MA“ lesen. */
+        fun parseAge(value: String?): Int? {
+            val v = value?.trim()?.uppercase()?.takeIf { it.isNotEmpty() } ?: return null
+            when (v) {
+                "G", "TV-Y", "TV-G", "U" -> return 0
+                "TV-Y7", "PG", "TV-PG" -> return 6
+                "PG-13", "TV-14" -> return 12
+                "R", "TV-MA" -> return 16
+                "NC-17" -> return 18
+            }
+            val n = Regex("\\d{1,2}").find(v)?.value?.toIntOrNull() ?: return null
+            return n.takeIf { it in 0..18 }
+        }
+
         /** Xtream liefert meist nur die YouTube-ID, manchmal einen vollständigen Link. */
         fun trailerUrl(value: String?): String? {
             val v = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null

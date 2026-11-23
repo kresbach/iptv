@@ -76,7 +76,9 @@ import kotlinx.coroutines.flow.map
 @Composable
 fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     val context = LocalContext.current
-    val engine = remember { PlaybackEngine(context.applicationContext) }
+    // Kommt der Sender aus der Vorschau, läuft er einfach weiter (keine neue Verbindung).
+    val adopted = remember { screen.items.getOrNull(screen.index)?.let { LivePreview.take(it.stableKey) } }
+    val engine = remember { adopted ?: PlaybackEngine(context.applicationContext) }
     val status by engine.status.collectAsState()
     val epg by Repository.epg.collectAsState()
     val favorites by Repository.favorites.collectAsState()
@@ -116,6 +118,19 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
 
     LaunchedEffect(index) { screen.memory.selection = index.toString() }
 
+    // „Nächste Folge in … s“ (wie bei Netflix) in den letzten 20 Sekunden einer Serienfolge.
+    var nextDismissed by remember(index) { mutableStateOf(false) }
+    val hasNext = !isLive && !screen.archive && channel.kind == ContentKind.SERIES && index < items.lastIndex
+    val remaining = duration - position
+    val showNext = hasNext && !nextDismissed && duration > 120_000 && position > 0 && remaining in 0..NEXT_EPISODE_MS
+    fun playNextEpisode() {
+        saveProgress()
+        app.iptv.tv.data.Downloads.watched(items[index])
+        Repository.saveProgress(items[index], 0, 1)
+        index++
+        showInfo = true; infoTick++
+    }
+
     // Sleep-Timer: eine Minute vorher warnen, dann Wiedergabe beenden.
     val sleepEnd by app.iptv.tv.data.SleepTimer.endsAt.collectAsState()
     var sleepLeft by remember { mutableLongStateOf(Long.MAX_VALUE) }
@@ -147,8 +162,15 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         if (stopped) return@LaunchedEffect
         if (playingIndex >= 0 && playingIndex != index) delay(450)
         if (playingIndex == index && engine.status.value.let { !it.failed }) return@LaunchedEffect
-        saveProgress()
         val ch = items[index]
+        if (playingIndex < 0 && adopted != null && engine.currentKey == ch.stableKey && !engine.status.value.failed) {
+            // aus der Vorschau übernommen: läuft schon
+            playingIndex = index
+            Repository.playbackActive = true
+            Repository.addRecent(ch, null)
+            return@LaunchedEffect
+        }
+        saveProgress()
         val start = if (playingIndex < 0) startPosition else Repository.progress.value[ch.stableKey]?.position ?: 0
         if (playingIndex >= 0 && playingIndex != index) previousIndex = playingIndex
         playingIndex = index
@@ -203,7 +225,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         if (status.ended) {
             saveProgress()
             if (!isLive && !screen.archive) app.iptv.tv.data.Downloads.watched(items[index])
-            if (!isLive && index < items.lastIndex) {
+            if (!isLive && index < items.lastIndex && !nextDismissed) {
                 Repository.saveProgress(items[index], 0, 1)
                 index++
             } else {
@@ -279,6 +301,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     BackHandler {
         when {
             options != null -> options = if (options == "main") null else "main"
+            showNext -> nextDismissed = true
             showList -> showList = false
             showInfo && !isLive && status.playing -> showInfo = false
             else -> close()
@@ -329,6 +352,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                 }
                 if (isOk && event.type == KeyEventType.KeyUp) {
                     when {
+                        showNext -> playNextEpisode()
                         sleepWarning -> app.iptv.tv.data.SleepTimer.extend(30)
                         status.failed -> engine.retryNow()
                         isLive -> { showInfo = !showInfo; infoTick++ }
@@ -387,7 +411,11 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             // Solange Senderliste oder Menü offen sind, darf der Fokus nicht „hinter“ sie springen.
             .focusable(enabled = okLong || (!showList && options == null)),
     ) {
-        AndroidView(factory = { engine.container }, modifier = Modifier.fillMaxSize())
+        AndroidView(
+            factory = { (engine.container.parent as? android.view.ViewGroup)?.removeView(engine.container); engine.container },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (adopted != null) LaunchedEffect(Unit) { awaitFrame(); engine.reattachSurface() }
 
         if (sleepWarning) {
             Column(
@@ -397,6 +425,22 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             ) {
                 Text("Sleep-Timer: Wiedergabe endet in ${(sleepLeft / 1000).coerceAtLeast(0)} s", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("OK = 30 Minuten verlängern", fontSize = 16.sp, color = AppColors.OrangeLight)
+            }
+        }
+
+        if (showNext) {
+            val next = items[index + 1]
+            Column(
+                Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = 56.dp).width(380.dp)
+                    .clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.85f)).padding(20.dp),
+            ) {
+                Text("Nächste Folge in ${((remaining + 999) / 1000).coerceAtLeast(0)} s", fontSize = 15.sp, color = AppColors.OrangeLight)
+                Spacer(Modifier.height(6.dp))
+                Text(next.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                ProgressLine(1f - remaining.toFloat() / NEXT_EPISODE_MS, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+                Text("OK = jetzt abspielen · Zurück = Abspann weiterschauen", fontSize = 14.sp, color = AppColors.TextSecondary)
             }
         }
 
@@ -582,3 +626,6 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         }
     }
 }
+
+/** Ab dieser Restzeit erscheint „Nächste Folge in … s“. */
+private const val NEXT_EPISODE_MS = 20_000L

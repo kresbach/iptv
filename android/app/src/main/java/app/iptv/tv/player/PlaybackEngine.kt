@@ -411,6 +411,42 @@ class PlaybackEngine(private val context: Context) {
         }
     }
 
+    /** Sender, der gerade läuft (für die Übergabe Vorschau → Vollbild). */
+    val currentKey: String? get() = channel?.stableKey
+
+    /** Vor dem Umhängen der Videofläche (Vorschau → Vollbild): VLC von der alten Fläche lösen. */
+    fun detachSurface() {
+        vlc?.let { runCatching { it.detachViews() } }
+    }
+
+    /**
+     * Nach dem Umhängen: VLC wieder an die Fläche binden. Kommt danach kein Bild, wird der Sender
+     * sicherheitshalber neu gestartet (einmalige kurze Unterbrechung statt schwarzem Bild).
+     */
+    fun reattachSurface() {
+        val p = vlc ?: return
+        val layout = vlcLayout ?: return
+        runCatching { p.detachViews() }
+        voutSeen = false
+        runCatching { p.attachViews(layout, null, true, false) }
+        refreshVideoLayout()
+        main.postDelayed({ refreshVideoLayout() }, 500)
+        val before = shownPictures()
+        val gen = generation
+        main.postDelayed({
+            if (gen != generation || vlc !== p) return@postDelayed
+            val moved = (shownPictures() ?: 0) > (before ?: 0)
+            if (!voutSeen && !moved && runCatching { p.videoTracksCount }.getOrDefault(0) > 0) {
+                Log.w(TAG, "Kein Bild nach dem Umhängen der Videofläche → neu starten")
+                restartSame()
+            }
+        }, 3_000)
+    }
+
+    private fun shownPictures(): Int? = runCatching {
+        vlc?.media?.let { m -> try { m.stats?.displayedPictures } finally { m.release() } }
+    }.getOrNull()
+
     /** Denselben Stream neu starten (z. B. mit anderer Halbbild-Wandlung). */
     private fun restartSame(message: String? = null) {
         if (channel == null) return

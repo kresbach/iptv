@@ -59,6 +59,55 @@ object Similar {
         result
     }
 
+    /** Ergänzungen von TMDB für die Detailseite (großes Hintergrundbild, Freigabe, Besetzung, Beschreibung). */
+    data class Extras(val backdrop: String?, val age: Int?, val cast: String?, val plot: String?)
+
+    private val extrasCache = HashMap<String, Extras?>()
+
+    suspend fun extras(title: String, year: String?, tv: Boolean): Extras? = withContext(Dispatchers.IO) {
+        if (!Trends.isConfigured) return@withContext null
+        val cacheKey = "$tv|$title|$year"
+        synchronized(extrasCache) { if (extrasCache.containsKey(cacheKey)) return@withContext extrasCache[cacheKey] }
+        val result = runCatching {
+            val id = tmdbId(title, year, tv) ?: return@runCatching null
+            val extra = if (tv) "content_ratings,credits" else "release_dates,credits"
+            val o = json.parseToJsonElement(Trends.get("${if (tv) "tv" else "movie"}/$id?language=de-DE&append_to_response=$extra")) as? JsonObject
+                ?: return@runCatching null
+            parseExtras(o, tv)
+        }.getOrNull()
+        synchronized(extrasCache) { extrasCache[cacheKey] = result }
+        result
+    }
+
+    internal fun parseExtras(o: JsonObject, tv: Boolean): Extras {
+        fun arr(obj: JsonObject?, key: String) = (obj?.get(key) as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
+        val age = if (tv) {
+            arr(o["content_ratings"] as? JsonObject, "results").firstOrNull { it.str("iso_3166_1") == "DE" }?.str("rating")
+        } else {
+            arr(o["release_dates"] as? JsonObject, "results").firstOrNull { it.str("iso_3166_1") == "DE" }
+                ?.let { arr(it, "release_dates") }?.firstNotNullOfOrNull { it.str("certification")?.takeIf(String::isNotBlank) }
+        }
+        val cast = arr(o["credits"] as? JsonObject, "cast").take(6).mapNotNull { it.str("name") }.joinToString(", ").ifEmpty { null }
+        return Extras(
+            backdrop = o.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/w1280$it" },
+            age = MediaInfo.parseAge(age),
+            cast = cast,
+            plot = o.str("overview")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    /** Anbieter-Infos mit TMDB ergänzen (nur fehlende Angaben). */
+    fun merge(info: MediaInfo?, extras: Extras?): MediaInfo? {
+        extras ?: return info
+        val base = info ?: MediaInfo()
+        return base.copy(
+            backdrop = base.backdrop ?: extras.backdrop,
+            age = base.age ?: extras.age,
+            cast = base.cast ?: extras.cast,
+            plot = base.plot ?: extras.plot,
+        )
+    }
+
     private fun tmdbRecommendations(title: String, year: String?, tv: Boolean): List<String> = runCatching {
         val id = tmdbId(title, year, tv) ?: return@runCatching emptyList()
         Trends.parse(Trends.get("${if (tv) "tv" else "movie"}/$id/recommendations?language=de-DE"), tv = tv)

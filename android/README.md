@@ -109,6 +109,16 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.15 – Bedienung wie bei Netflix
+
+- **⚽ Sport jetzt live** (Startseite): laufende und heute noch kommende Fußballspiele aus dem TV-Programm. Laufende Spiele starten mit OK. Bei späteren Spielen setzt OK eine Erinnerung.
+- **Großes Titelbild** oben auf der Startseite: laufende Spiele, Trends bzw. neue Filme mit Bild, Beschreibung und „Abspielen“/„Details“. Es wechselt alle 10 Sekunden, aber nicht, solange ein Knopf markiert ist.
+- **Vorschau in der Senderliste:** Bleibst du kurz auf einem Sender stehen, läuft er rechts im kleinen Fenster. OK schaltet auf Vollbild, ohne neu zu laden; der Sender läuft einfach weiter. Es gibt immer nur eine Verbindung.
+- **„Nächste Folge in … s“:** In den letzten 20 Sekunden einer Serienfolge erscheint ein Countdown. OK spielt sofort weiter, Zurück schaut den Abspann zu Ende.
+- **Schönere Detailseiten:** großes Hintergrundbild, FSK-Schild, Besetzung und Vorschaubilder der Folgen. Fehlt etwas beim Anbieter, ergänzt die App es mit dem TMDB-Schlüssel.
+- **Beim Öffnen letzten Sender abspielen** (Einstellungen → Startseite & Bedienung): Die App startet wie ein normaler Fernseher.
+- **Einführung beim ersten Start:** drei Seiten mit den wichtigsten Tasten. Sie lässt sich in den Einstellungen erneut zeigen.
+
 ## Neu in Version 2.14 – flüssiges Live TV (Fußball)
 
 - **50 Hz schon vor dem Start:** Die App merkt sich die Bildrate jedes Senders und stellt den Fernseher beim Umschalten schon vor dem Start passend ein. Das kurze Schwarzbild beim Umstellen der Frequenz fällt so nicht mehr ins laufende Spiel. Fernsehen wird außerdem nie mehr auf 25 Hz gestellt, sondern immer auf 50 Hz.

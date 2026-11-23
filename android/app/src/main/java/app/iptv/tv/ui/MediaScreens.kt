@@ -224,17 +224,41 @@ fun GridScreen(nav: Navigator, screen: Screen.Grid) {
 
 /** Hintergrund mit Bild und Abdunklung für Detailseiten. */
 @Composable
-private fun Backdrop(image: String?) {
-    if (image.isNullOrBlank()) return
+private fun Backdrop(image: String?, fallback: String? = null) {
+    // Wie bei Netflix: großes Bild über den ganzen Hintergrund, links und unten abgedunkelt (Text bleibt lesbar).
+    val wide = !image.isNullOrBlank()
+    val src = if (wide) image else fallback?.takeIf { it.isNotBlank() } ?: return
     AsyncImage(
-        model = image, contentDescription = null, contentScale = ContentScale.Crop,
-        modifier = Modifier.fillMaxSize(), alpha = 0.35f,
+        model = src, contentDescription = null, contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize(), alpha = if (wide) 0.6f else 0.18f,
     )
     Box(
         Modifier.fillMaxSize().background(
-            Brush.horizontalGradient(listOf(AppColors.Background, AppColors.Background.copy(alpha = 0.7f), Color.Transparent)),
+            Brush.horizontalGradient(listOf(AppColors.Background, AppColors.Background.copy(alpha = 0.75f), Color.Transparent)),
         ),
     )
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, AppColors.Background.copy(alpha = 0.9f))),
+        ),
+    )
+}
+
+/** Altersfreigabe als kleines Schild (FSK-Farben). */
+@Composable
+fun AgeBadge(age: Int) {
+    val color = when {
+        age >= 18 -> Color(0xFFE53935)
+        age >= 16 -> Color(0xFF1E88E5)
+        age >= 12 -> Color(0xFF43A047)
+        age >= 6 -> Color(0xFFFDD835)
+        else -> Color(0xFFEEEEEE)
+    }
+    Box(
+        Modifier.clip(RoundedCornerShape(5.dp)).background(color).padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text("FSK $age", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (age in 6..11 || age < 6) Color.Black else Color.White)
+    }
 }
 
 @Composable
@@ -243,8 +267,11 @@ private fun InfoLine(info: MediaInfo?) {
         info?.year, info?.durationText, info?.genre,
         info?.rating?.let { "★ %.1f".format(it) },
     )
-    if (parts.isNotEmpty()) {
-        Text(parts.joinToString("  ·  "), fontSize = 17.sp, color = AppColors.OrangeLight, modifier = Modifier.padding(top = 8.dp))
+    if (parts.isNotEmpty() || info?.age != null) {
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            info?.age?.let { AgeBadge(it); Spacer(Modifier.width(12.dp)) }
+            Text(parts.joinToString("  ·  "), fontSize = 17.sp, color = AppColors.OrangeLight)
+        }
     }
 }
 
@@ -261,6 +288,9 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
     LaunchedEffect(movie) {
         info = Repository.movieInfo(movie)
         loading = false
+        // Fehlendes (großes Hintergrundbild, FSK, Besetzung) von TMDB ergänzen
+        val extras = app.iptv.tv.data.Similar.extras(movie.name, info?.year ?: app.iptv.tv.data.MediaSort.year(movie.name)?.toString(), tv = false)
+        info = app.iptv.tv.data.Similar.merge(info, extras)
     }
     val p = progress[movie.stableKey]
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -278,7 +308,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(info?.backdrop)
+        Backdrop(info?.backdrop, info?.poster ?: movie.logo)
         Row(Modifier.fillMaxSize().padding(56.dp)) {
             Box(
                 Modifier.width(260.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(AppColors.Surface),
@@ -352,7 +382,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
                     else -> Text(movie.category, fontSize = 17.sp, color = AppColors.TextSecondary)
                 }
                 info?.director?.let { Text("Regie: $it", fontSize = 16.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 16.dp)) }
-                info?.cast?.let { Text("Mit: $it", fontSize = 16.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)) }
+                info?.cast?.let { Text("Besetzung: $it", fontSize = 16.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)) }
                 SimilarRow(memory, similar, emptyList(), nav)
             }
         }
@@ -384,6 +414,8 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
             error = app.iptv.tv.data.Http.message(e)
         }
         loading = false
+        val extras = app.iptv.tv.data.Similar.extras(show.title, info?.year, tv = true)
+        info = app.iptv.tv.data.Similar.merge(info, extras)
     }
     val seasons = remember(episodes) { episodes.groupBy { it.season ?: 0 }.toSortedMap().toList() }
     // Staffel der zuletzt gesehenen Episode vorauswählen.
@@ -407,7 +439,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(info?.backdrop)
+        Backdrop(info?.backdrop, info?.poster ?: show.poster)
         Row(Modifier.fillMaxSize().padding(start = 56.dp, top = 48.dp, end = 40.dp)) {
             Column(Modifier.width(200.dp)) {
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(AppColors.Surface)) {
@@ -428,6 +460,9 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                 InfoLine(info)
                 (info?.plot ?: show.plot)?.let {
                     Text(it, fontSize = 17.sp, lineHeight = 25.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp))
+                }
+                info?.cast?.let {
+                    Text("Besetzung: $it", fontSize = 15.sp, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 }
                 Spacer(Modifier.height(18.dp))
                 when {
@@ -464,7 +499,16 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
                                     scale = 1.02f,
                                     shape = RoundedCornerShape(10.dp),
                                 ) {
-                                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        // Vorschaubild der Folge (wie bei Netflix), sofern der Anbieter eines hat
+                                        val thumb = ep.channel.logo?.takeIf { it.isNotBlank() && it != show.poster }
+                                        if (thumb != null) {
+                                            Box(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(AppColors.Surface)) {
+                                                RemoteImage(thumb, "${ep.number ?: ""}", Modifier.fillMaxSize(), ContentScale.Crop)
+                                                if (p != null) ProgressLine(p.position.toFloat() / p.duration, Modifier.fillMaxWidth().align(Alignment.BottomCenter), 3.dp)
+                                            }
+                                            Spacer(Modifier.width(14.dp))
+                                        }
                                         Column(Modifier.weight(1f)) {
                                             Text(ep.displayTitle, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             ep.plot?.takeIf { it.isNotBlank() }?.let {

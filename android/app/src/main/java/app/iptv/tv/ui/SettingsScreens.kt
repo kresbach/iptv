@@ -191,6 +191,25 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Untertitel (OpenSubtitles)", if (Subtitles.isConfigured) "eingerichtet" else "nicht eingerichtet",
             "API-Key, Konto und bevorzugte Sprachen", modifier = Modifier.rememberFocus(memory, "subs")) { nav.push(Screen.SubtitleSettings) }
 
+        SettingsHeader("Startseite & Bedienung")
+        SettingRow("Großes Titelbild auf der Startseite", if (Prefs.heroBanner) "An" else "Aus",
+            "Laufende Spiele, Trends bzw. neue Filme mit Bild und Beschreibung",
+            modifier = Modifier.rememberFocus(memory, "hero")) { Prefs.heroBanner = !Prefs.heroBanner }
+        SettingRow("Reihe „Sport jetzt live“", if (Prefs.sportRow) "An" else "Aus",
+            "Laufende und heutige Fußballspiele aus dem TV-Programm · OK auf ein späteres Spiel = Erinnerung",
+            modifier = Modifier.rememberFocus(memory, "sportrow")) { Prefs.sportRow = !Prefs.sportRow }
+        SettingRow("Vorschau in der Senderliste", if (Prefs.livePreview) "An" else "Aus",
+            "Kurz auf einem Sender stehen bleiben = er läuft im kleinen Fenster; OK = Vollbild ohne neu zu laden",
+            modifier = Modifier.rememberFocus(memory, "preview")) { Prefs.livePreview = !Prefs.livePreview }
+        SettingRow("Beim Öffnen letzten Sender abspielen", if (Prefs.startLastChannel) "An" else "Aus",
+            "Wie ein normaler Fernseher: die App startet gleich mit dem zuletzt gesehenen Sender",
+            modifier = Modifier.rememberFocus(memory, "startlast")) { Prefs.startLastChannel = !Prefs.startLastChannel }
+        SettingRow("Einführung erneut zeigen", null, "Die wichtigsten Tasten – erscheint beim nächsten Öffnen der App",
+            modifier = Modifier.rememberFocus(memory, "intro")) {
+            Prefs.onboardingDone = false
+            android.widget.Toast.makeText(context, "Die Einführung erscheint beim nächsten Start", android.widget.Toast.LENGTH_SHORT).show()
+        }
+
         SettingsHeader("Downloads")
         val used = downloads.filter { it.state == app.iptv.tv.data.DownloadState.COMPLETED }.sumOf { it.totalBytes }
         SettingRow("Downloads anzeigen", "${downloads.size} · ${formatBytes(used)}", modifier = Modifier.rememberFocus(memory, "dl")) { nav.push(Screen.Downloads) }

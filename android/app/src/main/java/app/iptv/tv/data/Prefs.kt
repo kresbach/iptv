@@ -84,6 +84,16 @@ object Prefs {
     /** Kindersicherung: Kategorien wie „XXX“, „Adult“, „18+“ automatisch sperren (auch neue). */
     var autoLockAdult: Boolean get() = bool("autoLockAdult", true); set(v) = putBool("autoLockAdult", v)
     /** Live TV öffnet mit der Kategorie „Favoriten“ (falls vorhanden). */
+    /** Einführung (Tasten erklärt) wurde gezeigt. */
+    var onboardingDone: Boolean get() = bool("onboardingDone", false); set(v) = putBool("onboardingDone", v)
+    /** Beim Öffnen der App gleich den zuletzt gesehenen Sender abspielen. */
+    var startLastChannel: Boolean get() = bool("startLastChannel", false); set(v) = putBool("startLastChannel", v)
+    /** Startseite: Reihe „Sport jetzt live“. */
+    var sportRow: Boolean get() = bool("sportRow", true); set(v) = putBool("sportRow", v)
+    /** Live TV: Vorschau des markierten Senders im kleinen Fenster. */
+    var livePreview: Boolean get() = bool("livePreview", true); set(v) = putBool("livePreview", v)
+    /** Startseite: großes Titelbild oben. */
+    var heroBanner: Boolean get() = bool("heroBanner", true); set(v) = putBool("heroBanner", v)
     var liveStartFavorites: Boolean get() = bool("liveStartFavorites", true); set(v) = putBool("liveStartFavorites", v)
     var imageCacheMb: Int get() = int("imageCacheMb", 150); set(v) = putInt("imageCacheMb", v)
     /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */
