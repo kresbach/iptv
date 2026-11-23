@@ -83,6 +83,30 @@ Beim ersten Anmelden warnt Google ggf., dass die App nicht verifiziert ist: übe
 
 Abgleich: beim App-Start, beim Wechsel in den Hintergrund, ca. 20 Sekunden nach Änderungen und per *Jetzt synchronisieren*. Bei Konflikten gewinnt je Eintrag die neuere Änderung; entfernte Favoriten tauchen nicht wieder auf.
 
+## TestFlight (mit Apple-Entwicklerkonto)
+
+Mit einem Apple-Entwicklerkonto (99 €/Jahr) installierst du die App über die **TestFlight**-App, ohne Kabel und ohne 7-Tage-Grenze. Jede hochgeladene Version läuft 90 Tage.
+
+**Einmalig einrichten**
+1. **Xcode → Settings → Accounts**: mit **+** die Apple-ID des Entwicklerkontos hinzufügen.
+2. **Team-ID** notieren: developer.apple.com → Account → *Membership details* (10 Zeichen, z. B. `AB12CD34EF`).
+3. **App anlegen** auf [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → *Apps* → **+** → *Neue App*:
+   Plattform iOS, Name z. B. „IPTV“ (muss im App Store eindeutig sein, sonst ergänzen), Sprache Deutsch,
+   **Bundle-ID `com.kresbach.IPTV`** (falls nicht auswählbar: unter developer.apple.com → *Identifiers* anlegen), SKU beliebig (z. B. `iptv`).
+
+**Hochladen**
+```
+cd ~/Developer/iptv
+git pull
+./scripts/upload-testflight.sh DEINE_TEAM_ID
+```
+
+**Installieren**
+1. In App Store Connect bei der App → **TestFlight** → *Interne Tests* → Gruppe anlegen und dich hinzufügen (beim ersten Build wird ggf. nach der Exportkontrolle gefragt: „Keine“).
+2. Auf dem iPhone die App **TestFlight** aus dem App Store laden, Einladung annehmen, **IPTV installieren**.
+
+Neue Versionen: Skript erneut ausführen; TestFlight meldet das Update.
+
 ## Dauerhaft installieren ohne Bezahlkonto (SideStore)
 
 Mit einer kostenlosen Apple-ID läuft eine selbst installierte App nur 7 Tage. **SideStore** erneuert diese Signatur automatisch auf dem iPhone, ohne Mac und ohne Kabel.
