@@ -9,6 +9,19 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# Vollständiges Xcode verwenden, auch wenn im Terminal nur die „Command Line Tools“
+# eingestellt sind (sonst bricht xcodebuild ab).
+if ! xcodebuild -version >/dev/null 2>&1; then
+  XCODE_APP=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -1 || true)
+  if [ -n "${XCODE_APP:-}" ]; then
+    export DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
+    echo "▶ Verwende $XCODE_APP"
+  else
+    echo "✗ Xcode wurde nicht gefunden. Bitte Xcode aus dem App Store installieren."
+    exit 1
+  fi
+fi
 BUILD_DIR="$PWD/build"
 DERIVED="$BUILD_DIR/DerivedData"
 
