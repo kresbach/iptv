@@ -9,6 +9,8 @@ struct ChannelListView: View {
     let title: String
     let channels: [Channel]
     var showsCategory = true
+    /// Gesetzt, wenn sich die Einträge von Hand sortieren lassen (Favoriten).
+    var onMove: ((IndexSet, Int) -> Void)?
 
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
@@ -35,39 +37,25 @@ struct ChannelListView: View {
         .navigationSubtitle("\(channels.count.formatted()) Einträge")
         .searchable(text: $query, prompt: "In \(title) suchen")
         .refreshable { await store.refresh() }
+        .toolbar {
+            if onMove != nil, query.isEmpty, channels.count > 1 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
+                }
+            }
+        }
         .sheet(item: $scheduleChannel) { channel in
             NavigationStack { EPGScheduleView(channel: channel) }.appEnvironment()
         }
     }
 
     private func list(_ filtered: [Channel]) -> some View {
-        List(filtered) { channel in
-            Button {
-                playChannel(channel, queue: filtered)
-            } label: {
-                ChannelRow(channel: channel, showsCategory: showsCategory)
+        List {
+            ForEach(filtered) { channel in
+                row(channel, in: filtered)
             }
-            .buttonStyle(.plain)
-            .onHover { inside in
-                if inside, showsSidePanel { previewChannel = channel }
-            }
-            .swipeActions(edge: .trailing) {
-                FavoriteButton(isFavorite: userData.isFavorite(channel)) {
-                    userData.toggleFavorite(channel)
-                }
-                .tint(Theme.orange)
-            }
-            .contextMenu {
-                Button("Abspielen", systemImage: "play.fill") { playChannel(channel, queue: filtered) }
-                OpenInWindowButton(channel: channel, queue: filtered)
-                Divider()
-                FavoriteButton(isFavorite: userData.isFavorite(channel)) {
-                    userData.toggleFavorite(channel)
-                }
-                if channel.kind == .live {
-                    Button("TV-Programm", systemImage: "calendar") { scheduleChannel = channel }
-                }
-            }
+            // Sortieren nur ohne Suchbegriff, sonst passen die Positionen nicht.
+            .onMove(perform: query.isEmpty ? onMove : nil)
         }
         .listStyle(.plain)
         .overlay {
@@ -77,6 +65,35 @@ struct ChannelListView: View {
                 } else {
                     ContentUnavailableView.search(text: query)
                 }
+            }
+        }
+    }
+
+    private func row(_ channel: Channel, in filtered: [Channel]) -> some View {
+        Button {
+            playChannel(channel, queue: filtered)
+        } label: {
+            ChannelRow(channel: channel, showsCategory: showsCategory)
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            if inside, showsSidePanel { previewChannel = channel }
+        }
+        .swipeActions(edge: .trailing) {
+            FavoriteButton(isFavorite: userData.isFavorite(channel)) {
+                userData.toggleFavorite(channel)
+            }
+            .tint(Theme.orange)
+        }
+        .contextMenu {
+            Button("Abspielen", systemImage: "play.fill") { playChannel(channel, queue: filtered) }
+            OpenInWindowButton(channel: channel, queue: filtered)
+            Divider()
+            FavoriteButton(isFavorite: userData.isFavorite(channel)) {
+                userData.toggleFavorite(channel)
+            }
+            if channel.kind == .live {
+                Button("TV-Programm", systemImage: "calendar") { scheduleChannel = channel }
             }
         }
     }
@@ -186,7 +203,8 @@ struct ChannelRow: View {
     }
 }
 
-/// „Jetzt: Tagesschau“ mit Fortschrittsbalken, aktualisiert sich minütlich.
+/// „Tagesschau · noch 12 Min.“ mit Fortschrittsbalken und der nächsten Sendung,
+/// aktualisiert sich minütlich.
 struct NowPlayingLine: View {
     let channel: Channel
     let guide: EPGGuide
@@ -195,13 +213,25 @@ struct NowPlayingLine: View {
         TimelineView(.everyMinute) { context in
             if let now = guide.current(for: channel, at: context.date) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(now.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(now.title)
+                            .lineLimit(1)
+                        Text(Self.remaining(until: now.end, from: context.date))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.orange)
+                            .layoutPriority(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     ProgressView(value: now.progress(at: context.date))
                         .tint(Theme.orange)
                         .frame(maxWidth: 160)
+                    if let next = guide.next(for: channel, at: context.date) {
+                        Text("Danach \(next.start.formatted(date: .omitted, time: .shortened)) \(next.title)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
             } else {
                 Text("Kein Programm verfügbar")
@@ -209,6 +239,16 @@ struct NowPlayingLine: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// „noch 12 Min.“ bzw. „noch 1 Std. 5 Min.“
+    static func remaining(until end: Date, from now: Date) -> String {
+        let minutes = max(Int((end.timeIntervalSince(now) / 60).rounded(.up)), 0)
+        if minutes >= 60 {
+            let rest = minutes % 60
+            return rest == 0 ? "noch \(minutes / 60) Std." : "noch \(minutes / 60) Std. \(rest) Min."
+        }
+        return "noch \(minutes) Min."
     }
 }
 

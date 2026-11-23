@@ -11,6 +11,10 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
     let tvgID: String?
     let logoURL: URL?
     let kind: ContentKind
+    /// Bewertung (0–10), sofern der Anbieter sie liefert (Xtream).
+    var rating: Double?
+    /// Wann der Anbieter den Eintrag hinzugefügt hat (Xtream), für „Neu“.
+    var added: Date?
 
     init(
         id: UUID = UUID(),
@@ -19,7 +23,9 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
         group: String? = nil,
         tvgID: String? = nil,
         logoURL: URL? = nil,
-        kind: ContentKind? = nil
+        kind: ContentKind? = nil,
+        rating: Double? = nil,
+        added: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -28,6 +34,8 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
         self.tvgID = tvgID
         self.logoURL = logoURL
         self.kind = kind ?? ContentClassifier.kind(url: url, group: group, name: name)
+        self.rating = rating
+        self.added = added
     }
 
     /// Ältere Zwischenspeicher enthalten noch kein `kind`, das wird dann neu bestimmt.
@@ -43,14 +51,22 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
             group: group,
             tvgID: try container.decodeIfPresent(String.self, forKey: .tvgID),
             logoURL: try container.decodeIfPresent(URL.self, forKey: .logoURL),
-            kind: try container.decodeIfPresent(ContentKind.self, forKey: .kind)
+            kind: try container.decodeIfPresent(ContentKind.self, forKey: .kind),
+            rating: try container.decodeIfPresent(Double.self, forKey: .rating),
+            added: try container.decodeIfPresent(Date.self, forKey: .added)
         )
     }
 
     /// Kopie mit anderem Stream-Link (z. B. ohne Zugangsdaten für den Sync).
     func with(url newURL: URL) -> Channel {
-        Channel(id: id, name: name, url: newURL, group: group, tvgID: tvgID, logoURL: logoURL, kind: kind)
+        Channel(
+            id: id, name: name, url: newURL, group: group, tvgID: tvgID, logoURL: logoURL,
+            kind: kind, rating: rating, added: added
+        )
     }
+
+    /// Erscheinungsjahr aus dem Titel, z. B. „Dune (2021)“ → 2021.
+    var year: Int? { MediaInfo.versionKey(for: name).year.flatMap(Int.init) }
 
     static let ungroupedTitle = "Ohne Kategorie"
 

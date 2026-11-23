@@ -16,6 +16,12 @@ Eine schlanke IPTV-App für iPhone und iPad in SwiftUI. Bedienkonzept und Funkti
 - **Weiterschauen**: Filme und Episoden starten dort, wo du aufgehört hast. Der Fortschritt erscheint als Balken.
 - **TV-Guide (EPG)**: aktuelle Sendung mit Fortschritt in der Senderliste, *Jetzt/Danach* im Player, Wochenprogramm über langes Drücken → *TV-Programm*. Quellen sind XMLTV (auch `.xml.gz`), `url-tvg` aus der M3U, Xtream `xmltv.php` oder eine eigene Adresse.
 - **Suche** über alle Bereiche.
+- **Sortieren** von Filmen und Serien nach Neu, A–Z, Bewertung, Jahr (Filme auch nach Größe), Filter *Nur ★ 7+*, Bewertung auf den Postern (Xtream).
+- **Favoriten in eigener Reihenfolge** (Live TV → Favoriten → *Bearbeiten*), auch beim Google-Sync. Live TV öffnet auf Wunsch direkt mit den Favoriten.
+- **Senderliste** mit Restzeit („noch 12 Min.“) und nächster Sendung.
+- **Kindersicherung**: Kategorien wie „XXX“, „Adult“ oder „18+“ werden automatisch mit der PIN gesperrt.
+- **Player-Menü „…“**: Bildformat *Original / Zoom / Strecken* (Apple und VLC), **Sleep-Timer** (mit Warnung und +15 Min.), *Sendernummer eingeben*, *Zurück zum letzten Sender*. Mit Tastatur: Ziffern für die Sendernummer, ⌫ für den letzten Sender.
+- **Bildspeicher** für Logos und Cover begrenzen und leeren (*Einstellungen → Bildspeicher*).
 - **Player**: Apple-Player (Bild-in-Bild, AirPlay) und optional **VLC** für `.ts`, `.mkv`, `rtmp` usw. In der Einstellung *Automatisch* wird VLC verwendet, wenn das Format es erfordert oder der Apple-Player scheitert.
 
 ## Technik

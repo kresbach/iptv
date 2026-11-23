@@ -15,6 +15,12 @@ actor ImagePipeline {
     }()
     private var running: [String: Task<UIImage?, Never>] = [:]
 
+    /// Leert den Bildspeicher im Arbeitsspeicher und auf der Festplatte.
+    nonisolated func clearAll() {
+        cache.removeAllObjects()
+        HTTPClient.imageCache.removeAllCachedResponses()
+    }
+
     nonisolated func cachedImage(for url: URL, maxPixelSize: CGFloat) -> UIImage? {
         cache.object(forKey: Self.key(url, maxPixelSize) as NSString)
     }
@@ -100,4 +106,25 @@ struct CachedImage: View {
             }
         }
     }
+}
+
+/// Einstellbare Größe des Bildspeichers auf der Festplatte.
+enum ImageCacheSettings {
+    static let limitKey = "imageCacheLimitMB"
+    static let defaultLimitMB = 200
+    static let choices = [50, 100, 200, 500, 1000]
+
+    static var limitMB: Int {
+        let value = UserDefaults.standard.integer(forKey: limitKey)
+        return value > 0 ? value : defaultLimitMB
+    }
+
+    /// Neue Grenze sofort anwenden; iOS räumt älteste Bilder bei Bedarf selbst weg.
+    static func apply(limitMB: Int) {
+        UserDefaults.standard.set(limitMB, forKey: limitKey)
+        HTTPClient.imageCache.diskCapacity = limitMB * 1_000_000
+    }
+
+    /// Belegter Platz auf der Festplatte in Bytes.
+    static var usedBytes: Int { HTTPClient.imageCache.currentDiskUsage }
 }

@@ -5,13 +5,19 @@ import Foundation
 enum HTTPClient {
     static let userAgent = "VLC/3.0.21 LibVLC/3.0.21"
 
+    /// Zwischenspeicher für Logos und Cover auf der Festplatte; Größe einstellbar.
+    nonisolated(unsafe) static let imageCache = URLCache(
+        memoryCapacity: 20_000_000,
+        diskCapacity: ImageCacheSettings.limitMB * 1_000_000
+    )
+
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.httpAdditionalHeaders = ["User-Agent": userAgent]
         configuration.waitsForConnectivity = false
-        configuration.urlCache = URLCache(memoryCapacity: 20_000_000, diskCapacity: 200_000_000)
+        configuration.urlCache = imageCache
         configuration.httpMaximumConnectionsPerHost = 6
         return URLSession(configuration: configuration)
     }()

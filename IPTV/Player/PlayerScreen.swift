@@ -47,7 +47,17 @@ struct PlayerScreen: View {
     @State private var attemptErrors: [String] = []
     @State private var connectionWaitMessage: String?
     @State private var isDiagnosing = false
-    @State private var isZoomed = false
+    @AppStorage(VideoFit.storageKey) private var videoFit: VideoFit = .original
+    /// Sender vor dem letzten Umschalten, für „Zurück zum letzten Sender“.
+    @State private var previousChannel: Channel?
+    /// Per Zifferntasten eingegebene Sendernummer, bis umgeschaltet wird.
+    @State private var typedNumber = ""
+    @State private var numberTask: Task<Void, Never>?
+    @State private var asksChannelNumber = false
+    @State private var channelNumberInput = ""
+    /// Sleep-Timer: Wiedergabe endet zu diesem Zeitpunkt.
+    @State private var sleepDeadline: Date?
+    @State private var sleepWarning = false
     @State private var showsChannelList = false
     @State private var showsSubtitleSearch = false
     @State private var airPlayHint: String?
@@ -101,6 +111,14 @@ struct PlayerScreen: View {
 
             Button("Steuerung") { toggleControls() }
                 .keyboardShortcut("f", modifiers: [])
+
+            Button("Zurück zum letzten Sender") { goToPreviousChannel() }
+                .keyboardShortcut(.delete, modifiers: [])
+
+            ForEach(0..<10, id: \.self) { digit in
+                Button("Ziffer \(digit)") { typeDigit(digit) }
+                    .keyboardShortcut(KeyEquivalent(Character(String(digit))), modifiers: [])
+            }
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -137,6 +155,7 @@ struct PlayerScreen: View {
         engine = nil
         errorMessage = nil
         findings = []
+        if current.kind == .live { previousChannel = current }
         current = next
         downloads.playbackStarted(isLocalFile: downloads.localURL(for: next) != nil)
         showsControls = true
@@ -144,6 +163,60 @@ struct PlayerScreen: View {
     }
 
     private var isLive: Bool { channel.kind == .live }
+
+    // MARK: - Sendernummern und letzter Sender
+
+    /// Nummer des Senders in der Liste, aus der gestartet wurde (1 = erster).
+    private var channelNumber: Int? {
+        guard isLive, request.queue.count > 1 else { return nil }
+        return request.queue.firstIndex { $0.id == current.id }.map { $0 + 1 }
+    }
+
+    private func goToPreviousChannel() {
+        guard isLive, let previousChannel else { return }
+        switchTo(previousChannel)
+    }
+
+    /// Zifferntasten: Nummer sammeln und nach kurzer Pause umschalten.
+    private func typeDigit(_ digit: Int) {
+        guard isLive, request.queue.count > 1 else { return }
+        typedNumber = String((typedNumber + String(digit)).suffix(4))
+        numberTask?.cancel()
+        numberTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            jumpToNumber(typedNumber)
+            typedNumber = ""
+        }
+    }
+
+    private func jumpToNumber(_ text: String) {
+        guard let number = Int(text.trimmingCharacters(in: .whitespaces)),
+              request.queue.indices.contains(number - 1) else { return }
+        switchTo(request.queue[number - 1])
+    }
+
+    // MARK: - Sleep-Timer
+
+    private func setSleepTimer(minutes: Int?) {
+        sleepDeadline = minutes.map { Date.now.addingTimeInterval(TimeInterval($0) * 60) }
+    }
+
+    /// Wartet auf das Ende; eine Minute vorher erscheint ein Hinweis zum Verlängern.
+    private func runSleepTimer() async {
+        sleepWarning = false
+        guard let deadline = sleepDeadline else { return }
+        while !Task.isCancelled {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                sleepDeadline = nil
+                close()
+                return
+            }
+            if remaining <= 60, !sleepWarning { sleepWarning = true }
+            try? await Task.sleep(for: .seconds(1))
+        }
+    }
 
     /// Was gerade versucht wird, z. B. „VLC · Versuch 2 von 2“.
     private var statusText: String {
@@ -207,11 +280,36 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
+            if !typedNumber.isEmpty {
+                channelNumberOverlay
+            }
+
+            if sleepWarning, let sleepDeadline {
+                SleepWarningCard(
+                    deadline: sleepDeadline,
+                    onExtend: { self.sleepDeadline = sleepDeadline.addingTimeInterval(15 * 60) },
+                    onCancel: { self.sleepDeadline = nil }
+                )
+            }
+
             if let errorMessage {
                 errorOverlay(errorMessage)
             }
         }
         .background { keyboardShortcuts }
+        .task(id: sleepDeadline) { await runSleepTimer() }
+        .onChange(of: videoFit) { scheduleHide() }
+        .alert("Sendernummer", isPresented: $asksChannelNumber) {
+            TextField("1–\(request.queue.count)", text: $channelNumberInput)
+                .keyboardType(.numberPad)
+            Button("Umschalten") {
+                jumpToNumber(channelNumberInput)
+                channelNumberInput = ""
+            }
+            Button("Abbrechen", role: .cancel) { channelNumberInput = "" }
+        } message: {
+            Text("Nummer des Senders in der aktuellen Liste.")
+        }
         .animation(.easeInOut(duration: 0.25), value: showsControls)
         .statusBarHidden(!showsControls)
         .persistentSystemOverlays(showsControls ? .automatic : .hidden)
@@ -300,12 +398,12 @@ struct PlayerScreen: View {
     @ViewBuilder
     private var videoSurface: some View {
         if let apple = engine as? ApplePlaybackEngine {
-            AppleVideoSurface(engine: apple, isZoomed: isZoomed)
+            AppleVideoSurface(engine: apple, fit: videoFit)
                 .id(ObjectIdentifier(apple))
         }
         #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
         if let vlc = engine as? VLCPlaybackEngine {
-            VLCVideoSurface(engine: vlc)
+            VLCVideoSurface(engine: vlc, fit: videoFit)
                 .id(ObjectIdentifier(vlc))
         }
         #endif
@@ -337,9 +435,16 @@ struct PlayerScreen: View {
             roundButton("xmark", label: "Schließen") { close() }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(channel.name)
-                    .font(.headline)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let channelNumber {
+                        Text("\(channelNumber)")
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(Theme.orange)
+                    }
+                    Text(channel.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
                 if let group = channel.group {
                     Text(group)
                         .font(.caption)
@@ -370,11 +475,16 @@ struct PlayerScreen: View {
                         label: "Bild-in-Bild"
                     ) { apple.togglePictureInPicture() }
                 }
-                roundButton(
-                    isZoomed ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                    label: isZoomed ? "Ganzes Bild" : "Bildschirm füllen"
-                ) { isZoomed.toggle() }
             }
+
+            if sleepDeadline != nil {
+                Image(systemName: "moon.zzz.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.orange)
+                    .accessibilityLabel("Sleep-Timer aktiv")
+            }
+
+            moreMenu
 
             if let engine, engine.isUserMuted || engine.volume < 1 {
                 VolumeBadge(engine: engine)
@@ -459,14 +569,18 @@ struct PlayerScreen: View {
                         hideTask?.cancel()
                         showsChannelList = true
                     } label: {
-                        Label("Senderliste", systemImage: "list.bullet")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(.black.opacity(0.55), in: .capsule)
+                        capsuleLabel("Senderliste", systemImage: "list.bullet")
                     }
                     .buttonStyle(.plain)
+                    if let previousChannel {
+                        Button {
+                            goToPreviousChannel()
+                        } label: {
+                            capsuleLabel(previousChannel.name, systemImage: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Zurück zu \(previousChannel.name)")
+                    }
                     Spacer()
                 }
                 .padding(.horizontal)
@@ -478,6 +592,89 @@ struct PlayerScreen: View {
                     .padding(.bottom, 8)
             }
         }
+    }
+
+    private func capsuleLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.black.opacity(0.55), in: .capsule)
+    }
+
+    /// Weitere Funktionen: Bildformat, Sleep-Timer, Sendernummer, letzter Sender.
+    private var moreMenu: some View {
+        Menu {
+            Section("Bildformat") {
+                Picker("Bildformat", selection: $videoFit) {
+                    ForEach(VideoFit.allCases) { fit in
+                        Label(fit.title, systemImage: fit.symbol).tag(fit)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+            Section("Sleep-Timer") {
+                if let sleepDeadline {
+                    Text("Endet um \(sleepDeadline.formatted(date: .omitted, time: .shortened))")
+                    Button("+15 Minuten", systemImage: "plus") {
+                        self.sleepDeadline = sleepDeadline.addingTimeInterval(15 * 60)
+                    }
+                    Button("Sleep-Timer aus", systemImage: "moon.zzz") { setSleepTimer(minutes: nil) }
+                }
+                Menu(sleepDeadline == nil ? "Sleep-Timer" : "Neu einstellen", systemImage: "moon.zzz") {
+                    ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
+                        Button("\(minutes) Minuten") { setSleepTimer(minutes: minutes) }
+                    }
+                    if isLive, let end = store.epg?.current(for: channel)?.end, end > .now {
+                        Button("Ende der Sendung (\(end.formatted(date: .omitted, time: .shortened)))") {
+                            sleepDeadline = end
+                        }
+                    }
+                }
+            }
+
+            if isLive, request.queue.count > 1 {
+                Section("Sender") {
+                    Button("Sendernummer eingeben …", systemImage: "number") {
+                        hideTask?.cancel()
+                        asksChannelNumber = true
+                    }
+                    if let previousChannel {
+                        Button("Zurück zu \(previousChannel.name)", systemImage: "arrow.uturn.backward") {
+                            goToPreviousChannel()
+                        }
+                    }
+                }
+            }
+        } label: {
+            PlayerButtonLabel(symbol: "ellipsis", size: 44)
+        }
+        .simultaneousGesture(TapGesture().onEnded { hideTask?.cancel() })
+        .accessibilityLabel("Weitere Optionen")
+    }
+
+    /// Große Anzeige der getippten Sendernummer samt Sendername.
+    private var channelNumberOverlay: some View {
+        let number = Int(typedNumber) ?? 0
+        let target = request.queue.indices.contains(number - 1) ? request.queue[number - 1] : nil
+        return VStack(alignment: .trailing, spacing: 4) {
+            Text(typedNumber)
+                .font(.system(size: 48, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Theme.orange)
+            Text(target?.name ?? "Kein Sender")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+        }
+        .padding(18)
+        .background(.black.opacity(0.7), in: .rect(cornerRadius: 18))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, 70)
+        .padding(.trailing)
+        .allowsHitTesting(false)
     }
 
     private func roundButton(
@@ -807,6 +1004,35 @@ struct PlayerScreen: View {
     }
 }
 
+/// Hinweis eine Minute vor Ablauf des Sleep-Timers.
+private struct SleepWarningCard: View {
+    let deadline: Date
+    let onExtend: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let seconds = max(Int(deadline.timeIntervalSince(context.date).rounded(.up)), 0)
+            VStack(spacing: 12) {
+                Label("Sleep-Timer", systemImage: "moon.zzz.fill")
+                    .font(.headline)
+                    .foregroundStyle(Theme.orange)
+                Text("Die Wiedergabe endet in \(seconds) Sekunden.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                HStack {
+                    Button("Ausschalten", action: onCancel)
+                        .buttonStyle(.glass)
+                    Button("+15 Minuten", systemImage: "plus", action: onExtend)
+                        .buttonStyle(.glassProminent)
+                }
+            }
+            .padding(20)
+            .background(.black.opacity(0.75), in: .rect(cornerRadius: 22))
+        }
+    }
+}
+
 /// Aktuelle und nächste Sendung im Player.
 private struct PlayerEPGPanel: View {
     let channel: Channel
@@ -819,6 +1045,10 @@ private struct PlayerEPGPanel: View {
                     HStack {
                         Text("JETZT").font(.caption2.bold()).foregroundStyle(Theme.orange)
                         Text(now.timeRange).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        Text(NowPlayingLine.remaining(until: now.end, from: context.date))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(Theme.orange)
                     }
                     Text(now.title).font(.headline).lineLimit(1)
                     ProgressView(value: now.progress(at: context.date)).tint(Theme.orange)
@@ -1059,13 +1289,20 @@ private struct PlayerChannelList: View {
 
     var body: some View {
         let filtered = query.isEmpty ? channels : channels.filter { $0.name.localizedStandardContains(query) }
+        let numbers = Dictionary(channels.enumerated().map { ($0.element.id, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
 
         ScrollViewReader { proxy in
             List(filtered) { channel in
                 Button {
                     onSelect(channel)
                 } label: {
-                    HStack {
+                    HStack(spacing: 10) {
+                        if let number = numbers[channel.id] {
+                            Text("\(number)")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 28, alignment: .trailing)
+                        }
                         ChannelRow(channel: channel, showsCategory: false)
                         if channel.id == current.id {
                             Image(systemName: "speaker.wave.2.fill")
@@ -1096,14 +1333,14 @@ final class PlayerLayerView: UIView {
 
 private struct AppleVideoSurface: UIViewRepresentable {
     let engine: ApplePlaybackEngine
-    let isZoomed: Bool
+    let fit: VideoFit
 
     func makeUIView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
         view.backgroundColor = .black
         view.isUserInteractionEnabled = false
         view.playerLayer.player = engine.player
-        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.videoGravity = fit.gravity
         engine.attach(layer: view.playerLayer)
         return view
     }
@@ -1113,7 +1350,7 @@ private struct AppleVideoSurface: UIViewRepresentable {
             view.playerLayer.player = engine.player
             engine.attach(layer: view.playerLayer)
         }
-        view.playerLayer.videoGravity = isZoomed ? .resizeAspectFill : .resizeAspect
+        view.playerLayer.videoGravity = fit.gravity
     }
 }
 

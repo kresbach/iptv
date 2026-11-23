@@ -26,6 +26,9 @@ struct SettingsView: View {
     @AppStorage(PlayerEngine.liveStorageKey) private var liveEngine: PlayerEngine = PlayerEngine.liveDefault
     @AppStorage(PlayerEngine.vodStorageKey) private var vodEngine: PlayerEngine = PlayerEngine.vodDefault
     @State private var confirmsClearHistory = false
+    @AppStorage(ImageCacheSettings.limitKey) private var imageCacheLimitMB = ImageCacheSettings.defaultLimitMB
+    @AppStorage(LiveSettings.startsWithFavoritesKey) private var liveStartsWithFavorites = true
+    @State private var imageCacheUsed = ImageCacheSettings.usedBytes
 
     var body: some View {
         List {
@@ -116,6 +119,9 @@ struct SettingsView: View {
                 } label: {
                     Label("Filme & Serien", systemImage: ContentKind.movie.symbol)
                 }
+                Toggle(isOn: $liveStartsWithFavorites) {
+                    Label("Live TV mit Favoriten öffnen", systemImage: "heart")
+                }
             } header: {
                 Text("Player")
             } footer: {
@@ -131,6 +137,8 @@ struct SettingsView: View {
             subtitleSection
 
             parentalSection
+
+            imageCacheSection
 
             Section("Verlauf") {
                 Button("Verlauf und Fortschritt löschen", systemImage: "clock.arrow.circlepath", role: .destructive) {
@@ -214,10 +222,15 @@ extension SettingsView {
             } else {
                 Button("PIN festlegen", systemImage: "lock") { showsPINSetup = true }
             }
+            Toggle(isOn: Binding(get: { prefs.autoLocksAdult }, set: { prefs.autoLocksAdult = $0 })) {
+                Label("Erwachsenen-Kategorien sperren", systemImage: "eye.slash")
+            }
+            // Ausschalten nur ohne PIN oder nach der Eingabe.
+            .disabled(prefs.hasPIN && !prefs.isUnlocked)
         } header: {
             Text("Kindersicherung")
         } footer: {
-            Text("Mit einer PIN sperrst du einzelne Kategorien unter Live TV, Filme oder Serien über „Bearbeiten“. Gesperrte Inhalte erscheinen weder in Listen noch in der Suche, bis die PIN eingegeben wurde. Beim Verlassen der App wird wieder gesperrt.")
+            Text("Mit einer PIN sperrst du einzelne Kategorien unter Live TV, Filme oder Serien über „Bearbeiten“. Kategorien wie „XXX“, „Adult“ oder „18+“ werden automatisch gesperrt, sobald eine PIN festgelegt ist. Gesperrte Inhalte erscheinen weder in Listen noch in der Suche, bis die PIN eingegeben wurde. Beim Verlassen der App wird wieder gesperrt.")
         }
         .sheet(isPresented: $showsPINSetup) {
             NavigationStack { PINSetupView() }.appEnvironment()
@@ -228,6 +241,35 @@ extension SettingsView {
             case .remove: prefs.setPIN(nil)
             }
         }
+    }
+
+    /// Zwischenspeicher für Senderlogos und Cover.
+    @ViewBuilder
+    var imageCacheSection: some View {
+        Section {
+            Picker(selection: $imageCacheLimitMB) {
+                ForEach(ImageCacheSettings.choices, id: \.self) { mb in
+                    Text(mb >= 1000 ? "\(mb / 1000) GB" : "\(mb) MB").tag(mb)
+                }
+            } label: {
+                Label("Höchstens", systemImage: "photo.stack")
+            }
+            .onChange(of: imageCacheLimitMB) { _, value in
+                ImageCacheSettings.apply(limitMB: value)
+                imageCacheUsed = ImageCacheSettings.usedBytes
+            }
+            LabeledContent("Belegt", value: Int64(imageCacheUsed).formatted(.byteCount(style: .file)))
+            Button("Bildspeicher leeren", systemImage: "trash") {
+                ImagePipeline.shared.clearAll()
+                imageCacheUsed = ImageCacheSettings.usedBytes
+            }
+            .disabled(imageCacheUsed == 0)
+        } header: {
+            Text("Bildspeicher")
+        } footer: {
+            Text("Logos und Cover werden auf dem Gerät zwischengespeichert, damit Listen schnell laden. Beim Leeren werden sie bei Bedarf neu geladen.")
+        }
+        .onAppear { imageCacheUsed = ImageCacheSettings.usedBytes }
     }
 
     /// Speicherbelegung und Verhalten der Downloads.
