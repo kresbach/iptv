@@ -83,6 +83,22 @@ Beim ersten Anmelden warnt Google ggf., dass die App nicht verifiziert ist: übe
 
 Abgleich: beim App-Start, beim Wechsel in den Hintergrund, ca. 20 Sekunden nach Änderungen und per *Jetzt synchronisieren*. Bei Konflikten gewinnt je Eintrag die neuere Änderung; entfernte Favoriten tauchen nicht wieder auf.
 
+## Dauerhaft installieren ohne Bezahlkonto (SideStore)
+
+Mit einer kostenlosen Apple-ID läuft eine selbst installierte App nur 7 Tage. **SideStore** erneuert diese Signatur automatisch auf dem iPhone, ohne Mac und ohne Kabel.
+
+1. **SideStore einrichten** (einmalig): Anleitung auf [sidestore.io](https://sidestore.io). Du brauchst dafür einmal einen Mac oder PC.
+2. **IPA bauen** auf dem Mac im Projektordner:
+   ```
+   git pull
+   ./scripts/build-ipa.sh
+   ```
+   Ergebnis: `build/IPTV.ipa`
+3. **Installieren:** Die IPA per AirDrop aufs iPhone schicken, „Öffnen mit SideStore“ wählen und mit deiner Apple-ID anmelden.
+4. **Erneuern:** SideStore frischt die App automatisch im Hintergrund auf. Öffne SideStore spätestens alle 7 Tage einmal, falls die automatische Erneuerung nicht greift.
+
+Grenzen der kostenlosen Apple-ID: höchstens **3 selbst installierte Apps** gleichzeitig (SideStore zählt mit) und höchstens 10 neue App-IDs pro Woche.
+
 ## Hinweise
 
 - **http-Playlists**: Die `IPTV-Info.plist` erlaubt http über `NSAllowsArbitraryLoads`. Ergänze dort keine weiteren `NSAllows…`-Schlüssel, sonst ignoriert iOS diese Freigabe und http-Downloads scheitern.
