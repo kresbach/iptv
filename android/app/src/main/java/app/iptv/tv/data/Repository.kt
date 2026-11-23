@@ -58,6 +58,9 @@ private data class UserDataFile(
     val progress: Map<String, Progress> = emptyMap(),
     /** Letzte Änderung je Favoriten-Schlüssel (auch entfernte) – für den Abgleich zwischen Geräten. */
     val favoriteChanges: Map<String, Long> = emptyMap(),
+    /** Bekannte Episodenzahl je gemerkter Serie (für „Neue Folgen“). */
+    val episodeCounts: Map<String, Int> = emptyMap(),
+    val newEpisodes: List<String> = emptyList(),
 )
 
 /**
@@ -127,6 +130,7 @@ object Repository {
                 .collectLatest { c -> visible.value = filtered(c) }
         }
         scope.launch {
+            Profiles.load(dir)
             restoreUserData()
             read(File(dir, "library.json"), LibraryFile.serializer())?.let {
                 playlists.value = it.playlists
@@ -143,6 +147,7 @@ object Repository {
                 // TV-Guide erst danach – er wird für die Startseite nicht gebraucht.
                 epg.value = readEpg(active.id)
                 if (content.value.isEmpty) refresh() else refreshInBackground(8_000)
+                checkNewEpisodesLater()
             }
         }
     }
@@ -347,7 +352,10 @@ object Repository {
             val tmp = File(cacheDir, "epg-download.tmp")
             try {
                 Http.download(url, tmp)
-                val guide = tmp.inputStream().use { EpgParser.parse(it, channels, Xml.newPullParser()) }
+                // Mit Sendungsarchiv: vergangene Tage behalten (für „Verpasste Sendungen“).
+                val archiveDays = channels.maxOf { it.archiveDays ?: 0 }.coerceAtMost(7)
+                val past = if (archiveDays > 0) archiveDays * 24 * 3600_000L else 2 * 3600_000L
+                val guide = tmp.inputStream().use { EpgParser.parse(it, channels, Xml.newPullParser(), pastMs = past) }
                 if (guide.programmes.isNotEmpty() || current == null) {
                     writeEpg(playlist.id, guide)
                     if (activeId.value == playlist.id) epg.value = guide
@@ -467,19 +475,80 @@ object Repository {
     }
 
     private fun restoreUserData() {
-        read(File(dir, "userdata.json"), UserDataFile.serializer())?.let {
-            favorites.value = OrderedKeys(it.favorites)
-            recents.value = it.recents
-            progress.value = it.progress
-            favoriteChanges = it.favoriteChanges
-        }
+        val data = read(Profiles.userDataFile(dir), UserDataFile.serializer()) ?: UserDataFile()
+        favorites.value = OrderedKeys(data.favorites)
+        recents.value = data.recents
+        progress.value = data.progress
+        favoriteChanges = data.favoriteChanges
+        episodeCounts = data.episodeCounts
+        newEpisodes.value = data.newEpisodes.toSet()
     }
 
     private fun saveUserData(notify: Boolean = true) {
-        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges)
-        scope.launch(serialIo) { write(File(dir, "userdata.json"), UserDataFile.serializer(), snapshot) }
-        if (notify) onChange?.invoke()
+        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
+        val target = Profiles.userDataFile(dir)
+        scope.launch(serialIo) { write(target, UserDataFile.serializer(), snapshot) }
+        // Abgleich mit dem iPhone nur für das Hauptprofil
+        if (notify && Profiles.isMain) onChange?.invoke()
     }
+
+    /** Profil wechseln: Nutzerdaten speichern und die des neuen Profils laden. */
+    fun switchProfile(id: String) {
+        if (id == Profiles.activeId.value) { Profiles.chosen = true; return }
+        saveUserData(notify = false)
+        Profiles.setActive(id)
+        restoreUserData()
+        CategoryPrefs.lock()
+        CategoryPrefs.refresh()
+    }
+
+    // region Neue Folgen
+
+    @Volatile internal var episodeCounts: Map<String, Int> = emptyMap()
+    /** Gemerkte Serien mit neuen Episoden seit dem letzten Ansehen. */
+    val newEpisodes = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Gemerkte Serien auf neue Folgen prüfen (höchstens alle 6 Stunden, nicht während der Wiedergabe). */
+    fun checkNewEpisodesLater(delayMs: Long = 90_000) {
+        scope.launch {
+            delay(delayMs)
+            if (System.currentTimeMillis() - Prefs.lastEpisodeCheck < 6 * 3600_000L) return@launch
+            checkNewEpisodes()
+        }
+    }
+
+    suspend fun checkNewEpisodes() {
+        val shows = favorites.value.mapNotNull { content.value.show(it) }
+        if (shows.isEmpty()) return
+        var counts = episodeCounts
+        val fresh = newEpisodes.value.toMutableSet()
+        for (show in shows) {
+            while (playbackActive) delay(10_000)
+            val count = runCatching {
+                if (show.xtreamSeriesId != null) seriesDetails(show).second.size else show.episodes.size
+            }.getOrDefault(0)
+            if (count <= 0) continue
+            val known = counts[show.favoriteKey]
+            if (known == null) counts = counts + (show.favoriteKey to count)
+            else if (count > known) fresh += show.favoriteKey
+            delay(300)
+        }
+        episodeCounts = counts
+        newEpisodes.value = fresh
+        Prefs.lastEpisodeCheck = System.currentTimeMillis()
+        saveUserData(notify = false)
+    }
+
+    /** Serie geöffnet: aktuelle Episodenzahl merken, Hinweis entfernen. */
+    fun markEpisodesSeen(show: SeriesShow, count: Int) {
+        if (count <= 0 || show.favoriteKey !in favorites.value) return
+        if (episodeCounts[show.favoriteKey] == count && show.favoriteKey !in newEpisodes.value) return
+        episodeCounts = episodeCounts + (show.favoriteKey to count)
+        newEpisodes.value = newEpisodes.value - show.favoriteKey
+        saveUserData(notify = false)
+    }
+
+    // endregion
 
     // endregion
 

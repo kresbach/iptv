@@ -90,6 +90,20 @@ fun ScreenTitle(text: String, subtitle: String? = null) {
 
 @Composable
 fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
+    val unlocked by CategoryPrefs.unlocked.collectAsState()
+    if (app.iptv.tv.data.Profiles.isKids && Prefs.hasPin && !unlocked) {
+        // Im Kinderprofil sind die Einstellungen durch die PIN geschützt.
+        var message by remember { mutableStateOf<String?>(null) }
+        PinPad("PIN eingeben", message ?: "Die Einstellungen sind im Kinderprofil geschützt", onComplete = { pin ->
+            if (!CategoryPrefs.unlock(pin)) message = "Falsche PIN – bitte erneut versuchen."
+        })
+        return
+    }
+    SettingsContent(nav, memory)
+}
+
+@Composable
+private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
     val context = LocalContext.current
     Prefs.version.collectAsState().value // neu zeichnen bei Änderungen
     val playlists by Repository.playlists.collectAsState()
@@ -109,6 +123,8 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
             modifier = Modifier.rememberFocus(memory, "playlists", isDefault = true)) { nav.push(Screen.Playlists) }
         SettingRow("Kategorien bearbeiten", subtitle = "Ausblenden, sortieren und mit PIN sperren",
             modifier = Modifier.rememberFocus(memory, "cats")) { nav.push(Screen.CategoryEdit()) }
+        SettingRow("Profile", app.iptv.tv.data.Profiles.active.name, "Eigene Favoriten und eigener Verlauf, z. B. ein Kinderprofil",
+            modifier = Modifier.rememberFocus(memory, "profiles")) { nav.push(Screen.Profiles) }
         SettingRow("Favoriten sortieren", subtitle = "Lieblingssender nach oben – gilt für Live TV und die Startseite",
             modifier = Modifier.rememberFocus(memory, "favorder")) { nav.push(Screen.FavoriteOrder) }
         SettingRow("Live TV startet mit Favoriten", if (Prefs.liveStartFavorites) "An" else "Aus",
@@ -134,6 +150,18 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Bildwiederholrate anpassen", if (Prefs.autoFrameRate) "An" else "Aus",
             "Gegen Ruckeln: Fernseher schaltet z. B. für deutsches TV auf 50 Hz",
             modifier = Modifier.rememberFocus(memory, "afr")) { Prefs.autoFrameRate = !Prefs.autoFrameRate }
+        SettingRow("Bevorzugte Tonspur", app.iptv.tv.player.Languages.name(Prefs.audioLanguage),
+            "Wird automatisch gewählt, wenn ein Film oder Sender mehrere Sprachen hat",
+            modifier = Modifier.rememberFocus(memory, "alang")) {
+            val list = app.iptv.tv.player.Languages.choices
+            Prefs.audioLanguage = list[(list.indexOf(Prefs.audioLanguage) + 1) % list.size]
+        }
+        SettingRow("Untertitel automatisch", if (Prefs.subtitleLanguage.isEmpty()) "Aus" else app.iptv.tv.player.Languages.name(Prefs.subtitleLanguage),
+            "Untertitel in dieser Sprache einschalten, wenn vorhanden",
+            modifier = Modifier.rememberFocus(memory, "slang")) {
+            val list = listOf("", "de", "en")
+            Prefs.subtitleLanguage = list[(list.indexOf(Prefs.subtitleLanguage) + 1) % list.size]
+        }
         SettingRow("Puffer (Live TV)", when (Prefs.bufferMode) { "fast" -> "Schnell"; "big" -> "Groß"; else -> "Normal" },
             "Schnell: Sender kommen schneller · Groß: weniger Hänger bei wackeliger Verbindung",
             modifier = Modifier.rememberFocus(memory, "buffer")) {
@@ -205,6 +233,43 @@ fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
             imageBytes = 0
             Toast.makeText(context, "Bildspeicher geleert", Toast.LENGTH_SHORT).show()
         }
+
+        SettingsHeader("Google TV")
+        SettingRow("„Weiterschauen“ auf dem Startbildschirm", if (Prefs.watchNext) "An" else "Aus",
+            "Angefangene Filme und Serien erscheinen auf dem Google-TV-Startbildschirm",
+            modifier = Modifier.rememberFocus(memory, "watchnext")) {
+            Prefs.watchNext = !Prefs.watchNext
+            Thread { app.iptv.tv.data.WatchNext.sync(context.applicationContext) }.start()
+        }
+
+        SettingsHeader("App-Update")
+        val update by app.iptv.tv.data.AppUpdate.state.collectAsState()
+        val u = update
+        SettingRow(
+            when (u) {
+                is app.iptv.tv.data.AppUpdate.State.Available -> "Version ${u.info.versionName} installieren"
+                is app.iptv.tv.data.AppUpdate.State.Downloading -> "Lädt Version ${u.info.versionName} …"
+                else -> "Nach Updates suchen"
+            },
+            when (u) {
+                is app.iptv.tv.data.AppUpdate.State.Checking -> "Suche …"
+                is app.iptv.tv.data.AppUpdate.State.UpToDate -> "Aktuell"
+                is app.iptv.tv.data.AppUpdate.State.Downloading -> "${u.percent} %"
+                is app.iptv.tv.data.AppUpdate.State.Failed -> "Fehler"
+                else -> null
+            },
+            when (u) {
+                is app.iptv.tv.data.AppUpdate.State.Available -> u.info.notes.ifBlank { null }
+                is app.iptv.tv.data.AppUpdate.State.Failed -> u.message
+                else -> "Lädt neue Versionen direkt aus dem GitHub-Projekt. Android fragt beim ersten Mal nach der Erlaubnis."
+            },
+            modifier = Modifier.rememberFocus(memory, "update"),
+        ) {
+            if (u is app.iptv.tv.data.AppUpdate.State.Available) app.iptv.tv.data.AppUpdate.downloadAndInstall(context, u.info)
+            else if (u !is app.iptv.tv.data.AppUpdate.State.Downloading) app.iptv.tv.data.AppUpdate.checkNow(context)
+        }
+        SettingRow("Automatisch nach Updates suchen", if (Prefs.autoUpdateCheck) "An" else "Aus",
+            modifier = Modifier.rememberFocus(memory, "autoupdate")) { Prefs.autoUpdateCheck = !Prefs.autoUpdateCheck }
 
         SettingsHeader("Info")
         val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?" }

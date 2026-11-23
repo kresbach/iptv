@@ -111,6 +111,20 @@ object Prefs {
     /** TMDB-API-Schlüssel (v3) oder Lesezugriffs-Token (v4) für die Trends auf der Startseite. */
     var tmdbKey: String get() = str("tmdbKey"); set(v) = putStr("tmdbKey", v.trim())
 
+    /** Angefangene Filme/Serien auf dem Google-TV-Startbildschirm zeigen. */
+    var watchNext: Boolean get() = bool("watchNext", true); set(v) = putBool("watchNext", v)
+
+    var lastEpisodeCheck: Long get() = long("lastEpisodeCheck", 0); set(v) = putLong("lastEpisodeCheck", v)
+
+    // App-Updates
+    var autoUpdateCheck: Boolean get() = bool("autoUpdateCheck", true); set(v) = putBool("autoUpdateCheck", v)
+    var lastUpdateCheck: Long get() = long("lastUpdateCheck", 0); set(v) = putLong("lastUpdateCheck", v)
+    var knownUpdate: String? get() = str("knownUpdate").ifEmpty { null }; set(v) = putStr("knownUpdate", v)
+
+    // Bevorzugte Sprachen (ISO-639, z. B. „de“); Untertitel „“ = aus
+    var audioLanguage: String get() = str("audioLanguage", "de"); set(v) = putStr("audioLanguage", v)
+    var subtitleLanguage: String get() = str("subtitleLanguage", ""); set(v) = putStr("subtitleLanguage", v)
+
     // endregion
 
     // region Downloads
@@ -182,7 +196,8 @@ object CategoryPrefs {
 
     fun isHidden(kind: ContentKind, name: String) = key(kind, name) in stored.hidden
     fun isLocked(kind: ContentKind, name: String) =
-        key(kind, name) in stored.locked || (Prefs.autoLockAdult && isAdult(name) && key(kind, name) !in stored.unlockedAdult)
+        key(kind, name) in stored.locked ||
+            (isAdult(name) && (Profiles.isKids || (Prefs.autoLockAdult && key(kind, name) !in stored.unlockedAdult)))
 
     private val adultPattern = Regex(
         """(?i)(\bxxx\b|\badults?\b|\beroti[ck]|\bporn|\b18\s*\+|\+\s*18\b|\bsexy?\b|nur für erwachsene|for adults|\bhentai\b|\bplayboy\b)""",
@@ -198,12 +213,14 @@ object CategoryPrefs {
         val cats = when (kind) { ContentKind.LIVE -> c.liveCategories; ContentKind.MOVIE -> c.movieCategories; ContentKind.SERIES -> c.showCategories }
         return cats.any { isAdult(it.name) && key(kind, it.name) !in stored.unlockedAdult }
     }
-    fun isBlocked(kind: ContentKind, name: String) = Prefs.hasPin && !unlocked.value && isLocked(kind, name)
+    /** Im Kinderprofil immer gesperrt (ohne Freischalten), sonst bis zur PIN-Eingabe. */
+    fun isBlocked(kind: ContentKind, name: String) =
+        (Profiles.isKids || (Prefs.hasPin && !unlocked.value)) && isLocked(kind, name)
     val hasLocked: Boolean get() = Prefs.hasPin && (stored.locked.isNotEmpty() || ContentKind.entries.any(::hasAdult))
     fun hasLocked(kind: ContentKind): Boolean =
-        Prefs.hasPin && (stored.locked.any { it.startsWith(kind.name.lowercase() + "|") } || hasAdult(kind))
+        !Profiles.isKids && Prefs.hasPin && (stored.locked.any { it.startsWith(kind.name.lowercase() + "|") } || hasAdult(kind))
 
-    private val hasRestrictions get() = stored.hidden.isNotEmpty() ||
+    private val hasRestrictions get() = stored.hidden.isNotEmpty() || Profiles.isKids ||
         (Prefs.hasPin && !unlocked.value && (stored.locked.isNotEmpty() || Prefs.autoLockAdult))
 
     fun isVisible(c: Channel) = !isHidden(c.kind, c.category) && !isBlocked(c.kind, c.category)
@@ -234,6 +251,9 @@ object CategoryPrefs {
             unlockedAdult = if (!locked && isAdult(name)) stored.unlockedAdult + k else stored.unlockedAdult - k,
         ); save()
     }
+
+    /** Sichtbare Inhalte neu berechnen (z. B. nach einem Profilwechsel). */
+    fun refresh() { version.value++ }
 
     /** Automatische Erkennung an/aus (neu berechnen). */
     fun setAutoLockAdult(on: Boolean) {

@@ -64,6 +64,8 @@ object M3UParser {
                                     tvgId = pendingAttributes["tvg-id"]?.takeIf { it.isNotEmpty() },
                                     logo = pendingAttributes["tvg-logo"]?.takeIf { it.isNotEmpty() },
                                     kind = ContentClassifier.kind(line, group, name),
+                                    archiveDays = (pendingAttributes["catchup-days"] ?: pendingAttributes["tvg-rec"] ?: pendingAttributes["timeshift"])
+                                        ?.toIntOrNull()?.takeIf { it > 0 }?.coerceAtMost(30),
                                 ),
                             )
                             pendingName = null

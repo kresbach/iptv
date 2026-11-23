@@ -92,11 +92,15 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
     val channels = remember(content, category, favorites, guide) {
         liveChannels(content, category, favorites).filter { guide.schedule(it).isNotEmpty() }.take(300)
     }
+    val reminderList by app.iptv.tv.data.Reminders.items.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var windowStart by remember { mutableLongStateOf(System.currentTimeMillis() / HALF_HOUR * HALF_HOUR) }
     var focused by remember { mutableStateOf<Pair<Channel, Programme?>?>(null) }
     /** Nach dem Blättern: Fokus in dieser Zeile auf die Sendung zu diesem Zeitpunkt setzen. */
     var focusTarget by remember { mutableStateOf<Pair<Int, Long>?>(null) }
-    val minStart = (System.currentTimeMillis() - 2 * 3600_000L) / HALF_HOUR * HALF_HOUR
+    // Mit Sendungsarchiv lässt sich weiter zurückblättern.
+    val archiveDays = remember(channels) { channels.maxOfOrNull { if (app.iptv.tv.data.Catchup.supported(it)) it.archiveDays!! else 0 } ?: 0 }
+    val minStart = (System.currentTimeMillis() - if (archiveDays > 0) archiveDays.coerceAtMost(7) * 24 * 3600_000L else 2 * 3600_000L) / HALF_HOUR * HALF_HOUR
 
     Column(Modifier.fillMaxSize().padding(top = 20.dp)) {
         // Kopf: Details zur fokussierten Sendung
@@ -104,13 +108,21 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
             val f = focused
             if (f?.second != null) {
                 val p = f.second!!
-                Text("${f.first.name}  ·  ${clock(p.start)} – ${clock(p.end)}" + if (p.isLive(now)) "  ·  läuft – OK = einschalten" else "",
+                val archived = !p.isLive(now) && app.iptv.tv.data.Catchup.available(f.first, p, now)
+                Text("${f.first.name}  ·  ${dayLabel(p.start)}${clock(p.start)} – ${clock(p.end)}" + when {
+                    p.isLive(now) -> "  ·  läuft – OK = einschalten"
+                    archived -> "  ·  im Archiv – OK = abspielen"
+                    p.start > now && app.iptv.tv.data.Reminders.isSet(f.first, p) -> "  ·  ⏰ Erinnerung gesetzt – OK = entfernen"
+                    p.start > now -> "  ·  OK = erinnern"
+                    else -> ""
+                },
                     fontSize = 14.sp, color = AppColors.OrangeLight)
                 Text(p.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 p.description?.let { Text(it, fontSize = 14.sp, color = AppColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             } else {
                 Text("TV-Programm", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text("◀ ▶ Zeit · ▲ ▼ Sender · OK auf laufender Sendung = einschalten", fontSize = 14.sp, color = AppColors.TextSecondary)
+                Text("◀ ▶ Zeit · ▲ ▼ Sender · OK auf laufender Sendung = einschalten" +
+                    if (archiveDays > 0) " · ↺ = verpasste Sendung aus dem Archiv" else "", fontSize = 14.sp, color = AppColors.TextSecondary)
             }
         }
         // Kategorien
@@ -171,7 +183,11 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
                                     val e = minOf(p.end, windowStart + WINDOW_MS)
                                     val target = focusTarget
                                     GridCell(
-                                        title = p.title,
+                                        title = (when {
+                                            p.end <= now && app.iptv.tv.data.Catchup.available(ch, p, now) -> "↺ "
+                                            p.start > now && reminderList.any { it.channelKey == ch.stableKey && it.start == p.start } -> "⏰ "
+                                            else -> ""
+                                        }) + p.title,
                                         x = (s - windowStart) * dpPerMs,
                                         width = ((e - s) * dpPerMs - 3f).coerceAtLeast(6f),
                                         live = p.isLive(now),
@@ -180,8 +196,18 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
                                         else memory.focusedKey == null && row == 0 && p.isLive(now),
                                         onFocus = { focused = ch to p; memory.focusedKey = "grid"; focusTarget = null },
                                         onClick = {
-                                            if (p.isLive(now)) nav.push(Screen.Player(channels, row))
-                                            else focused = ch to p
+                                            val archived = if (p.isLive(now)) null
+                                                else if (app.iptv.tv.data.Catchup.available(ch, p, now)) app.iptv.tv.data.Catchup.channel(ch, p) else null
+                                            when {
+                                                p.isLive(now) -> nav.push(Screen.Player(channels, row))
+                                                archived != null -> nav.push(Screen.Player(listOf(archived), 0, archive = true))
+                                                p.start > now -> {
+                                                    val on = app.iptv.tv.data.Reminders.toggle(ch, p)
+                                                    android.widget.Toast.makeText(context, if (on) "Erinnerung an „${p.title}“ gesetzt" else "Erinnerung entfernt", android.widget.Toast.LENGTH_SHORT).show()
+                                                    focused = ch to p
+                                                }
+                                                else -> focused = ch to p
+                                            }
                                         },
                                         onEdge = { dir ->
                                             shift(dir, windowStart, minStart)?.let {

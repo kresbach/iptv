@@ -348,3 +348,18 @@ fun formatTime(ms: Long): String {
 fun clock(ms: Long): String =
     java.text.SimpleDateFormat("HH:mm", java.util.Locale.GERMANY).format(java.util.Date(ms))
 
+
+/** „Gestern, “ / „Mo 21.11., “ für Zeitpunkte, die nicht heute sind; heute leer. */
+fun dayLabel(ms: Long, now: Long = System.currentTimeMillis()): String {
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = now
+    val today = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
+    cal.timeInMillis = ms
+    val day = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
+    return when {
+        day == today -> ""
+        day == today - 1 -> "Gestern, "
+        day == today + 1 -> "Morgen, "
+        else -> java.text.SimpleDateFormat("EE dd.MM., ", java.util.Locale.GERMAN).format(java.util.Date(ms))
+    }
+}

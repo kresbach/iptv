@@ -114,7 +114,6 @@ class PlaybackEngine(private val context: Context) {
     /** Live-Links ohne Endung, die sich als HLS entpuppen: als HLS erzwingen. */
     private var forceHls = false
     /** VLC wird im Hintergrund freigegeben (kann bei hängendem Netz blockieren); bis dahin nicht neu starten. */
-    private val releasing = java.util.concurrent.atomic.AtomicInteger(0)
     private var bufferingSince = 0L
 
     /** Wächter: hängt der Stream ohne Fehlermeldung beim Laden, wird neu verbunden. */
@@ -512,7 +511,12 @@ class PlaybackEngine(private val context: Context) {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
-            parameters = buildUponParameters().setTunnelingEnabled(app.iptv.tv.data.Prefs.tunneling).build()
+            parameters = buildUponParameters()
+                .setTunnelingEnabled(app.iptv.tv.data.Prefs.tunneling)
+                // Bevorzugte Sprachen (Einstellungen → Wiedergabe)
+                .setPreferredAudioLanguage(app.iptv.tv.data.Prefs.audioLanguage.ifEmpty { null })
+                .setPreferredTextLanguage(app.iptv.tv.data.Prefs.subtitleLanguage.ifEmpty { null })
+                .build()
         }
         val player = ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(sources)
@@ -702,6 +706,8 @@ class PlaybackEngine(private val context: Context) {
 
         val media = Media(lib, Uri.parse(url)).apply {
             addOption(":http-user-agent=${Http.USER_AGENT}")
+            Languages.vlcCodes(app.iptv.tv.data.Prefs.audioLanguage)?.let { addOption(":audio-language=$it") }
+            Languages.vlcCodes(app.iptv.tv.data.Prefs.subtitleLanguage)?.let { addOption(":sub-language=$it") }
             addOption(":network-caching=" + when {
                 app.iptv.tv.data.Prefs.bigBuffer -> 6000
                 app.iptv.tv.data.Prefs.fastZap && isLive -> 1500
@@ -757,8 +763,28 @@ class PlaybackEngine(private val context: Context) {
     }
 
     companion object {
+        /** Gemeinsam für alle Player: ein neuer Player wartet, bis der alte seine Verbindung geschlossen hat. */
+        private val releasing = java.util.concurrent.atomic.AtomicInteger(0)
         private const val TAG = "PlaybackEngine"
         private const val STALL_TIMEOUT_MS = 30_000L
         private val vlcExtensions = setOf("avi", "wmv", "flv", "mpg", "mpeg", "divx", "rmvb", "3gp", "vob", "ogm", "asf", "m2ts", "mts")
+    }
+}
+
+/** Sprachen für die automatische Wahl von Tonspur und Untertitel. */
+object Languages {
+    /** Auswahl in den Einstellungen ("" = Standard der Sendung). */
+    val choices = listOf("de", "en", "fr", "it", "es", "tr", "pl", "ru", "ar", "")
+
+    fun name(code: String): String =
+        if (code.isEmpty()) "Standard" else java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.GERMAN)
+
+    /** VLC erkennt Sprachen an 2- und 3-stelligen Kürzeln. */
+    fun vlcCodes(code: String): String? {
+        if (code.isEmpty()) return null
+        val locale = java.util.Locale.forLanguageTag(code)
+        val three = runCatching { locale.isO3Language }.getOrNull()
+        val alt = mapOf("de" to "ger", "fr" to "fre")[code]
+        return listOfNotNull(code, three, alt).distinct().joinToString(",")
     }
 }

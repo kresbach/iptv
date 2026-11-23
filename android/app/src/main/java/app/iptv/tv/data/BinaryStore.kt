@@ -22,7 +22,7 @@ import java.util.IdentityHashMap
 object BinaryStore {
     private const val MAGIC_DATA = 0x49505444 // "IPTD"
     private const val MAGIC_EPG = 0x49505445 // "IPTE"
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     // region Playlist
 
@@ -60,17 +60,19 @@ object BinaryStore {
                 out.str(e.plot)
             }
         }
+        out.str(data.serverTimeZone)
         out.flush()
     }
 
     fun readData(input: InputStream): PlaylistData {
         val inp = Reader(input.readBytes())
         if (inp.readInt() != MAGIC_DATA) throw IOException("Kein Playlist-Speicher")
-        if (inp.readInt() != VERSION) throw IOException("Unbekannte Version")
+        val version = inp.readInt()
+        if (version !in 1..VERSION) throw IOException("Unbekannte Version")
         val table = StringTable.read(inp)
         val channelCount = inp.readInt()
         val channels = ArrayList<Channel>(channelCount)
-        repeat(channelCount) { channels += readChannel(inp, table) }
+        repeat(channelCount) { channels += readChannel(inp, table, version) }
         val showCount = inp.readInt()
         val shows = ArrayList<SeriesShow>(showCount)
         repeat(showCount) {
@@ -83,14 +85,15 @@ object BinaryStore {
             val episodeCount = inp.readInt()
             val episodes = ArrayList<Episode>(episodeCount)
             repeat(episodeCount) {
-                val ch = readChannel(inp, table)
+                val ch = readChannel(inp, table, version)
                 val season = inp.readInt().takeIf { it != Int.MIN_VALUE }
                 val number = inp.readInt().takeIf { it != Int.MIN_VALUE }
                 episodes += Episode(ch, season, number, inp.str(), inp.str())
             }
             shows += SeriesShow(title, category, poster, plot, episodes, seriesId, added)
         }
-        return PlaylistData(channels, shows)
+        val timeZone = if (version >= 2) inp.str() else null
+        return PlaylistData(channels, shows, timeZone)
     }
 
     // endregion
@@ -127,7 +130,7 @@ object BinaryStore {
     fun readEpg(input: InputStream): EpgGuide {
         val inp = Reader(input.readBytes())
         if (inp.readInt() != MAGIC_EPG) throw IOException("Kein TV-Guide-Speicher")
-        if (inp.readInt() != VERSION) throw IOException("Unbekannte Version")
+        if (inp.readInt() !in 1..VERSION) throw IOException("Unbekannte Version")
         val fetchedAt = inp.readLong()
         val lists = Array(inp.readInt()) {
             val n = inp.readInt()
@@ -155,9 +158,10 @@ object BinaryStore {
         out.link(c.logo, table)
         out.writeByte(c.kind.ordinal)
         out.writeLong(c.added ?: Long.MIN_VALUE)
+        out.writeInt(c.archiveDays ?: -1)
     }
 
-    private fun readChannel(inp: Reader, table: Array<String>): Channel {
+    private fun readChannel(inp: Reader, table: Array<String>, version: Int): Channel {
         val name = inp.str()!!
         val url = inp.link(table)!!
         val group = inp.readInt().let { if (it < 0) null else table[it] }
@@ -165,7 +169,8 @@ object BinaryStore {
         val logo = inp.link(table)
         val kind = ContentKind.entries[inp.readByte().toInt()]
         val added = inp.readLong().takeIf { it != Long.MIN_VALUE }
-        return Channel(name, url, group, tvgId, logo, kind, added)
+        val archive = if (version >= 2) inp.readInt().takeIf { it > 0 } else null
+        return Channel(name, url, group, tvgId, logo, kind, added, archive)
     }
 
     /** Link als (Anfang aus der Tabelle, Rest). */

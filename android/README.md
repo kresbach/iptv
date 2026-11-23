@@ -109,6 +109,30 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.12
+
+- **Verpasste Sendungen (Archiv)**: Bietet der Anbieter für einen Sender ein Archiv an (Xtream „tv_archive“
+  bzw. `catchup-days` in der M3U), lassen sich vergangene Sendungen abspielen und spulen:
+  im **TV-Programm** (mit ↺ markiert, OK = abspielen) oder im Player-Menü (OK lange drücken):
+  „Sendung von Anfang an“ und „Verpasste Sendungen“. Archiv-Sendungen landen nicht in „Weiterschauen“.
+- **App-Updates**: Die App sucht alle 12 Stunden nach einer neuen Version (aus diesem GitHub-Projekt,
+  `android/release/version.json`). Dann erscheint auf der Startseite die Kachel „Update“ – OK lädt und
+  installiert. Beim ersten Mal fragt Android, ob die App Apps installieren darf: erlauben. Auch unter
+  Einstellungen → App-Update.
+- **„Weiterschauen“ auf dem Google-TV-Startbildschirm**: angefangene Filme und Episoden erscheinen dort
+  (abschaltbar unter Einstellungen → Google TV). Ob Google TV die Reihe zeigt, hängt vom Fernseher ab.
+- **Sleep-Timer** im Player-Menü (15–120 Min.). Eine Minute vorher erscheint ein Hinweis, OK verlängert um 30 Min.
+- **Bevorzugte Tonspur und Untertitel** unter Einstellungen → Wiedergabe (Standard: Deutsch).
+- **Erinnerungen**: im TV-Programm OK auf einer künftigen Sendung (⏰) oder im Player-Menü
+  „An nächste Sendung erinnern“. Kurz vor Beginn erscheint ein Hinweis: OK = einschalten,
+  Zurück = ausblenden. Funktioniert, solange die App geöffnet ist.
+- **Neue Folgen**: Bei gemerkten Serien erscheint auf der Startseite die Reihe „Neue Folgen“,
+  sobald der Anbieter Episoden ergänzt (Prüfung höchstens alle 6 Stunden).
+- **Profile** (Einstellungen → Profile): eigene Favoriten, eigener Verlauf und „Weiterschauen“ je Profil.
+  Mit mehreren Profilen fragt die App beim Start „Wer schaut?“. Im **Kinderprofil** sind gesperrte und
+  Erwachsenen-Kategorien immer ausgeblendet, die Einstellungen und der Wechsel in ein anderes Profil
+  brauchen die PIN. Der Abgleich mit dem iPhone betrifft nur das erste Profil.
+
 ## Live TV bequemer (seit Version 2.11)
 
 - **Sendernummer eintippen**: Im Player mit den Zifferntasten der Fernbedienung direkt zu einem Sender

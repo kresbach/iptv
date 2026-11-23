@@ -83,7 +83,8 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
 
     val items = screen.items
     /** Angezeigter Sender (wechselt sofort beim Zappen). */
-    var index by remember { mutableIntStateOf(screen.index.coerceIn(0, items.lastIndex)) }
+    // Nach der Rückkehr aus dem Archiv denselben Sender wieder zeigen.
+    var index by remember { mutableIntStateOf((screen.memory.selection?.toIntOrNull() ?: screen.index).coerceIn(0, items.lastIndex)) }
     /** Tatsächlich gestarteter Sender (nach kurzer Pause, damit schnelles Zappen nicht jedes Mal verbindet). */
     var playingIndex by remember { mutableIntStateOf(-1) }
     var startPosition by remember { mutableLongStateOf(screen.startPosition) }
@@ -108,8 +109,29 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     fun saveProgress() {
         if (playingIndex < 0) return
         val ch = items[playingIndex]
-        if (ch.kind != ContentKind.LIVE) Repository.saveProgress(ch, engine.position, engine.duration, screen.showKey ?: Repository.showKeyFor(ch))
+        if (ch.kind != ContentKind.LIVE && !screen.archive) Repository.saveProgress(ch, engine.position, engine.duration, screen.showKey ?: Repository.showKeyFor(ch))
     }
+
+    LaunchedEffect(index) { screen.memory.selection = index.toString() }
+
+    // Sleep-Timer: eine Minute vorher warnen, dann Wiedergabe beenden.
+    val sleepEnd by app.iptv.tv.data.SleepTimer.endsAt.collectAsState()
+    var sleepLeft by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    LaunchedEffect(sleepEnd) {
+        val end = sleepEnd ?: run { sleepLeft = Long.MAX_VALUE; return@LaunchedEffect }
+        while (true) {
+            sleepLeft = end - System.currentTimeMillis()
+            if (sleepLeft <= 0) {
+                app.iptv.tv.data.SleepTimer.endsAt.value = null
+                saveProgress()
+                engine.stop()
+                nav.home()
+                return@LaunchedEffect
+            }
+            delay(1_000)
+        }
+    }
+    val sleepWarning = sleepEnd != null && sleepLeft <= 60_000
 
     fun zap(delta: Int) {
         if (items.size < 2) return
@@ -133,7 +155,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         engine.play(ch, start, local, if (ch.kind != ContentKind.LIVE) app.iptv.tv.data.Subtitles.saved(ch) else null)
         // Offline-Wiedergabe belegt keine Verbindung – Downloads dürfen weiterlaufen.
         Repository.playbackActive = local == null
-        Repository.addRecent(ch, screen.showKey ?: Repository.showKeyFor(ch))
+        if (!screen.archive) Repository.addRecent(ch, screen.showKey ?: Repository.showKeyFor(ch))
     }
 
     // Sendernummer: 1,5 s nach der letzten Ziffer umschalten.
@@ -168,7 +190,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
     LaunchedEffect(status.ended) {
         if (status.ended) {
             saveProgress()
-            if (!isLive) app.iptv.tv.data.Downloads.watched(items[index])
+            if (!isLive && !screen.archive) app.iptv.tv.data.Downloads.watched(items[index])
             if (!isLive && index < items.lastIndex) {
                 Repository.saveProgress(items[index], 0, 1)
                 index++
@@ -290,6 +312,7 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                 }
                 if (isOk && event.type == KeyEventType.KeyUp) {
                     when {
+                        sleepWarning -> app.iptv.tv.data.SleepTimer.extend(30)
                         status.failed -> engine.retryNow()
                         isLive -> { showInfo = !showInfo; infoTick++ }
                         showInfo -> { engine.togglePause(); infoTick++ }
@@ -348,6 +371,17 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
             .focusable(enabled = okLong || (!showList && options == null)),
     ) {
         AndroidView(factory = { engine.container }, modifier = Modifier.fillMaxSize())
+
+        if (sleepWarning) {
+            Column(
+                Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
+                    .clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.8f)).padding(horizontal = 28.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Sleep-Timer: Wiedergabe endet in ${(sleepLeft / 1000).coerceAtLeast(0)} s", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("OK = 30 Minuten verlängern", fontSize = 16.sp, color = AppColors.OrangeLight)
+            }
+        }
 
         if (digits.isNotEmpty()) {
             Text(
@@ -467,6 +501,10 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                 onToggleFavorite = { toggleFavorite(channel.stableKey, channel.name) },
                 previousChannel = items.getOrNull(previousIndex)?.takeIf { previousIndex != index },
                 onPreviousChannel = { options = null; index = previousIndex; showInfo = true; infoTick++ },
+                onArchive = { p ->
+                    options = null
+                    app.iptv.tv.data.Catchup.channel(channel, p)?.let { nav.push(Screen.Player(listOf(it), 0, archive = true)) }
+                },
                 onEngineChange = { choice ->
                     if (isLive) app.iptv.tv.data.Prefs.playerLive = choice else app.iptv.tv.data.Prefs.playerVod = choice
                     app.iptv.tv.data.GoogleSync.scheduleSync()

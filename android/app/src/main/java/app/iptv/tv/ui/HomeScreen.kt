@@ -131,6 +131,11 @@ private fun HomeContent(
     val downloadCount = app.iptv.tv.data.Downloads.items.collectAsState().value.size
     val continueList = remember(progress) { Repository.continueWatching(progress).take(20) }
     val trendRows by app.iptv.tv.data.Trends.rows.collectAsState()
+    val update by app.iptv.tv.data.AppUpdate.state.collectAsState()
+    val newEpisodes by Repository.newEpisodes.collectAsState()
+    app.iptv.tv.data.Profiles.activeId.collectAsState().value
+    val profileCount = app.iptv.tv.data.Profiles.list.collectAsState().value.size
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val saved = memory.scroll["home"]
     val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
@@ -158,6 +163,27 @@ private fun HomeContent(
         }
 
         homeRow("tiles", null, memory) {
+            val u = update
+            if (u is app.iptv.tv.data.AppUpdate.State.Available || u is app.iptv.tv.data.AppUpdate.State.Downloading) {
+                item("update") {
+                    val info = (u as? app.iptv.tv.data.AppUpdate.State.Available)?.info ?: (u as app.iptv.tv.data.AppUpdate.State.Downloading).info
+                    TileCard(
+                        "Update ${info.versionName}",
+                        if (u is app.iptv.tv.data.AppUpdate.State.Downloading) "Lädt ${u.percent} %" else "Jetzt installieren",
+                        AppIcons.Download,
+                        onClick = { app.iptv.tv.data.AppUpdate.downloadAndInstall(context, info) },
+                        modifier = Modifier.rememberFocus(memory, "tile-update"),
+                    )
+                }
+            }
+            if (profileCount > 1) item("profile") {
+                TileCard(
+                    "Profil", app.iptv.tv.data.Profiles.active.name, AppIcons.Star,
+                    onClick = { nav.push(Screen.Profiles) },
+                    modifier = Modifier.rememberFocus(memory, "tile-profile"),
+                    highlighted = false,
+                )
+            }
             item("search") {
                 TileCard(
                     "Suche", "Sender, Filme, Serien", AppIcons.Search,
@@ -252,6 +278,23 @@ private fun HomeContent(
                         onLongClick = { toggleFavorite(ch.stableKey, ch.name) },
                         isFavorite = ch.stableKey in favorites,
                         modifier = Modifier.rememberFocus(memory, "recent-${ch.stableKey}"),
+                    )
+                }
+            }
+        }
+
+        val newShows = newEpisodes.mapNotNull { content.show(it) }
+        if (newShows.isNotEmpty()) {
+            homeRow("newEpisodes", "Neue Folgen", memory) {
+                itemsIndexed(newShows, key = { i, _ -> "n-$i" }) { _, show ->
+                    PosterCard(
+                        title = "NEU · ${show.title}",
+                        image = show.poster,
+                        initials = show.title.take(2),
+                        onClick = { nav.push(Screen.SeriesDetail(show)) },
+                        onLongClick = { toggleFavorite(show.favoriteKey, show.title) },
+                        isFavorite = true,
+                        modifier = Modifier.rememberFocus(memory, "new-${show.favoriteKey}"),
                     )
                 }
             }

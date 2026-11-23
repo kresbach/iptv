@@ -52,7 +52,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
         val shows = ArrayList<SeriesShow>()
         streamAction("get_series") { seq -> seq.mapNotNullTo(shows) { seriesShow(it, seriesNames) } }
         channels.trimToSize()
-        return PlaylistData(channels, shows)
+        return PlaylistData(channels, shows, serverTimeZone(account))
     }
 
     /** Baut aus den API-Antworten die Playlist (ohne Netzwerk, testbar). */
@@ -71,8 +71,11 @@ class XtreamClient(val credentials: XtreamCredentials) {
         val seriesNames = names(seriesCategories)
         val channels = liveStreams.mapNotNull { liveChannel(it, liveNames, liveExt) } +
             vodStreams.mapNotNull { vodChannel(it, vodNames) }
-        return PlaylistData(channels, series.mapNotNull { seriesShow(it, seriesNames) })
+        return PlaylistData(channels, series.mapNotNull { seriesShow(it, seriesNames) }, serverTimeZone(account))
     }
+
+    private fun serverTimeZone(account: JsonElement): String? =
+        ((account as? JsonObject)?.get("server_info") as? JsonObject)?.str("timezone")?.takeIf { it.isNotBlank() }
 
     /** Prüft Login/Status und wählt das Live-Format. */
     private fun checkAccount(account: JsonElement): String {
@@ -100,6 +103,7 @@ class XtreamClient(val credentials: XtreamCredentials) {
             tvgId = s.str("epg_channel_id")?.takeIf { it.isNotEmpty() },
             logo = s.str("stream_icon")?.takeIf { it.isNotEmpty() },
             kind = ContentKind.LIVE,
+            archiveDays = if (s.int("tv_archive") == 1) (s.int("tv_archive_duration") ?: 1).coerceIn(1, 30) else null,
         )
     }
 

@@ -13,7 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +48,7 @@ sealed class Screen {
     data object Unlock : Screen()
     data object TrendsSettings : Screen()
     data object FavoriteOrder : Screen()
+    data object Profiles : Screen()
     data class EditPlaylist(val id: String) : Screen() {
         override val key get() = "Edit-$id"
     }
@@ -65,6 +72,8 @@ sealed class Screen {
         val index: Int,
         val startPosition: Long = 0,
         val showKey: String? = null,
+        /** Sendung aus dem Archiv: kein Fortschritt, kein Verlauf. */
+        val archive: Boolean = false,
     ) : Screen()
 }
 
@@ -100,6 +109,23 @@ class MainActivity : ComponentActivity() {
         app.iptv.tv.data.CategoryPrefs.lock()
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLink(intent)
+    }
+
+    /** Link vom Google-TV-Startbildschirm („Weiterschauen“). */
+    private fun handleLink(intent: android.content.Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "iptvtv") data.getQueryParameter("key")?.let { pendingOpen.value = it }
+    }
+
+    companion object {
+        /** Zu öffnender Eintrag (Schlüssel aus „Weiterschauen“). */
+        val pendingOpen = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Repository.start(applicationContext)
@@ -107,6 +133,9 @@ class MainActivity : ComponentActivity() {
         app.iptv.tv.data.Subtitles.cacheDir = applicationContext.filesDir
         app.iptv.tv.data.GoogleSync.start()
         app.iptv.tv.data.Trends.start(applicationContext)
+        app.iptv.tv.data.AppUpdate.checkInBackground(applicationContext)
+        app.iptv.tv.data.WatchNext.start(applicationContext)
+        handleLink(intent)
         setContent {
             AppTheme {
                 AppRoot(onExit = { finish() })
@@ -132,7 +161,61 @@ fun AppRoot(onExit: () -> Unit) {
         return
     }
 
-    Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+    // Vom Startbildschirm geöffnet: direkt weiterspielen.
+    val pending by MainActivity.pendingOpen.collectAsState()
+    val restoredState by Repository.restored.collectAsState()
+    val loaded = !Repository.content.collectAsState().value.isEmpty
+    androidx.compose.runtime.LaunchedEffect(pending, restoredState, loaded) {
+        val key = pending ?: return@LaunchedEffect
+        if (!restoredState || !loaded) return@LaunchedEffect
+        MainActivity.pendingOpen.value = null
+        val p = Repository.progress.value[key]
+        val ch = p?.channel ?: Repository.content.value.channel(key)
+        nav.home()
+        if (ch != null) nav.push(Screen.Player(listOf(ch), 0, p?.position ?: 0, p?.showKey))
+    }
+
+    // Erinnerungen: kurz vor Beginn einer vorgemerkten Sendung einblenden.
+    var dueReminder by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<app.iptv.tv.data.Reminders.Reminder?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            if (restoredState) dueReminder = app.iptv.tv.data.Reminders.due()
+            kotlinx.coroutines.delay(15_000)
+        }
+    }
+    fun switchToReminder(r: app.iptv.tv.data.Reminders.Reminder) {
+        app.iptv.tv.data.Reminders.remove(r)
+        dueReminder = null
+        val live = Repository.visible.value.live
+        val i = live.indexOfFirst { it.stableKey == r.channelKey }
+        if (i < 0) return
+        if (nav.current is Screen.Player) nav.back()
+        nav.push(Screen.Player(live, i))
+    }
+
+    // Mehrere Profile: beim Start fragen, wer schaut.
+    val profileList by app.iptv.tv.data.Profiles.list.collectAsState()
+    var profileChosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(app.iptv.tv.data.Profiles.chosen) }
+    if (restoredState && profileList.size > 1 && !profileChosen && pending == null) {
+        Box(Modifier.fillMaxSize().background(AppColors.Background)) {
+            ProfilePicker(onChosen = { profileChosen = true })
+        }
+        return
+    }
+
+    Box(
+        Modifier.fillMaxSize().background(AppColors.Background).onPreviewKeyEvent { e ->
+            val r = dueReminder ?: return@onPreviewKeyEvent false
+            val code = e.nativeKeyEvent.keyCode
+            val ok = code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER
+            val back = code == android.view.KeyEvent.KEYCODE_BACK || code == android.view.KeyEvent.KEYCODE_ESCAPE
+            if (!ok && !back) return@onPreviewKeyEvent false
+            if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                if (ok) switchToReminder(r) else { app.iptv.tv.data.Reminders.remove(r); dueReminder = null }
+            }
+            true
+        },
+    ) {
         val screen = nav.current
         app.iptv.tv.IptvApp.lastScreen = screen.javaClass.simpleName +
             if (screen is Screen.Player) " (" + screen.items.getOrNull(screen.index)?.kind?.name?.lowercase() + ")" else ""
@@ -151,6 +234,7 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.Unlock -> UnlockScreen(nav)
                 Screen.TrendsSettings -> TrendsSettingsScreen(nav)
                 Screen.FavoriteOrder -> FavoriteOrderScreen(screen.memory)
+                Screen.Profiles -> ProfilesScreen(nav, screen.memory)
                 is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
                 is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)
                 is Screen.Live -> LiveScreen(nav, screen)
@@ -160,6 +244,23 @@ fun AppRoot(onExit: () -> Unit) {
                 is Screen.Player -> PlayerScreen(nav, screen)
             }
         }
+        dueReminder?.let { r -> ReminderBanner(r, Modifier.align(Alignment.TopEnd)) }
+    }
+}
+
+@Composable
+private fun ReminderBanner(r: app.iptv.tv.data.Reminders.Reminder, modifier: Modifier) {
+    androidx.compose.foundation.layout.Column(
+        modifier.padding(32.dp).width(460.dp)
+            .background(AppColors.Surface, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .border(2.dp, AppColors.Orange, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .padding(20.dp),
+    ) {
+        val started = r.start <= System.currentTimeMillis()
+        androidx.tv.material3.Text(if (started) "⏰ Läuft jetzt" else "⏰ Beginnt gleich (${clock(r.start)})", fontSize = 15.sp, color = AppColors.OrangeLight)
+        androidx.tv.material3.Text(r.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+        androidx.tv.material3.Text("auf ${r.channelName}", fontSize = 16.sp, color = AppColors.TextSecondary)
+        androidx.tv.material3.Text("OK = einschalten  ·  Zurück = ausblenden", fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp))
     }
 }
 

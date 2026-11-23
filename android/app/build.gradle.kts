@@ -13,8 +13,8 @@ android {
         applicationId = "app.iptv.tv"
         minSdk = 26 // Google TV: Android 10+, ältere Android-TV-Boxen ab 8.0
         targetSdk = 36
-        versionCode = 19
-        versionName = "2.11"
+        versionCode = 20
+        versionName = "2.12"
         // Google-TV-Geräte (Sony & Co.) laufen auf ARM. Spart ~50 MB gegenüber allen Architekturen.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
@@ -44,7 +44,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging {
         jniLibs { useLegacyPackaging = true }
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
@@ -71,6 +71,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.tv:tv-material:1.1.0")
+    implementation("androidx.tvprovider:tvprovider:1.1.0")
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
 

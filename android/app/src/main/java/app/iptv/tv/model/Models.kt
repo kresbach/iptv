@@ -24,6 +24,8 @@ data class Channel(
     val kind: ContentKind = ContentKind.LIVE,
     /** Xtream: Zeitpunkt des Hinzufügens (Sekunden), für „Neu“-Reihen. */
     val added: Long? = null,
+    /** Sendungsarchiv (Catch-up): wie viele Tage rückwärts abrufbar, sonst null. */
+    val archiveDays: Int? = null,
 ) {
     val category: String get() = group ?: UNGROUPED
 
@@ -154,6 +156,8 @@ data class SeriesShow(
 data class PlaylistData(
     val channels: List<Channel> = emptyList(),
     val shows: List<SeriesShow> = emptyList(),
+    /** Zeitzone des Xtream-Servers (für Archiv-Links), z. B. „Europe/Berlin“. */
+    val serverTimeZone: String? = null,
 )
 
 /** Zusatzinfos zu Film/Serie. */

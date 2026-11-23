@@ -333,6 +333,7 @@ fun SeriesDetailScreen(nav: Navigator, screen: Screen.SeriesDetail) {
             val (i, eps) = Repository.seriesDetails(show)
             info = i
             if (eps.isNotEmpty()) episodes = eps
+            Repository.markEpisodesSeen(show, eps.size)
         } catch (e: Exception) {
             error = app.iptv.tv.data.Http.message(e)
         }

@@ -61,10 +61,12 @@ fun PlayerOptions(
     onEngineChange: (PlayerChoice) -> Unit,
     previousChannel: Channel? = null,
     onPreviousChannel: () -> Unit = {},
+    onArchive: (app.iptv.tv.model.Programme) -> Unit = {},
 ) {
     val audio by engine.audioTracks.collectAsState()
     val text by engine.textTracks.collectAsState()
     val isLive = channel.kind == ContentKind.LIVE
+    app.iptv.tv.data.SleepTimer.endsAt.collectAsState().value // neu zeichnen
     val scope = rememberCoroutineScope()
     var busy by remember(page) { mutableStateOf(false) }
     var message by remember(page) { mutableStateOf<String?>(null) }
@@ -140,11 +142,32 @@ fun PlayerOptions(
                     row("text", "Untertitel", text.firstOrNull { it.selected }?.label ?: "Aus") { onPage("text") }
                     if (!isLive) row("search", "Untertitel suchen (OpenSubtitles)", if (Subtitles.isConfigured) null else "nicht eingerichtet") { onPage("search") }
                     row("engine", "Player", "${engine.backendName} · ${(if (isLive) Prefs.playerLive else Prefs.playerVod).title}") { onPage("engine") }
+                    if (isLive && app.iptv.tv.data.Catchup.supported(channel)) {
+                        val current = Repository.epg.value?.current(channel)
+                        if (current != null && app.iptv.tv.data.Catchup.available(channel, current)) {
+                            row("restart", "Sendung von Anfang an", current.title) { onArchive(current) }
+                        }
+                        row("archive", "Verpasste Sendungen", "Archiv: ${channel.archiveDays} Tage") { onPage("archive") }
+                    }
+                    if (isLive) Repository.epg.value?.next(channel)?.let { next ->
+                        val set = app.iptv.tv.data.Reminders.isSet(channel, next)
+                        row("remind", if (set) "Erinnerung entfernen" else "An nächste Sendung erinnern", "${clock(next.start)} ${next.title}") {
+                            app.iptv.tv.data.Reminders.toggle(channel, next); onClose()
+                        }
+                    }
                     if (isLive && previousChannel != null) row("prev", "Zurück zum letzten Sender", previousChannel.name) { onPreviousChannel() }
                     if (isLive) row("fav", if (isFavorite) "Aus Favoriten entfernen" else "Zu Favoriten hinzufügen") { onToggleFavorite() }
+                    row("sleep", "Sleep-Timer", app.iptv.tv.data.SleepTimer.label()) { app.iptv.tv.data.SleepTimer.cycle() }
                     row("info", "Wiedergabe-Info", "Bildrate, Ruckeln, Puffer") { onPage("info") }
                     row("diag", "Verbindung prüfen", "hält den Stream kurz an") { onPage("diag") }
                     row("close", "Schließen") { onClose() }
+                }
+                "archive" -> {
+                    val past = app.iptv.tv.data.Catchup.pastProgrammes(channel, Repository.epg.value).filter { !it.isLive(System.currentTimeMillis()) }.take(200)
+                    if (past.isEmpty()) row("none", "Keine Sendungen gefunden (TV-Guide fehlt?)", first = true) { onPage("main") }
+                    past.forEachIndexed { i, p ->
+                        row("p$i", "${dayLabel(p.start)}${clock(p.start)}  ${p.title}", first = i == 0) { onArchive(p) }
+                    }
                 }
                 "audio" -> {
                     if (audio.isEmpty()) row("none", "Keine Tonspuren erkannt", first = true) { onPage("main") }

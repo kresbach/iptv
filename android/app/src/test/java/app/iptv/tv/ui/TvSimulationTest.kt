@@ -84,6 +84,12 @@ class TvSimulationTest {
             now,
         )
         Repository.favorites.value = app.iptv.tv.data.OrderedKeys(listOf(live[1].stableKey, movies[2].stableKey))
+        app.iptv.tv.data.Profiles.list.value = listOf(app.iptv.tv.data.Profiles.Profile(app.iptv.tv.data.Profiles.MAIN, "Ich"))
+        app.iptv.tv.data.Profiles.activeId.value = app.iptv.tv.data.Profiles.MAIN
+        app.iptv.tv.data.Profiles.chosen = false
+        app.iptv.tv.data.Reminders.items.value = emptyList()
+        Repository.newEpisodes.value = emptySet()
+        Repository.episodeCounts = emptyMap()
         app.iptv.tv.data.Prefs.liveStartFavorites = false
         Repository.progress.value = mapOf(movies[4].stableKey to Progress(1_200_000, 5_400_000, now, movies[4]))
     }
@@ -236,6 +242,95 @@ class TvSimulationTest {
     }
 
     @Test
+    fun archivImTvProgramm() {
+        // Sender 1 mit 3 Tagen Archiv; Sendung 0 lief vor einer Stunde
+        val c = Repository.content.value
+        val ard = c.live[0].copy(archiveDays = 3)
+        val content = LibraryContent(PlaylistData(listOf(ard) + c.data.channels.drop(1), c.data.shows, "Europe/Berlin"))
+        Repository.content.value = content
+        Repository.visible.value = content
+        start()
+        right(3) // TV-Programm
+        ok()
+        shot("79-tv-programm")
+        right() // einmal hin und zurück, damit der Fokus sicher im Raster steht
+        left()
+        settle(1500)
+        // Taste wie von der Fernbedienung über das Fenster schicken
+        rule.runOnUiThread {
+            val w = rule.activity.window
+            w.superDispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_LEFT))
+            w.superDispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_LEFT))
+        }
+        settle(1000)
+        shot("80-tv-programm-archiv")
+        expect("im Archiv")
+        ok()
+        expect("Sendung 0 auf Sender 1 HD")
+        shot("81-archiv-player")
+        back()
+        check(Repository.progress.value.keys.none { it.contains("Sendung 0") }) { "Archiv landet in Weiterschauen" }
+    }
+
+    @Test
+    fun erinnerungEinblendenUndUmschalten() {
+        val ch = Repository.content.value.live[3]
+        val now = System.currentTimeMillis()
+        app.iptv.tv.data.Reminders.toggle(ch, Programme("Tagesschau", null, now + 30_000, now + 900_000))
+        start()
+        expect("Beginnt gleich")
+        expect("Tagesschau")
+        shot("82-erinnerung")
+        ok() // einschalten
+        expect(ch.name)
+        check(app.iptv.tv.data.Reminders.items.value.isEmpty())
+        shot("83-erinnerung-umgeschaltet")
+    }
+
+    @Test
+    fun profileUndKinderprofil() {
+        val adult = Channel("Heiß TV", "http://x/live/u/p/900.ts", "XXX | Adult")
+        val c = Repository.content.value
+        val content = LibraryContent(PlaylistData(c.data.channels + adult, c.data.shows))
+        Repository.content.value = content
+        Repository.visible.value = content
+        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
+        start()
+        expect("Wer schaut?")
+        shot("84-wer-schaut")
+        right() // Lisa
+        ok()
+        check(app.iptv.tv.data.Profiles.isKids) { "Kinderprofil nicht gewählt" }
+        check(Repository.favorites.value.isEmpty()) { "Kinderprofil hat Favoriten des Hauptprofils" }
+        check(app.iptv.tv.data.CategoryPrefs.filterChannels(listOf(adult)).isEmpty()) { "Erwachseneninhalt im Kinderprofil sichtbar" }
+        expect("Profil")
+        shot("85-kinderprofil-start")
+        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
+        check(Repository.favorites.value.isNotEmpty()) { "Favoriten des Hauptprofils verloren" }
+        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
+    }
+
+    @Test
+    fun neueFolgenBeiGemerktenSerien() {
+        val c = Repository.content.value
+        val show = c.shows.first { it.xtreamSeriesId == null }
+        Repository.favorites.value = app.iptv.tv.data.OrderedKeys(listOf(show.favoriteKey))
+        kotlinx.coroutines.runBlocking { Repository.checkNewEpisodes() } // Ausgangsstand merken
+        check(Repository.newEpisodes.value.isEmpty())
+        // Anbieter ergänzt eine Folge
+        val extra = Channel("Dark S01 E07", "http://x/series/u/p/7.mp4", "Serien", kind = ContentKind.SERIES)
+        val content = LibraryContent(PlaylistData(c.data.channels + extra, c.data.shows))
+        Repository.content.value = content
+        Repository.visible.value = content
+        kotlinx.coroutines.runBlocking { Repository.checkNewEpisodes() }
+        check(show.favoriteKey in Repository.newEpisodes.value) { "Neue Folge nicht erkannt" }
+        start()
+        down(3)
+        expect("Neue Folgen")
+        shot("86-neue-folgen")
+    }
+
+    @Test
     fun filmeUndDetail() {
         start()
         right() // Filme
@@ -254,7 +349,7 @@ class TvSimulationTest {
         ok() // Untertitel-Seite
         shot("24-player-untertitel")
         back()
-        down(4)
+        down(5) // (Sleep-Timer liegt davor)
         ok() // Wiedergabe-Info
         expect("Bildrate Video")
         shot("25-wiedergabe-info")
@@ -314,7 +409,7 @@ class TvSimulationTest {
         expect("Kategorien bearbeiten")
         shot("61-kategorien")
         back()
-        down(3)
+        down(4)
         ok() // Kindersicherung
         ok() // PIN festlegen
         shot("62-pin")
@@ -400,7 +495,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(12)
+        down(15)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")

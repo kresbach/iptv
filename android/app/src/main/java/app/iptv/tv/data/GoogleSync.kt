@@ -484,7 +484,7 @@ object GoogleSync {
 
     /** Nach lokalen Änderungen: in 20 Sekunden abgleichen (mehrere Änderungen gebündelt). */
     fun scheduleSync() {
-        if (!signedIn.value) return
+        if (!signedIn.value || !Profiles.isMain) return
         debounce?.cancel()
         debounce = scope.launch {
             delay(20_000)
@@ -498,6 +498,7 @@ object GoogleSync {
 
     suspend fun sync() = withContext(Dispatchers.IO) {
         if (!signedIn.value || !isConfigured || isSyncing.value) return@withContext
+        if (!Profiles.isMain) return@withContext // nur das Hauptprofil wird abgeglichen
         isSyncing.value = true
         lastError.value = null
         try {
