@@ -152,21 +152,6 @@ private fun HomeContent(
         nav.push(if (idx >= 0) Screen.Player(list, idx) else Screen.Player(listOf(ch), 0))
     }
 
-    // Großes Titelbild: laufende Spiele, dann Trends bzw. die neuesten Filme
-    val heroItems = remember(trendRows, sportEvents, content) {
-        if (!app.iptv.tv.data.Prefs.heroBanner) return@remember emptyList()
-        val sport = sportEvents.filter { it.isLive(System.currentTimeMillis()) }.take(2).map {
-            HeroItem(it.programme.title, null, null, null, sport = it)
-        }
-        val trend = trendRows.firstOrNull()
-        val titles = trend?.items?.take(5)?.map {
-            HeroItem(it.title, trend.title, null, it.poster ?: it.movie?.logo ?: it.show?.poster, it.movie, it.show)
-        } ?: content.movies.filter { it.added != null }.sortedByDescending { it.added }.take(5).map {
-            HeroItem(it.name, "Neu", null, it.logo, movie = it)
-        }
-        sport + titles
-    }
-
     val saved = memory.scroll["home"]
     val listState = rememberLazyListState(saved?.first ?: 0, saved?.second ?: 0)
     DisposableEffect(Unit) {
@@ -190,25 +175,6 @@ private fun HomeContent(
                     Text(status, fontSize = 15.sp, color = AppColors.OrangeLight, maxLines = 1)
                 }
             }
-        }
-
-        if (heroItems.isNotEmpty()) item("hero") {
-            HeroBanner(
-                heroItems, memory,
-                onPlay = { h ->
-                    when {
-                        h.sport != null -> playLive(h.sport.channel)
-                        h.movie != null -> nav.push(Screen.Player(listOf(h.movie), 0, progress[h.movie.stableKey]?.position ?: 0))
-                        h.show != null -> nav.push(Screen.SeriesDetail(h.show))
-                    }
-                },
-                onDetails = { h ->
-                    when {
-                        h.movie != null -> nav.push(Screen.MovieDetail(h.movie))
-                        h.show != null -> nav.push(Screen.SeriesDetail(h.show))
-                    }
-                },
-            )
         }
 
         homeRow("tiles", null, memory) {

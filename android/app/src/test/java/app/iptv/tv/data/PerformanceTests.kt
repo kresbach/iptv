@@ -120,5 +120,31 @@ class DetailExtrasTest {
         assertFalse(Sport.isSport(ard, p("Tatort - Der Fall")))     // Bindestrich allein reicht nicht
         assertFalse(Sport.isSport(sky, p("Sky Sport News")))
         assertFalse(Sport.isSport(ard, p("Bundesliga Magazin")))
+        // nur Fußball
+        assertFalse(Sport.isSport(sky, p("Handball-Bundesliga: THW Kiel - SG Flensburg")))
+        assertFalse(Sport.isSport(sky, p("Basketball Champions League: Bonn - Tenerife")))
+        assertFalse(Sport.isSport(sky, p("Darts: Premier League")))
+        assertFalse(Sport.isSport(sky, p("Eishockey: Adler Mannheim - Eisbären Berlin")))
+        assertFalse(Sport.isSport(sky, p("Golf - The Open")))
+        assertTrue(Sport.isSport(ard, p("UEFA Champions League: Bayern - Real")))
+        assertTrue(Sport.isSport(sky, p("Real Madrid vs. FC Barcelona")))
+        assertTrue(Sport.isSport(ard, p("2. Bundesliga: Hamburger SV - Schalke 04")))
+    }
+}
+
+class SportReihenfolgeTest {
+    @Test
+    fun bundesligaUndChampionsLeagueZuerst() {
+        val now = 1_000_000_000L
+        val a = Channel(name = "Sky Sport 1", url = "a", tvgId = "a", kind = ContentKind.LIVE)
+        val b = Channel(name = "DAZN 1", url = "b", tvgId = "b", kind = ContentKind.LIVE)
+        val c = Channel(name = "Sky Sport 2", url = "c", tvgId = "c", kind = ContentKind.LIVE)
+        val guide = EpgGuide(mapOf(
+            "a" to listOf(Programme("Premier League: Arsenal - Chelsea", start = now - 60_000, end = now + 5_000_000)),
+            "b" to listOf(Programme("Champions League: Inter - PSG", start = now - 30_000, end = now + 5_000_000)),
+            "c" to listOf(Programme("Bundesliga: Mainz - Freiburg", start = now + 3_600_000, end = now + 9_000_000)),
+        ))
+        val ev = Sport.events(guide, listOf(a, b, c), emptySet(), now)
+        assertEquals(listOf("Champions League: Inter - PSG", "Premier League: Arsenal - Chelsea", "Bundesliga: Mainz - Freiburg"), ev.map { it.programme.title })
     }
 }

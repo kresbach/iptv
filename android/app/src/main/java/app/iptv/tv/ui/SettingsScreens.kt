@@ -192,11 +192,8 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
             "API-Key, Konto und bevorzugte Sprachen", modifier = Modifier.rememberFocus(memory, "subs")) { nav.push(Screen.SubtitleSettings) }
 
         SettingsHeader("Startseite & Bedienung")
-        SettingRow("Großes Titelbild auf der Startseite", if (Prefs.heroBanner) "An" else "Aus",
-            "Laufende Spiele, Trends bzw. neue Filme mit Bild und Beschreibung",
-            modifier = Modifier.rememberFocus(memory, "hero")) { Prefs.heroBanner = !Prefs.heroBanner }
         SettingRow("Reihe „Sport jetzt live“", if (Prefs.sportRow) "An" else "Aus",
-            "Laufende und heutige Fußballspiele aus dem TV-Programm · OK auf ein späteres Spiel = Erinnerung",
+            "Nur Fußball (Bundesliga und Champions League zuerst) · OK auf ein späteres Spiel = Erinnerung",
             modifier = Modifier.rememberFocus(memory, "sportrow")) { Prefs.sportRow = !Prefs.sportRow }
         SettingRow("Vorschau in der Senderliste", if (Prefs.livePreview) "An" else "Aus",
             "Kurz auf einem Sender stehen bleiben = er läuft im kleinen Fenster; OK = Vollbild ohne neu zu laden",

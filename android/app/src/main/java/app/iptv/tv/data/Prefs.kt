@@ -92,8 +92,6 @@ object Prefs {
     var sportRow: Boolean get() = bool("sportRow", true); set(v) = putBool("sportRow", v)
     /** Live TV: Vorschau des markierten Senders im kleinen Fenster. */
     var livePreview: Boolean get() = bool("livePreview", true); set(v) = putBool("livePreview", v)
-    /** Startseite: großes Titelbild oben. */
-    var heroBanner: Boolean get() = bool("heroBanner", true); set(v) = putBool("heroBanner", v)
     var liveStartFavorites: Boolean get() = bool("liveStartFavorites", true); set(v) = putBool("liveStartFavorites", v)
     var imageCacheMb: Int get() = int("imageCacheMb", 150); set(v) = putInt("imageCacheMb", v)
     /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */

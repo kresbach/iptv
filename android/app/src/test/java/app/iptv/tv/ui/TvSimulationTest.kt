@@ -95,7 +95,6 @@ class TvSimulationTest {
         app.iptv.tv.data.Prefs.liveStartFavorites = false
         app.iptv.tv.data.Prefs.onboardingDone = true
         app.iptv.tv.data.Prefs.livePreview = false
-        app.iptv.tv.data.Prefs.heroBanner = false
         app.iptv.tv.data.Prefs.sportRow = true
         app.iptv.tv.data.Prefs.startLastChannel = false
         Repository.progress.value = mapOf(movies[4].stableKey to Progress(1_200_000, 5_400_000, now, movies[4]))
@@ -456,7 +455,7 @@ class TvSimulationTest {
         left()
         ok()
         rule.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("film 1")
-        settle(1500)
+        settle(3000)
         expect("Filme")
         shot("50-suche")
     }
@@ -564,7 +563,7 @@ class TvSimulationTest {
         expect("API-Key")
         shot("76-untertitel")
         back()
-        down(11) // Google Drive (nach „Startseite & Bedienung“)
+        down(10) // Google Drive (nach „Startseite & Bedienung“)
         shot("74-einstellungen-unten")
         ok()
         expect("Google-Zugang einrichten")
@@ -618,26 +617,27 @@ class TvSimulationTest {
     }
 
     @Test
-    fun sportJetztLiveUndTitelbild() {
-        app.iptv.tv.data.Prefs.heroBanner = true
+    fun sportJetztLive() {
         val now = System.currentTimeMillis()
         val live = Repository.content.value.live
         Repository.epg.value = EpgGuide(
             Repository.epg.value!!.programmes + mapOf(
                 "s10" to listOf(Programme("Bundesliga: FC Bayern München - Borussia Dortmund", "Topspiel des Spieltags", now - 1800_000, now + 3600_000)),
                 "s20" to listOf(Programme("Champions League: Real Madrid - Manchester City", null, now + 7200_000, now + 13_000_000)),
+                "s30" to listOf(Programme("Handball-Bundesliga: THW Kiel - SG Flensburg", null, now - 600_000, now + 3000_000)),
             ),
             now,
         )
         start()
         expect("Sport jetzt live")
         expect("FC Bayern München - Borussia Dortmund")
-        expect("Jetzt einschalten") // großes Titelbild mit dem laufenden Spiel
-        shot("93-sport-und-titelbild")
+        check(!see("Jetzt einschalten")) { "Großes Titelbild sollte entfernt sein" }
+        shot("93-sport")
         // zur Sport-Reihe: Kacheln → Sport
         down()
         val ev = app.iptv.tv.data.Sport.events(Repository.epg.value, live, emptySet(), now)
         check(ev.size == 2 && ev[0].isLive(now)) { "Sport-Erkennung: $ev" }
+        check(!see("Handball")) { "Handball gehört nicht in „Sport jetzt live“" }
         right() // späteres Spiel → Erinnerung
         ok()
         check(app.iptv.tv.data.Reminders.items.value.any { it.title.startsWith("Champions League") }) { "Erinnerung nicht gesetzt" }
