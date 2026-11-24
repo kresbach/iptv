@@ -131,16 +131,10 @@ private fun HomeContent(
     val active = Repository.activePlaylist
     val playlistCount = Repository.playlists.collectAsState().value.size
     val downloadCount = app.iptv.tv.data.Downloads.items.collectAsState().value.size
-    // Kinderprofil: nur, was (noch) freigegeben ist – auch in „Weiterschauen“ und „Zuletzt gesehen“.
-    val kids = app.iptv.tv.data.Profiles.isKids
-    val continueList = remember(progress, content) {
-        Repository.continueWatching(progress).filter { !kids || app.iptv.tv.data.CategoryPrefs.isVisible(it.channel!!) }.take(20)
-    }
+    val continueList = remember(progress) { Repository.continueWatching(progress).take(20) }
     val trendRows by app.iptv.tv.data.Trends.rows.collectAsState()
     val update by app.iptv.tv.data.AppUpdate.state.collectAsState()
     val newEpisodes by Repository.newEpisodes.collectAsState()
-    app.iptv.tv.data.Profiles.activeId.collectAsState().value
-    val profileCount = app.iptv.tv.data.Profiles.list.collectAsState().value.size
     val context = androidx.compose.ui.platform.LocalContext.current
     val reminders by app.iptv.tv.data.Reminders.items.collectAsState()
 
@@ -181,16 +175,6 @@ private fun HomeContent(
             }
         }
 
-        if (kids) item("kidsHint") {
-            val none = content.live.isEmpty() && content.movies.isEmpty() && content.shows.isEmpty()
-            Text(
-                if (none) "Kinderprofil: Noch keine Kinderinhalte gefunden. Eltern können sie unter Einstellungen → Kategorien bearbeiten freigeben (PIN)."
-                else "Kinderprofil: nur freigegebene Kinderinhalte",
-                fontSize = 15.sp, color = AppColors.OrangeLight,
-                modifier = Modifier.padding(start = 48.dp, top = 10.dp),
-            )
-        }
-
         homeRow("tiles", null, memory) {
             val u = update
             if (u is app.iptv.tv.data.AppUpdate.State.Available || u is app.iptv.tv.data.AppUpdate.State.Downloading) {
@@ -204,14 +188,6 @@ private fun HomeContent(
                         modifier = Modifier.rememberFocus(memory, "tile-update"),
                     )
                 }
-            }
-            if (profileCount > 1) item("profile") {
-                TileCard(
-                    "Profil", app.iptv.tv.data.Profiles.active.name, AppIcons.Star,
-                    onClick = { nav.push(Screen.Profiles) },
-                    modifier = Modifier.rememberFocus(memory, "tile-profile"),
-                    highlighted = false,
-                )
             }
             item("search") {
                 TileCard(
@@ -315,7 +291,7 @@ private fun HomeContent(
         }
 
         // „Zuletzt gesehen“: nur Live-Sender (Filme und Serien stehen unter „Weiterschauen“).
-        val recentLive = recents.filter { it.channel.kind == ContentKind.LIVE && (!kids || app.iptv.tv.data.CategoryPrefs.isVisible(it.channel)) }.take(20)
+        val recentLive = recents.filter { it.channel.kind == ContentKind.LIVE }.take(20)
         if (recentLive.isNotEmpty()) {
             homeRow("recents", "Zuletzt gesehen", memory) {
                 itemsIndexed(recentLive, key = { i, _ -> "r-$i" }) { _, entry ->

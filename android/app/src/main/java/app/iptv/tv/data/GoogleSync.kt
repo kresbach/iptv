@@ -504,10 +504,8 @@ object GoogleSync {
         lastError.value = null
         try {
             val token = validToken()
-            // Sicherung aller Profile (eigene Datei, nur für Fernseher mit dieser App)
-            if (Prefs.backupAllProfiles) runCatching { uploadBackup(token) }.onFailure { Log.w(TAG, "Sicherung", it) }
-            // Abgleich mit dem iPhone nur für das Hauptprofil
-            if (!Profiles.isMain) return@withContext
+            // Sicherung (eigene Datei, nur für Fernseher mit dieser App)
+            if (Prefs.autoBackup) runCatching { uploadBackup(token) }.onFailure { Log.w(TAG, "Sicherung", it) }
             val remoteFile = download(token)
             val remote = remoteFile?.second?.let { runCatching { SyncSnapshot.fromJson(it) }.getOrNull() }
             val local = localSnapshot()
@@ -581,7 +579,7 @@ object GoogleSync {
 
     // region Google Drive (versteckter App-Ordner)
 
-    // region Sicherung aller Profile
+    // region Sicherung (Favoriten, Verlauf, Fortschritt)
 
     private const val BACKUP_NAME = "iptv-tv-backup.json"
     val lastBackup = kotlinx.coroutines.flow.MutableStateFlow<Long?>(null)
@@ -593,14 +591,14 @@ object GoogleSync {
         lastBackup.value = Prefs.lastBackup
     }
 
-    /** Sicherung aus Google Drive zurückholen (alle Profile mit Favoriten, Verlauf, Fortschritt). */
+    /** Sicherung aus Google Drive zurückholen (Favoriten, Verlauf, Fortschritt). */
     suspend fun restoreBackup(): String = withContext(Dispatchers.IO) {
         try {
             val token = validToken()
             val text = download(token, BACKUP_NAME)?.second ?: return@withContext "Keine Sicherung gefunden."
             val backup = json.decodeFromString(Backup.serializer(), text)
             Repository.restoreBackup(backup)
-            "Sicherung vom ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(java.util.Date(backup.createdAt))} wiederhergestellt (${backup.files.count { it.key.startsWith("userdata") }} Profil(e))."
+            "Sicherung vom ${java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(java.util.Date(backup.createdAt))} wiederhergestellt."
         } catch (e: NotSignedIn) {
             "Bitte zuerst bei Google anmelden."
         } catch (e: Exception) {
@@ -669,7 +667,7 @@ object GoogleSync {
     private fun JsonElement.asObj() = this as? JsonObject
 }
 
-/** Sicherung aller Profile: Dateiinhalte (Profile, Nutzerdaten je Profil) und einige Einstellungen. */
+/** Sicherung: Nutzerdaten und einige Einstellungen. */
 @kotlinx.serialization.Serializable
 data class Backup(
     val createdAt: Long,

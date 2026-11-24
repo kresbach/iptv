@@ -139,8 +139,8 @@ object Prefs {
     /** Ton-Versatz in Millisekunden (VLC), z. B. bei Soundbars mit Verzögerung. */
     var audioDelayMs: Int get() = int("audioDelayMs", 0); set(v) = putInt("audioDelayMs", v)
 
-    /** Alle Profile in Google Drive sichern (eigene Datei, zusätzlich zum Abgleich mit dem iPhone). */
-    var backupAllProfiles: Boolean get() = bool("backupAllProfiles", true); set(v) = putBool("backupAllProfiles", v)
+    /** Favoriten und Verlauf automatisch in Google Drive sichern (eigene Datei, zusätzlich zum Abgleich mit dem iPhone). */
+    var autoBackup: Boolean get() = bool("backupAllProfiles", true); set(v) = putBool("backupAllProfiles", v)
     var lastBackup: Long get() = long("lastBackup", 0); set(v) = putLong("lastBackup", v)
 
     // App-Updates
@@ -200,10 +200,6 @@ object CategoryPrefs {
         /** Automatisch erkannte Erwachsenen-Kategorien, die bewusst entsperrt wurden. */
         val unlockedAdult: Set<String> = emptySet(),
         val order: Map<String, List<String>> = emptyMap(),
-        /** Von Hand für das Kinderprofil freigegebene Kategorien. */
-        val kids: Set<String> = emptySet(),
-        /** Automatisch als Kinderinhalt erkannt, aber von Hand wieder entzogen. */
-        val notKids: Set<String> = emptySet(),
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -228,47 +224,12 @@ object CategoryPrefs {
     fun isHidden(kind: ContentKind, name: String) = key(kind, name) in stored.hidden
     fun isLocked(kind: ContentKind, name: String) =
         key(kind, name) in stored.locked ||
-            (isAdult(name) && (Profiles.isKids || (Prefs.autoLockAdult && key(kind, name) !in stored.unlockedAdult)))
+            (isAdult(name) && Prefs.autoLockAdult && key(kind, name) !in stored.unlockedAdult)
 
     private val adultPattern = Regex(
         """(?i)(\bxxx\b|\badults?\b|\beroti[ck]|\bporn|\b18\s*\+|\+\s*18\b|\bsexy?\b|nur für erwachsene|for adults|\bhentai\b|\bplayboy\b)""",
     )
     private val adultMemo = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
-
-    /** Kategorienamen, die nach Kinderinhalten klingen (Freigabe im Kinderprofil ohne Zutun). */
-    private val kidsPattern = Regex(
-        """(?i)(kinder|\bkids?\b|kika|junior|disney|nickelodeon|\bnick\b|toggo|super ?rtl|cartoon|boomerang|\bbaby|""" +
-            """zeichentrick|trickfilm|animation|pixar|dreamworks|familienfilm|\bfamily\b|märchen|maerchen|kleinkind)""",
-    )
-    /** Typische Kindersender – auch freigegeben, wenn der Anbieter sie in eine allgemeine Kategorie steckt. */
-    private val kidsChannelPattern = Regex(
-        """(?i)(\bkika\b|disney (channel|junior)|\bnick\b|nickelodeon|nick ?jr|toggo|super ?rtl|cartoon(ito| network)|boomerang|baby ?tv|\bjunior\b)""",
-    )
-    private val kidsMemo = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
-
-    fun isKidsName(name: String): Boolean = kidsMemo.getOrPut(name) { kidsPattern.containsMatchIn(name) && !isAdult(name) }
-
-    /** Ist die Kategorie für das Kinderprofil freigegeben (von Hand oder automatisch erkannt)? */
-    fun isKidsCategory(kind: ContentKind, name: String): Boolean {
-        val k = key(kind, name)
-        if (k in stored.kids) return true
-        if (k in stored.notKids) return false
-        return isKidsName(name)
-    }
-
-    /** Ein bekannter Kindersender (nur Live TV). */
-    fun isKidsChannel(c: Channel): Boolean =
-        c.kind == ContentKind.LIVE && key(ContentKind.LIVE, c.category) !in stored.notKids &&
-            kidsChannelPattern.containsMatchIn(c.name) && !isAdult(c.name)
-
-    fun setKids(kind: ContentKind, name: String, kids: Boolean) {
-        val k = key(kind, name)
-        val auto = isKidsName(name)
-        stored = stored.copy(
-            kids = if (kids && !auto) stored.kids + k else stored.kids - k,
-            notKids = if (!kids && auto) stored.notKids + k else stored.notKids - k,
-        ); save()
-    }
 
     /** Klingt der Kategoriename nach Erwachseneninhalt? */
     fun isAdult(name: String): Boolean = adultMemo.getOrPut(name) { adultPattern.containsMatchIn(name) }
@@ -279,24 +240,18 @@ object CategoryPrefs {
         val cats = when (kind) { ContentKind.LIVE -> c.liveCategories; ContentKind.MOVIE -> c.movieCategories; ContentKind.SERIES -> c.showCategories }
         return cats.any { isAdult(it.name) && key(kind, it.name) !in stored.unlockedAdult }
     }
-    /** Im Kinderprofil immer gesperrt (ohne Freischalten), sonst bis zur PIN-Eingabe. */
+    /** Gesperrt bis zur PIN-Eingabe. */
     fun isBlocked(kind: ContentKind, name: String) =
-        (Profiles.isKids || (Prefs.hasPin && !unlocked.value)) && isLocked(kind, name)
+        Prefs.hasPin && !unlocked.value && isLocked(kind, name)
     val hasLocked: Boolean get() = Prefs.hasPin && (stored.locked.isNotEmpty() || ContentKind.entries.any(::hasAdult))
     fun hasLocked(kind: ContentKind): Boolean =
-        !Profiles.isKids && Prefs.hasPin && (stored.locked.any { it.startsWith(kind.name.lowercase() + "|") } || hasAdult(kind))
+        Prefs.hasPin && (stored.locked.any { it.startsWith(kind.name.lowercase() + "|") } || hasAdult(kind))
 
-    private val hasRestrictions get() = stored.hidden.isNotEmpty() || Profiles.isKids ||
+    private val hasRestrictions get() = stored.hidden.isNotEmpty() ||
         (Prefs.hasPin && !unlocked.value && (stored.locked.isNotEmpty() || Prefs.autoLockAdult))
 
-    /**
-     * Kinderprofil: nur, was ausdrücklich für Kinder ist (Freigabeliste statt Sperrliste) –
-     * alles andere bleibt unsichtbar, auch neue Kategorien des Anbieters.
-     */
-    fun isVisible(c: Channel) = !isHidden(c.kind, c.category) && !isBlocked(c.kind, c.category) &&
-        (!Profiles.isKids || ((isKidsCategory(c.kind, c.category) || isKidsChannel(c)) && !isAdult(c.name)))
-    fun isVisible(s: SeriesShow) = !isHidden(ContentKind.SERIES, s.category) && !isBlocked(ContentKind.SERIES, s.category) &&
-        (!Profiles.isKids || (isKidsCategory(ContentKind.SERIES, s.category) && !isAdult(s.title)))
+    fun isVisible(c: Channel) = !isHidden(c.kind, c.category) && !isBlocked(c.kind, c.category)
+    fun isVisible(s: SeriesShow) = !isHidden(ContentKind.SERIES, s.category) && !isBlocked(ContentKind.SERIES, s.category)
 
     fun filterChannels(list: List<Channel>) = if (hasRestrictions) list.filter { isVisible(it) } else list
     fun filterShows(list: List<SeriesShow>) = if (hasRestrictions) list.filter { isVisible(it) } else list
@@ -324,7 +279,7 @@ object CategoryPrefs {
         ); save()
     }
 
-    /** Sichtbare Inhalte neu berechnen (z. B. nach einem Profilwechsel). */
+    /** Sichtbare Inhalte neu berechnen (z. B. nach einer Änderung der Sperren). */
     fun refresh() { version.value++ }
 
     /** Automatische Erkennung an/aus (neu berechnen). */

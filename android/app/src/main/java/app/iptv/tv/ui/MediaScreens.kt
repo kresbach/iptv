@@ -296,8 +296,7 @@ fun MovieDetailScreen(nav: Navigator, screen: Screen.MovieDetail) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val downloads by app.iptv.tv.data.Downloads.items.collectAsState()
     val download = downloads.firstOrNull { it.key == movie.stableKey }
-    // Im Kinderprofil nur freigegebene Fassungen
-    val all by (if (app.iptv.tv.data.Profiles.isKids) Repository.visible else Repository.content).collectAsState()
+    val all by Repository.content.collectAsState()
     // Im Hintergrund suchen: bei sehr großen Filmlisten sonst spürbar langsam.
     val versions by androidx.compose.runtime.produceState(emptyList<app.iptv.tv.model.Channel>(), movie, all) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { MediaInfo.versions(movie, all.movies).take(8) }

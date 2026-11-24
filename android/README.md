@@ -109,6 +109,14 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.18
+
+- **Profile entfernt.** Es gibt wieder nur einen gemeinsamen Stand mit Favoriten, Verlauf und „Weiterschauen“ (die des bisherigen Hauptprofils bleiben erhalten). Damit entfallen auch das Kinderprofil und die Frage „Wer schaut?“. Für Kinder bleibt die Kindersicherung: Kategorien mit PIN sperren, Erwachseneninhalte werden automatisch gesperrt.
+- Google Drive: „Automatisch sichern“ sichert Favoriten, Verlauf und „Weiterschauen“. Ältere Sicherungen lassen sich weiter wiederherstellen (übernommen wird das Hauptprofil).
+- TV-Programm: Beim Blättern nach links springt die Markierung zuverlässig zur vorigen Sendung, auch wenn die aktuelle kurz vor dem Fensteranfang begann.
+
+Die Abschnitte zu Profilen und Kinderprofil in 2.12 und 2.17 gelten nicht mehr.
+
 ## Neu in Version 2.17 – Kinderprofil nur mit Kinderinhalten
 
 - Das Kinderprofil zeigt jetzt **nur noch, was ausdrücklich für Kinder ist** (Freigabeliste statt Sperrliste). Neue Kategorien des Anbieters bleiben dort automatisch unsichtbar.

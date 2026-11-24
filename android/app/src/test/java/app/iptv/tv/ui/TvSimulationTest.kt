@@ -84,9 +84,6 @@ class TvSimulationTest {
             now,
         )
         Repository.favorites.value = app.iptv.tv.data.OrderedKeys(listOf(live[1].stableKey, movies[2].stableKey))
-        app.iptv.tv.data.Profiles.list.value = listOf(app.iptv.tv.data.Profiles.Profile(app.iptv.tv.data.Profiles.MAIN, "Ich"))
-        app.iptv.tv.data.Profiles.activeId.value = app.iptv.tv.data.Profiles.MAIN
-        app.iptv.tv.data.Profiles.chosen = false
         app.iptv.tv.data.Reminders.items.value = emptyList()
         Repository.newEpisodes.value = emptySet()
         Repository.episodeCounts = emptyMap()
@@ -294,29 +291,6 @@ class TvSimulationTest {
     }
 
     @Test
-    fun profileUndKinderprofil() {
-        val adult = Channel("Heiß TV", "http://x/live/u/p/900.ts", "XXX | Adult")
-        val c = Repository.content.value
-        val content = LibraryContent(PlaylistData(c.data.channels + adult, c.data.shows))
-        Repository.content.value = content
-        Repository.visible.value = content
-        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
-        start()
-        expect("Wer schaut?")
-        shot("84-wer-schaut")
-        right() // Lisa
-        ok()
-        check(app.iptv.tv.data.Profiles.isKids) { "Kinderprofil nicht gewählt" }
-        check(Repository.favorites.value.isEmpty()) { "Kinderprofil hat Favoriten des Hauptprofils" }
-        check(app.iptv.tv.data.CategoryPrefs.filterChannels(listOf(adult)).isEmpty()) { "Erwachseneninhalt im Kinderprofil sichtbar" }
-        expect("Profil")
-        shot("85-kinderprofil-start")
-        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
-        check(Repository.favorites.value.isNotEmpty()) { "Favoriten des Hauptprofils verloren" }
-        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
-    }
-
-    @Test
     fun neueFolgenBeiGemerktenSerien() {
         val c = Repository.content.value
         val show = c.shows.first { it.xtreamSeriesId == null }
@@ -372,27 +346,16 @@ class TvSimulationTest {
     }
 
     @Test
-    fun sicherungAllerProfile() {
+    fun sicherungUndWiederherstellen() {
         val main = Repository.favorites.value.toList()
-        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
-        Repository.switchProfile(kids.id)
-        Repository.toggleFavorite(Repository.content.value.live[7].stableKey)
-        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
         val backup = Repository.backupSnapshot()
-        check(backup.files.keys.any { it == "userdata-${kids.id}.json" }) { "Kinderprofil fehlt in der Sicherung: ${backup.files.keys}" }
+        check(backup.files.keys == setOf("userdata.json")) { "Sicherung enthält: ${backup.files.keys}" }
         // alles weg (neuer Fernseher) …
         Repository.toggleFavorite(main.first())
-        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
         // … und zurückholen
         Repository.restoreBackup(backup)
         check(Repository.favorites.value.toList() == main) { "Favoriten nicht wiederhergestellt" }
-        check(app.iptv.tv.data.Profiles.list.value.any { it.id == kids.id }) { "Profil nicht wiederhergestellt" }
-        Repository.switchProfile(kids.id)
-        check(Repository.content.value.live[7].stableKey in Repository.favorites.value) { "Favorit des Kinderprofils fehlt" }
-        Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
-        app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
     }
-
     @Test
     fun filmeUndDetail() {
         start()
@@ -472,7 +435,7 @@ class TvSimulationTest {
         expect("Kategorien bearbeiten")
         shot("61-kategorien")
         back()
-        down(4)
+        down(3)
         ok() // Kindersicherung
         ok() // PIN festlegen
         shot("62-pin")
@@ -558,7 +521,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(16)
+        down(15)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")
@@ -666,46 +629,5 @@ class TvSimulationTest {
         expect("Alle Sender")
     }
 
-    @Test
-    fun kinderprofilZeigtNurKinderinhalte() {
-        val c = Repository.content.value
-        val kika = Channel("KiKA HD", "http://x/live/u/p/801.ts", "DE | Vollprogramm")
-        val toggo = Channel("Kinderkanal 2", "http://x/live/u/p/802.ts", "DE | Kinder")
-        val adult = Channel("Heiß TV", "http://x/live/u/p/900.ts", "XXX | Adult")
-        val cartoon = Channel("Kleiner Drache", "http://x/movie/u/p/803.mkv", "Kinderfilme", kind = ContentKind.MOVIE)
-        val kidsShow = SeriesShow("Biene Maja", "Zeichentrick Serien", xtreamSeriesId = 99)
-        val content = LibraryContent(PlaylistData(c.data.channels + kika + toggo + adult + cartoon, c.data.shows + kidsShow))
-        Repository.content.value = content
-        Repository.visible.value = content
-        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
-        Repository.switchProfile(kids.id)
-        try {
-            val P = app.iptv.tv.data.CategoryPrefs
-            val visibleLive = P.filterChannels(content.live)
-            check(visibleLive.map { it.name }.toSet() == setOf("KiKA HD", "Kinderkanal 2")) { "Live im Kinderprofil: ${visibleLive.map { it.name }}" }
-            check(P.filterChannels(content.movies).map { it.name } == listOf("Kleiner Drache")) { "Filme im Kinderprofil: ${P.filterChannels(content.movies).map { it.name }}" }
-            check(P.filterShows(content.shows).map { it.title } == listOf("Biene Maja")) { "Serien im Kinderprofil falsch" }
-            // Eltern geben eine Kategorie frei bzw. entziehen eine erkannte
-            P.setKids(ContentKind.LIVE, "Nachrichten", true)
-            check(P.filterChannels(content.live).any { it.category == "Nachrichten" }) { "Freigabe wirkt nicht" }
-            P.setKids(ContentKind.LIVE, "Nachrichten", false)
-            P.setKids(ContentKind.MOVIE, "Kinderfilme", false)
-            check(P.filterChannels(content.movies).isEmpty()) { "Entzug wirkt nicht" }
-            P.setKids(ContentKind.MOVIE, "Kinderfilme", true)
-            // Oberfläche: Live TV zeigt nur Kindersender
-            Repository.visible.value = LibraryContent(content.data.copy(channels = P.filterChannels(content.data.channels), shows = P.filterShows(content.data.shows)))
-            app.iptv.tv.data.Profiles.chosen = true
-            start()
-            expect("nur freigegebene Kinderinhalte")
-            ok() // Live TV
-            expect("KiKA HD")
-            check(!see("Sender 1 HD") && !see("Heiß TV")) { "Erwachsenen-/Normalsender im Kinderprofil" }
-            shot("96-kinderprofil-live")
-        } finally {
-            Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
-            app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
-        }
-        // Hauptprofil sieht wieder alles
-        check(app.iptv.tv.data.CategoryPrefs.filterChannels(content.live).any { it.name == "Sender 1 HD" })
-    }
+
 }

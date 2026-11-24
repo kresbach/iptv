@@ -57,7 +57,7 @@ private val pages = listOf(
             "Startseite" to "„Sport jetzt live“ – laufende Spiele mit einem Klick",
             "Senderliste" to "kurz auf einem Sender stehen bleiben = Vorschau",
             "Mikrofon-Taste" to "„Suche Tatort in IPTV“",
-            "Einstellungen" to "Profile, Kindersicherung, 50-Hz-Bild",
+            "Einstellungen" to "Kindersicherung, Puffer, 50-Hz-Bild",
         ),
     ),
 )

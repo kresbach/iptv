@@ -179,6 +179,9 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
                                     )
                                 }
                                 list.forEachIndexed { i, p ->
+                                    // je Sendung ein fester Platz – sonst „erbt“ nach dem Blättern eine andere
+                                    // Sendung die Markierung, und die Kopfzeile zeigt noch die alte
+                                    androidx.compose.runtime.key(p.start) {
                                     val s = maxOf(p.start, windowStart)
                                     val e = minOf(p.end, windowStart + WINDOW_MS)
                                     val target = focusTarget
@@ -212,12 +215,19 @@ fun EpgGridScreen(nav: Navigator, memory: ScreenMemory) {
                                         onEdge = { dir ->
                                             shift(dir, windowStart, minStart)?.let {
                                                 windowStart = it
-                                                focusTarget = row to if (dir > 0) it + WINDOW_MS - STEP_MS else it + STEP_MS - 1
+                                                // Ziel: direkt die vorige bzw. nächste Sendung (nicht wieder die aktuelle,
+                                                // wenn sie kurz vor dem alten Fensteranfang begann).
+                                                focusTarget = row to if (dir > 0) {
+                                                    if (p.end < it + WINDOW_MS) p.end else it + WINDOW_MS - STEP_MS
+                                                } else {
+                                                    if (p.start - 1 >= it) p.start - 1 else it + STEP_MS - 1
+                                                }
                                             }
                                         },
                                         isFirst = i == 0,
                                         isLast = i == list.lastIndex,
                                     )
+                                    }
                                 }
                             }
                         }

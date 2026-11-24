@@ -48,7 +48,6 @@ sealed class Screen {
     data object Unlock : Screen()
     data object TrendsSettings : Screen()
     data object FavoriteOrder : Screen()
-    data object Profiles : Screen()
     data object PhoneKeys : Screen()
     data class EditPlaylist(val id: String) : Screen() {
         override val key get() = "Edit-$id"
@@ -179,7 +178,6 @@ fun AppRoot(onExit: () -> Unit) {
         MainActivity.pendingOpen.value = null
         val p = Repository.progress.value[key]
         val ch = (p?.channel ?: Repository.content.value.channel(key))
-            ?.takeIf { !app.iptv.tv.data.Profiles.isKids || app.iptv.tv.data.CategoryPrefs.isVisible(it) }
         nav.home()
         if (ch != null) nav.push(Screen.Player(listOf(ch), 0, p?.position ?: 0, p?.showKey))
     }
@@ -212,16 +210,6 @@ fun AppRoot(onExit: () -> Unit) {
         Screen.Search.memory.selection = q
         Screen.Search.memory.focusedKey = null
         nav.push(Screen.Search)
-    }
-
-    // Mehrere Profile: beim Start fragen, wer schaut.
-    val profileList by app.iptv.tv.data.Profiles.list.collectAsState()
-    var profileChosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(app.iptv.tv.data.Profiles.chosen) }
-    if (restoredState && profileList.size > 1 && !profileChosen && pending == null) {
-        Box(Modifier.fillMaxSize().background(AppColors.Background)) {
-            ProfilePicker(onChosen = { profileChosen = true })
-        }
-        return
     }
 
     // Erster Start: kurze Einführung in die wichtigsten Tasten.
@@ -277,7 +265,6 @@ fun AppRoot(onExit: () -> Unit) {
                 Screen.Unlock -> UnlockScreen(nav)
                 Screen.TrendsSettings -> TrendsSettingsScreen(nav)
                 Screen.FavoriteOrder -> FavoriteOrderScreen(screen.memory)
-                Screen.Profiles -> ProfilesScreen(nav, screen.memory)
                 Screen.PhoneKeys -> PhoneKeysScreen(nav)
                 is Screen.EditPlaylist -> AddPlaylistScreen(nav, editId = screen.id)
                 is Screen.CategoryEdit -> CategoryEditScreen(nav, screen)

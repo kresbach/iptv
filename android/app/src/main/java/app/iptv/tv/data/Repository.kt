@@ -130,7 +130,7 @@ object Repository {
                 .collectLatest { c -> visible.value = filtered(c) }
         }
         scope.launch {
-            Profiles.load(dir)
+            removeOldProfileFiles()
             restoreUserData()
             read(File(dir, "library.json"), LibraryFile.serializer())?.let {
                 playlists.value = it.playlists
@@ -475,7 +475,7 @@ object Repository {
     }
 
     private fun restoreUserData() {
-        val data = read(Profiles.userDataFile(dir), UserDataFile.serializer()) ?: UserDataFile()
+        val data = read(userDataFile, UserDataFile.serializer()) ?: UserDataFile()
         favorites.value = OrderedKeys(data.favorites)
         recents.value = data.recents
         progress.value = data.progress
@@ -486,23 +486,33 @@ object Repository {
 
     private fun saveUserData(notify: Boolean = true) {
         val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
-        val target = Profiles.userDataFile(dir)
+        val target = userDataFile
         scope.launch(serialIo) { write(target, UserDataFile.serializer(), snapshot) }
-        // Abgleich (Hauptprofil) bzw. Sicherung (alle Profile) anstoßen
+        // Abgleich bzw. Sicherung anstoßen
         if (notify) onChange?.invoke()
     }
 
     // region Sicherung
 
-    /** Inhalt aller Profil-Dateien und der Kategorie-/Erinnerungs-Einstellungen. */
+    private val userDataFile: File get() = File(dir, "userdata.json")
+
+    /**
+     * Profile gibt es nicht mehr: Reste früherer Versionen (Profilliste, Daten weiterer Profile) löschen.
+     * Favoriten und Verlauf des Hauptprofils („userdata.json“) bleiben erhalten.
+     */
+    private fun removeOldProfileFiles() {
+        runCatching {
+            File(dir, "profiles.json").delete()
+            dir.listFiles { f -> f.name.startsWith("userdata-") && f.name.endsWith(".json") }?.forEach { it.delete() }
+        }
+    }
+
+    /** Favoriten, Verlauf, Fortschritt sowie Kategorie- und Erinnerungs-Einstellungen. */
     fun backupSnapshot(): Backup {
         val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
         val files = HashMap<String, String>()
-        dir.listFiles { f -> f.name.startsWith("userdata") && f.name.endsWith(".json") }
-            ?.forEach { f -> runCatching { files[f.name] = f.readText() } }
-        files["profiles.json"] = Profiles.exportJson()
-        // aktuelles Profil direkt aus dem Speicher (die Datei wird im Hintergrund geschrieben)
-        files[Profiles.userDataFile(dir).name] = json.encodeToString(UserDataFile.serializer(), snapshot)
+        // direkt aus dem Speicher (die Datei wird im Hintergrund geschrieben)
+        files[userDataFile.name] = json.encodeToString(UserDataFile.serializer(), snapshot)
         val settings = listOf("categories", "reminders").associateWith { Prefs.str(it) }.filterValues { it.isNotEmpty() }
         return Backup(System.currentTimeMillis(), files, settings)
     }
@@ -511,12 +521,9 @@ object Repository {
         // In derselben Schreib-Warteschlange wie das normale Speichern: noch ausstehende Schreibvorgänge
         // laufen vorher und können die wiederhergestellten Dateien nicht mehr überschreiben.
         kotlinx.coroutines.runBlocking(serialIo) {
-            for ((name, text) in backup.files) {
-                if (!Regex("userdata(-[\\w-]+)?\\.json").matches(name)) continue
-                File(dir, name).writeText(text)
-            }
+            // ältere Sicherungen enthalten weitere Profile – übernommen wird nur das Hauptprofil
+            backup.files[userDataFile.name]?.let { userDataFile.writeText(it) }
         }
-        backup.files["profiles.json"]?.let { Profiles.importJson(it) }
         backup.settings["categories"]?.let { Prefs.putStr("categories", it); CategoryPrefs.load() }
         backup.settings["reminders"]?.let { Prefs.putStr("reminders", it); Reminders.reload() }
         restoreUserData()
@@ -524,18 +531,6 @@ object Repository {
     }
 
     // endregion
-
-    /** Profil wechseln: Nutzerdaten speichern und die des neuen Profils laden. */
-    fun switchProfile(id: String) {
-        if (id == Profiles.activeId.value) { Profiles.chosen = true; return }
-        // sofort schreiben, damit Sicherung und Rückwechsel den neuesten Stand sehen
-        val snapshot = UserDataFile(favorites.value.toList(), recents.value, progress.value, favoriteChanges, episodeCounts, newEpisodes.value.toList())
-        runCatching { write(Profiles.userDataFile(dir), UserDataFile.serializer(), snapshot) }
-        Profiles.setActive(id)
-        restoreUserData()
-        CategoryPrefs.lock()
-        CategoryPrefs.refresh()
-    }
 
     // region Neue Folgen
 

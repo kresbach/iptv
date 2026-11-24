@@ -91,15 +91,6 @@ fun ScreenTitle(text: String, subtitle: String? = null) {
 
 @Composable
 fun SettingsScreen(nav: Navigator, memory: ScreenMemory) {
-    val unlocked by CategoryPrefs.unlocked.collectAsState()
-    if (app.iptv.tv.data.Profiles.isKids && Prefs.hasPin && !unlocked) {
-        // Im Kinderprofil sind die Einstellungen durch die PIN geschützt.
-        var message by remember { mutableStateOf<String?>(null) }
-        PinPad("PIN eingeben", message ?: "Die Einstellungen sind im Kinderprofil geschützt", onComplete = { pin ->
-            if (!CategoryPrefs.unlock(pin)) message = "Falsche PIN – bitte erneut versuchen."
-        })
-        return
-    }
     SettingsContent(nav, memory)
 }
 
@@ -124,8 +115,6 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
             modifier = Modifier.rememberFocus(memory, "playlists", isDefault = true)) { nav.push(Screen.Playlists) }
         SettingRow("Kategorien bearbeiten", subtitle = "Ausblenden, sortieren und mit PIN sperren",
             modifier = Modifier.rememberFocus(memory, "cats")) { nav.push(Screen.CategoryEdit()) }
-        SettingRow("Profile", app.iptv.tv.data.Profiles.active.name, "Eigene Favoriten und eigener Verlauf, z. B. ein Kinderprofil",
-            modifier = Modifier.rememberFocus(memory, "profiles")) { nav.push(Screen.Profiles) }
         SettingRow("Favoriten sortieren", subtitle = "Lieblingssender nach oben – gilt für Live TV und die Startseite",
             modifier = Modifier.rememberFocus(memory, "favorder")) { nav.push(Screen.FavoriteOrder) }
         SettingRow("Live TV startet mit Favoriten", if (Prefs.liveStartFavorites) "An" else "Aus",
@@ -482,10 +471,10 @@ fun GoogleDriveScreen(nav: Navigator) {
                             "Überträgt Playlists samt Zugangsdaten zwischen den Geräten",
                             modifier = Modifier.rememberFocus(memory, "pl"),
                         ) { Prefs.syncPlaylists = !Prefs.syncPlaylists; GoogleSync.syncNow() }
-                        SettingRow("Alle Profile sichern", if (Prefs.backupAllProfiles) "An" else "Aus",
-                            "Favoriten, Verlauf und „Weiterschauen“ aller Profile – z. B. für einen neuen Fernseher" +
+                        SettingRow("Automatisch sichern", if (Prefs.autoBackup) "An" else "Aus",
+                            "Favoriten, Verlauf und „Weiterschauen“ – z. B. für einen neuen Fernseher" +
                                 (Prefs.lastBackup.takeIf { it > 0 }?.let { " · zuletzt " + java.text.SimpleDateFormat("dd.MM. HH:mm", java.util.Locale.GERMANY).format(java.util.Date(it)) } ?: ""),
-                            modifier = Modifier.rememberFocus(memory, "backup")) { Prefs.backupAllProfiles = !Prefs.backupAllProfiles }
+                            modifier = Modifier.rememberFocus(memory, "backup")) { Prefs.autoBackup = !Prefs.autoBackup }
                         SettingRow("Jetzt sichern", backupMessage, modifier = Modifier.rememberFocus(memory, "backupNow")) {
                             backupMessage = "…"
                             backupScope.launch { backupMessage = GoogleSync.backupNow() }
