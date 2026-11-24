@@ -15,6 +15,8 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
     var rating: Double?
     /// Wann der Anbieter den Eintrag hinzugefügt hat (Xtream), für „Neu“.
     var added: Date?
+    /// Live: so viele Tage lassen sich vergangene Sendungen aus dem Archiv abspielen.
+    var archiveDays: Int?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +27,8 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
         logoURL: URL? = nil,
         kind: ContentKind? = nil,
         rating: Double? = nil,
-        added: Date? = nil
+        added: Date? = nil,
+        archiveDays: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -36,6 +39,7 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
         self.kind = kind ?? ContentClassifier.kind(url: url, group: group, name: name)
         self.rating = rating
         self.added = added
+        self.archiveDays = archiveDays
     }
 
     /// Ältere Zwischenspeicher enthalten noch kein `kind`, das wird dann neu bestimmt.
@@ -53,7 +57,8 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
             logoURL: try container.decodeIfPresent(URL.self, forKey: .logoURL),
             kind: try container.decodeIfPresent(ContentKind.self, forKey: .kind),
             rating: try container.decodeIfPresent(Double.self, forKey: .rating),
-            added: try container.decodeIfPresent(Date.self, forKey: .added)
+            added: try container.decodeIfPresent(Date.self, forKey: .added),
+            archiveDays: try container.decodeIfPresent(Int.self, forKey: .archiveDays)
         )
     }
 
@@ -61,9 +66,12 @@ struct Channel: Identifiable, Hashable, Codable, Sendable {
     func with(url newURL: URL) -> Channel {
         Channel(
             id: id, name: name, url: newURL, group: group, tvgID: tvgID, logoURL: logoURL,
-            kind: kind, rating: rating, added: added
+            kind: kind, rating: rating, added: added, archiveDays: archiveDays
         )
     }
+
+    /// Sendung aus dem Archiv (Xtream-Timeshift): spulbar wie ein Film, aber ohne „Weiterschauen“.
+    var isArchive: Bool { url.path().contains("/timeshift/") }
 
     /// Erscheinungsjahr aus dem Titel, z. B. „Dune (2021)“ → 2021.
     var year: Int? { MediaInfo.versionKey(for: name).year.flatMap(Int.init) }

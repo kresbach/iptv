@@ -205,6 +205,11 @@ protocol PlaybackEngine: AnyObject {
     func addSubtitle(file: URL)
     func setSubtitleDelay(_ seconds: Double)
 
+    /// Ton-Versatz in Sekunden (positiv = Ton später). Nur VLC.
+    var supportsAudioDelay: Bool { get }
+    var audioDelay: Double { get }
+    func setAudioDelay(_ seconds: Double)
+
     /// Lautstärke des Players (0 … 1), unabhängig von der Gerätelautstärke.
     var volume: Double { get }
     var isUserMuted: Bool { get }
@@ -296,6 +301,8 @@ final class ApplePlaybackEngine: PlaybackEngine {
         // Mit der ersten Qualitätsstufe beginnen statt erst die beste auszuhandeln.
         item.startsOnFirstEligibleVariant = true
         if isLive {
+            // Eingestellter Live-Puffer (0 = Apple entscheidet selbst).
+            item.preferredForwardBufferDuration = LiveBuffer.current.appleForwardBuffer
             // Abstand zur Live-Kante halten: Nach einem Aussetzer nicht bis ganz an die
             // Kante vorspringen, das würde sofort den nächsten Aussetzer auslösen.
             item.automaticallyPreservesTimeOffsetFromLive = true
@@ -402,6 +409,11 @@ final class ApplePlaybackEngine: PlaybackEngine {
         isUserMuted.toggle()
         player.volume = isUserMuted ? 0 : Float(volume)
     }
+
+    // Ton-Versatz kann der Apple-Player nicht.
+    var supportsAudioDelay: Bool { false }
+    var audioDelay: Double { 0 }
+    func setAudioDelay(_ seconds: Double) {}
 
     // Der Apple-Player kann keine externen Untertitel-Dateien einblenden.
     var supportsExternalSubtitles: Bool { false }

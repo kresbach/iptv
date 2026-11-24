@@ -219,6 +219,8 @@ struct SeriesDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedSeason: Int?
+    @State private var similar: [SeriesShow] = []
+    private var prefs: CategoryPreferences { .shared }
 
     private var seasons: [(season: Int, episodes: [SeriesShow.Episode])] {
         SeriesShow.seasons(of: episodes)
@@ -253,6 +255,24 @@ struct SeriesDetailView: View {
                     InfoDetails(info: info ?? MediaInfo(plot: show.plot))
 
                     episodeSection
+
+                    if !similar.isEmpty {
+                        RecommendationShelf {
+                            ForEach(similar) { item in
+                                NavigationLink(value: item) {
+                                    PosterCard(
+                                        title: item.title,
+                                        subtitle: nil,
+                                        imageURL: item.posterURL,
+                                        symbol: ContentKind.series.symbol,
+                                        rating: item.rating
+                                    )
+                                    .frame(width: 110)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                 }
                 .padding(.horizontal)
             }
@@ -261,6 +281,9 @@ struct SeriesDetailView: View {
         .navigationTitle(show.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .task {
+            similar = await Similar.shows(for: show, in: prefs.filter(store.content.series.shows))
+        }
     }
 
     @ViewBuilder
@@ -343,6 +366,12 @@ struct SeriesDetailView: View {
             let details = try await store.seriesDetails(for: show)
             info = details.info
             episodes = details.episodes
+            info = await MediaInfo.addingTMDBTrailer(
+                to: info ?? MediaInfo(plot: show.plot),
+                title: show.title,
+                year: info?.year ?? show.year.map(String.init),
+                tv: true
+            )
         } catch {
             errorMessage = HTTPClient.message(for: error)
         }

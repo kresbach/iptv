@@ -14,6 +14,8 @@ struct MovieDetailView: View {
     @State private var isLoading = true
     @State private var versions: [MovieVersion] = []
     @State private var ownSize: Int64?
+    @State private var similar: [Channel] = []
+    private var prefs: CategoryPreferences { .shared }
 
     var body: some View {
         ScrollView {
@@ -54,6 +56,24 @@ struct MovieDetailView: View {
                     if !versions.isEmpty {
                         MovieVersionsList(versions: versions, ownSize: ownSize)
                     }
+
+                    if !similar.isEmpty {
+                        RecommendationShelf {
+                            ForEach(similar) { item in
+                                NavigationLink(value: item) {
+                                    PosterCard(
+                                        title: item.name,
+                                        subtitle: nil,
+                                        imageURL: item.logoURL,
+                                        symbol: ContentKind.movie.symbol,
+                                        rating: item.rating
+                                    )
+                                    .frame(width: 110)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                 }
                 .padding(.horizontal)
             }
@@ -64,6 +84,8 @@ struct MovieDetailView: View {
         .task {
             info = await store.movieInfo(for: movie)
             isLoading = false
+            info = await MediaInfo.addingTMDBTrailer(to: info, title: movie.name, year: info?.year ?? movie.year.map(String.init), tv: false)
+            similar = await Similar.movies(for: movie, in: prefs.filter(store.content.movies.items))
             await loadVersions()
         }
     }
@@ -253,6 +275,34 @@ struct MetaRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         }
+    }
+}
+
+/// Horizontale Leiste „Das könnte dir auch gefallen“.
+struct RecommendationShelf<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Das könnte dir auch gefallen").font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    content
+                }
+            }
+            .scrollClipDisabled()
+        }
+    }
+}
+
+extension MediaInfo {
+    /// Ergänzt einen Trailer von TMDB, wenn der Anbieter keinen liefert.
+    static func addingTMDBTrailer(to info: MediaInfo?, title: String, year: String?, tv: Bool) async -> MediaInfo? {
+        guard info?.trailerURL == nil, TMDB.isConfigured,
+              let url = await TMDBClient.shared.trailer(title: title, year: year, tv: tv) else { return info }
+        var updated = info ?? MediaInfo()
+        updated.trailerURL = url
+        return updated
     }
 }
 

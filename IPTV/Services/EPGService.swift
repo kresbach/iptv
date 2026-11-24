@@ -3,6 +3,7 @@ import Foundation
 
 /// Lädt einen TV-Guide im XMLTV-Format (auch `.xml.gz`) und behält nur Sendungen
 /// der eigenen Sender im Zeitfenster von 2 Stunden zurück bis 2 Tage voraus.
+/// Für Sender mit Archiv reicht das Fenster so weit zurück wie das Archiv (höchstens 7 Tage).
 enum EPGService {
 
     enum EPGError: LocalizedError {
@@ -25,16 +26,24 @@ enum EPGService {
 
         var wantedIDs = Set<String>()
         var wantedNames = Set<String>()
+        var archiveKeys = Set<String>()
         for channel in channels where channel.kind == .live {
             if let id = channel.tvgID?.lowercased(), !id.isEmpty { wantedIDs.insert(id) }
             wantedNames.insert(channel.name.lowercased())
+            if Catchup.isSupported(channel) {
+                archiveKeys.formUnion(EPGGuide.lookupKeys(for: channel))
+            }
         }
 
         let now = Date.now
+        let archiveDays = Catchup.maxArchiveDays(of: channels)
+        let recentStart = now.addingTimeInterval(-2 * 3600)
         let collector = XMLTVCollector(
             wantedIDs: wantedIDs,
             wantedNames: wantedNames,
-            window: now.addingTimeInterval(-2 * 3600)...now.addingTimeInterval(48 * 3600)
+            window: min(recentStart, now.addingTimeInterval(-TimeInterval(archiveDays) * 86_400))...now.addingTimeInterval(48 * 3600),
+            recentStart: recentStart,
+            archiveKeys: archiveKeys
         )
         guard let stream = InputStream(url: xmlFile) else { throw EPGError.invalidData }
         let parser = XMLParser(stream: stream)
@@ -107,6 +116,9 @@ private final class XMLTVCollector: NSObject, XMLParserDelegate {
     private let wantedIDs: Set<String>
     private let wantedNames: Set<String>
     private let window: ClosedRange<Date>
+    /// Ältere Sendungen nur für Sender mit Archiv behalten.
+    private let recentStart: Date
+    private let archiveKeys: Set<String>
 
     /// XMLTV-Kanal-ID → unsere Schlüssel (tvg-id bzw. Sendername).
     private var keysForChannel: [String: Set<String>] = [:]
@@ -133,10 +145,18 @@ private final class XMLTVCollector: NSObject, XMLParserDelegate {
         return formatter
     }()
 
-    init(wantedIDs: Set<String>, wantedNames: Set<String>, window: ClosedRange<Date>) {
+    init(
+        wantedIDs: Set<String>,
+        wantedNames: Set<String>,
+        window: ClosedRange<Date>,
+        recentStart: Date,
+        archiveKeys: Set<String>
+    ) {
         self.wantedIDs = wantedIDs
         self.wantedNames = wantedNames
         self.window = window
+        self.recentStart = recentStart
+        self.archiveKeys = archiveKeys
     }
 
     func parser(
@@ -163,7 +183,8 @@ private final class XMLTVCollector: NSObject, XMLParserDelegate {
             }
             // Auch Sender ohne <channel>-Eintrag über die ID zuordnen.
             if wantedIDs.contains(channel) { keysForChannel[channel, default: []].insert(channel) }
-            guard keysForChannel[channel] != nil else {
+            guard let keys = keysForChannel[channel],
+                  end >= recentStart || !keys.isDisjoint(with: archiveKeys) else {
                 currentProgramme = nil
                 return
             }

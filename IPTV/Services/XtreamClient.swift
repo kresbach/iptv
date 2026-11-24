@@ -87,7 +87,10 @@ struct XtreamClient: Sendable {
                 group: stream.categoryId?.string.flatMap { liveNames[$0] },
                 tvgID: stream.epgChannelId?.string.flatMap { $0.isEmpty ? nil : $0 },
                 logoURL: stream.streamIcon?.string.flatMap(URL.init(string:)),
-                kind: .live
+                kind: .live,
+                archiveDays: stream.tvArchive?.int == 1
+                    ? min(max(stream.tvArchiveDuration?.int ?? 1, 1), 30)
+                    : nil
             ))
         }
         for stream in try await vodStreamsTask {
@@ -122,7 +125,8 @@ struct XtreamClient: Sendable {
             )
         }
 
-        return PlaylistData(channels: channels, shows: shows)
+        let timeZone = account.serverInfo?.timezone?.string.flatMap { $0.isEmpty ? nil : $0 }
+        return PlaylistData(channels: channels, shows: shows, serverTimeZone: timeZone)
     }
 
     /// Bewertung als Zahl 0–10; „0“ oder leer heißt „keine Bewertung“.
@@ -268,6 +272,20 @@ struct XtreamClient: Sendable {
 
     private struct Account: Decodable {
         let userInfo: UserInfo?
+        let serverInfo: ServerInfo?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            userInfo = try container.decodeIfPresent(UserInfo.self, forKey: .userInfo)
+            // Serverangaben sind optional; ein ungewöhnliches Format darf die Anmeldung nicht verhindern.
+            serverInfo = try? container.decodeIfPresent(ServerInfo.self, forKey: .serverInfo)
+        }
+
+        private enum CodingKeys: String, CodingKey { case userInfo, serverInfo }
+    }
+
+    private struct ServerInfo: Decodable {
+        let timezone: Flexible?
     }
 
     private struct UserInfo: Decodable {
@@ -290,6 +308,8 @@ struct XtreamClient: Sendable {
         let streamIcon: Flexible?
         let epgChannelId: Flexible?
         let categoryId: Flexible?
+        let tvArchive: Flexible?
+        let tvArchiveDuration: Flexible?
     }
 
     private struct VODStream: Decodable {
