@@ -166,6 +166,41 @@ struct PlaybackCandidate: Equatable {
     }
 }
 
+/// Momentaufnahme der Wiedergabe für die Anzeige „Wiedergabe-Info“.
+struct PlaybackStats: Equatable, Sendable {
+    var player: String
+    var resolution: CGSize?
+    /// Tatsächlich gezeigte Bilder pro Sekunde.
+    var displayedFPS: Double?
+    /// Verlorene bzw. ausgelassene Bilder seit dem Start.
+    var lostFrames: Int?
+    /// Verlorene Bilder seit der letzten Abfrage (etwa 1 Sekunde).
+    var recentLostFrames: Int?
+    var bitrateKbps: Double?
+    var codec: String?
+    /// Fehlerhafte Datenpakete und Sprünge im Stream bzw. Aussetzer (Apple).
+    var streamErrors: Int?
+
+    enum Level { case good, warning, bad }
+
+    /// Kurze Einschätzung mit Tipp.
+    var assessment: (level: Level, text: String) {
+        if let recent = recentLostFrames, recent >= 3 {
+            return (.bad, "Bilder gehen verloren – Live-Puffer „Groß“ oder Halbbilder „Bob“ in den Einstellungen probieren.")
+        }
+        if let fps = displayedFPS, fps > 0, fps < 20 {
+            return (.warning, "Niedrige Bildrate – das Gerät oder der Stream kommt nicht hinterher.")
+        }
+        if let kbps = bitrateKbps, kbps > 0, kbps < 1000 {
+            return (.warning, "Geringe Datenrate – das Bild kann unscharf sein oder hängen.")
+        }
+        if displayedFPS == nil && bitrateKbps == nil {
+            return (.warning, "Noch keine Messwerte …")
+        }
+        return (.good, "Wiedergabe läuft flüssig.")
+    }
+}
+
 /// Eine Untertitel- oder Tonspur.
 struct MediaTrack: Identifiable, Hashable, Sendable {
     let id: Int
@@ -215,6 +250,9 @@ protocol PlaybackEngine: AnyObject {
     var isUserMuted: Bool { get }
     func setVolume(_ value: Double)
     func toggleMute()
+
+    /// Messwerte für „Wiedergabe-Info“; etwa einmal pro Sekunde abfragen.
+    func currentStats() -> PlaybackStats
 
     func start(url: URL, isLive: Bool, resumeAt: Double?)
     /// Wird regelmäßig aufgerufen und aktualisiert den Zustand.
@@ -408,6 +446,27 @@ final class ApplePlaybackEngine: PlaybackEngine {
     func toggleMute() {
         isUserMuted.toggle()
         player.volume = isUserMuted ? 0 : Float(volume)
+    }
+
+    @ObservationIgnored private var lastDroppedFrames: Int?
+
+    func currentStats() -> PlaybackStats {
+        var stats = PlaybackStats(player: isExternalPlaybackActive ? "Apple-Player (AirPlay)" : "Apple-Player")
+        guard let item = player.currentItem else { return stats }
+        let size = item.presentationSize
+        if size.width > 0, size.height > 0 { stats.resolution = size }
+        if let track = item.tracks.first(where: { $0.assetTrack?.mediaType == .video }), track.currentVideoFrameRate > 0 {
+            stats.displayedFPS = Double(track.currentVideoFrameRate)
+        }
+        if let events = item.accessLog()?.events, let last = events.last {
+            if last.observedBitrate > 0 { stats.bitrateKbps = last.observedBitrate / 1000 }
+            let dropped = events.reduce(0) { $0 + max($1.numberOfDroppedVideoFrames, 0) }
+            stats.lostFrames = dropped
+            if let previous = lastDroppedFrames { stats.recentLostFrames = max(dropped - previous, 0) }
+            lastDroppedFrames = dropped
+            stats.streamErrors = events.reduce(0) { $0 + max($1.numberOfStalls, 0) }
+        }
+        return stats
     }
 
     // Ton-Versatz kann der Apple-Player nicht.

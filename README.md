@@ -24,6 +24,7 @@ Eine schlanke IPTV-App für iPhone und iPad in SwiftUI. Bedienkonzept und Funkti
 - **Player-Einstellungen**: Live-Puffer (Schnell/Normal/Groß), Halbbilder umwandeln für 1080i-Sender (VLC, Yadif 2x), bevorzugte Tonspur- und Untertitelsprache; Ton-Versatz im Player-Menü „…“ (VLC).
 - **Archiv / verpasste Sendungen** (Xtream-Timeshift, M3U `catchup-days`): im TV-Raster bis 24 Std. zurück (Symbol ↺), *Verpasste Sendungen* im Senderprogramm und im Player-Menü, *Sendung von Anfang an*.
 - **TMDB** (optional, kostenloser Schlüssel unter *Einstellungen → Trends & Empfehlungen*): Trends von Netflix, Prime Video & Co. auf der Startseite, *Das könnte dir auch gefallen* auf Detailseiten, Trailer, wenn der Anbieter keinen liefert. Ohne Schlüssel entstehen Trends aus passend benannten Kategorien.
+- **Wiedergabe-Info** im Player-Menü „…“: Bilder/s, verlorene Bilder, Datenrate, Format und Einschätzung.
 - **Bildspeicher** für Logos und Cover begrenzen und leeren (*Einstellungen → Bildspeicher*).
 - **Player**: Apple-Player (Bild-in-Bild, AirPlay) und optional **VLC** für `.ts`, `.mkv`, `rtmp` usw. In der Einstellung *Automatisch* wird VLC verwendet, wenn das Format es erfordert oder der Apple-Player scheitert.
 

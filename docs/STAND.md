@@ -27,6 +27,11 @@ Antworten an den Nutzer auf Deutsch, kurz und verständlich (kein Entwickler).
 - Installation beim Nutzer: kostenlose Apple-ID + **SideStore** (LocalDevVPN, Pairing-Datei über iloader; im Firmennetz scheitert es wegen TLS-Prüfung).
   Firmen-Entwicklerkonto ohne Admin-Rechte – TestFlight dort nicht möglich.
 
+## Versionierung
+Bei **jeder Änderungsrunde** `MARKETING_VERSION` des App-Ziels in `IPTV.xcodeproj/project.pbxproj`
+erhöhen (beide Stellen: Debug und Release) und einen Abschnitt in `CHANGELOG.md` ergänzen.
+Die Build-Nummer setzt `scripts/build-ipa.sh` automatisch (Anzahl der Commits). Aktuell: 1.4.
+
 ## Funktionen (iOS)
 Playlists (M3U-Link inkl. get.php→Xtream, Datei, Xtream), Live/Filme/Serien, Kategorien (sortieren/ausblenden/PIN),
 Favoriten, Weiterschauen, EPG (XMLTV gestreamt, Zeitraster), Suche, Film-/Seriendetails mit Trailer und weiteren Fassungen,
@@ -43,5 +48,6 @@ EPG behält für Archiv-Sender ältere Sendungen), TMDB (`Services/TMDB.swift`, 
 
 ## Offene Ideen
 - Native macOS-App (dauerhaft ohne Konto nutzbar) – am besten in einer Sitzung direkt auf dem Mac bauen.
-- Erinnerungen, neue Folgen, Profile, Binär-Zwischenspeicher, Wiedergabe-Infos, Siri/Widget, Chromecast
+- Erinnerungen, neue Folgen, Binär-Zwischenspeicher, Sicherung, Siri/Widget, „Sport jetzt live“, Chromecast
+  (1.4: Wiedergabe-Info `PlaybackStats`, VLC-Fläche wiederverwenden `VLCSurfaceHolder`)
   (vollständige Liste der Android-Funktionen, die iOS noch fehlen: siehe Verlauf bzw. android/README.md).
