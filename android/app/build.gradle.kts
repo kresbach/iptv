@@ -13,8 +13,8 @@ android {
         applicationId = "app.iptv.tv"
         minSdk = 26 // Google TV: Android 10+, ältere Android-TV-Boxen ab 8.0
         targetSdk = 36
-        versionCode = 24
-        versionName = "2.16"
+        versionCode = 25
+        versionName = "2.17"
         // Google-TV-Geräte (Sony & Co.) laufen auf ARM. Spart ~50 MB gegenüber allen Architekturen.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }

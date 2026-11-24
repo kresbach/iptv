@@ -158,7 +158,7 @@ object Repository {
         val channels = CategoryPrefs.filterChannels(c.data.channels)
         val shows = CategoryPrefs.filterShows(c.data.shows)
         return if (channels.size == c.data.channels.size && shows.size == c.data.shows.size) c
-        else LibraryContent(PlaylistData(channels, shows))
+        else LibraryContent(c.data.copy(channels = channels, shows = shows))
     }
 
     /**

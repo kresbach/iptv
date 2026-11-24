@@ -77,7 +77,8 @@ private fun CategoryEditContent(nav: Navigator, screen: Screen.CategoryEdit) {
             "Kategorien bearbeiten",
             "Ausblenden = nirgends mehr angezeigt. Sperren = nur nach PIN sichtbar" +
                 (if (!Prefs.hasPin) " (erst PIN unter Einstellungen → Kindersicherung festlegen)" else "") +
-                ". ▲▼ verschiebt die Kategorie.",
+                ". Kinder ✓ = im Kinderprofil sichtbar (Kinder-Kategorien erkennt die App selbst; alles andere bleibt dort unsichtbar). " +
+                "▲▼ verschiebt die Kategorie.",
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             ContentKind.entries.forEach { k ->
@@ -92,6 +93,7 @@ private fun CategoryEditContent(nav: Navigator, screen: Screen.CategoryEdit) {
             itemsIndexed(categories, key = { _, c -> c.name }) { index, c ->
                 val hidden = CategoryPrefs.isHidden(kind, c.name)
                 val locked = CategoryPrefs.isLocked(kind, c.name)
+                val forKids = CategoryPrefs.isKidsCategory(kind, c.name)
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AppColors.Surface).padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -111,6 +113,9 @@ private fun CategoryEditContent(nav: Navigator, screen: Screen.CategoryEdit) {
                     }
                     if (Prefs.hasPin) {
                         SmallButton(if (locked) "Entsperren" else "Sperren") { CategoryPrefs.setLocked(kind, c.name, !locked) }
+                    }
+                    if (!CategoryPrefs.isAdult(c.name)) {
+                        SmallButton(if (forKids) "Kinder ✓" else "Kinder –") { CategoryPrefs.setKids(kind, c.name, !forKids) }
                     }
                     SmallButton("▲") { CategoryPrefs.move(kind, categories, index, -1) }
                     SmallButton("▼") { CategoryPrefs.move(kind, categories, index, 1) }

@@ -109,6 +109,13 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.17 – Kinderprofil nur mit Kinderinhalten
+
+- Das Kinderprofil zeigt jetzt **nur noch, was ausdrücklich für Kinder ist** (Freigabeliste statt Sperrliste). Neue Kategorien des Anbieters bleiben dort automatisch unsichtbar.
+- **Automatisch freigegeben:** Kategorien mit Namen wie Kinder, Kids, KiKA, Disney, Nick, Toggo, Super RTL, Cartoon, Zeichentrick, Animation, Familienfilme, Märchen. Dazu Kindersender wie KiKA, Disney Channel, Nick, Toggo, Super RTL oder Cartoon Network, auch wenn der Anbieter sie in einer allgemeinen Kategorie führt. Erwachseneninhalte sind nie dabei.
+- **Selbst festlegen:** Einstellungen → Kategorien bearbeiten (oder Profile → „Kinderinhalte festlegen“): Der Knopf „Kinder ✓ / Kinder –“ gibt eine Kategorie frei oder entzieht sie. Das ist im Kinderprofil durch die PIN geschützt.
+- „Weiterschauen“, „Zuletzt gesehen“, Suche, TV-Programm, Sport-Reihe, weitere Fassungen und Google-TV-Startbildschirm halten sich ebenfalls daran.
+
 ## Neu in Version 2.16
 
 - Das große Titelbild oben auf der Startseite ist wieder entfernt.
