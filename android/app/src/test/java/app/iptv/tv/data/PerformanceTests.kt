@@ -148,3 +148,54 @@ class SportReihenfolgeTest {
         assertEquals(listOf("Champions League: Inter - PSG", "Premier League: Arsenal - Chelsea", "Bundesliga: Mainz - Freiburg"), ev.map { it.programme.title })
     }
 }
+
+class LiveRobustTest {
+    @Test
+    fun ersatzsenderFinden() {
+        fun ch(n: String, cat: String = "DE Sport") = Channel(name = n, url = "u/$n", group = cat, kind = ContentKind.LIVE)
+        val orig = ch("Sky Sport 1 HD")
+        val all = listOf(
+            orig, ch("DE: Sky Sport 1 FHD"), ch("Sky Sport 1 (Backup)"), ch("Sky Sport 1 SD", "DE Sport SD"),
+            ch("Sky Sport 10 HD"), ch("Sky Sport Bundesliga 1 HD"), ch("Sky Sport 1 UHD 4K"),
+        )
+        assertEquals("sky sport 1", Alternatives.baseName("DE: Sky Sport 1 FHD (Backup)"))
+        val alt = Alternatives.find(orig, all).map { it.name }
+        assertEquals(listOf("DE: Sky Sport 1 FHD", "Sky Sport 1 UHD 4K", "Sky Sport 1 (Backup)", "Sky Sport 1 SD"), alt)
+        assertTrue(Alternatives.find(ch("Sky Sport Bundesliga 1 HD"), all).isEmpty())
+    }
+
+    @Test
+    fun eingefrorenesBildErkennen() {
+        val m = FrameMonitor()
+        var t = 0L; var shown = 0
+        m.update(t, 0, 0, 0, 0)
+        repeat(3) { t += 2_000; shown += 100; m.update(t, shown, 0, 0, t) }
+        assertTrue(m.counting)
+        repeat(3) { t += 2_000; m.update(t, shown, 0, 0, t) } // keine neuen Bilder
+        assertEquals(6_000L, m.frozenMs)
+        t += 2_000; shown += 100; m.update(t, shown, 0, 0, t)
+        assertEquals(0L, m.frozenMs)
+    }
+
+    @Test
+    fun zaehlerOhneBilderKeinFehlalarm() {
+        // Manche Dekoder zählen keine gezeigten Bilder: dann nie „eingefroren“ melden
+        val m = FrameMonitor()
+        var t = 0L
+        m.update(t, 0, 0, 0, 0)
+        repeat(10) { t += 2_000; m.update(t, 0, 0, 0, t) }
+        assertFalse(m.counting)
+        assertEquals(0L, m.frozenMs)
+    }
+
+    @Test
+    fun gestoerterStream() {
+        val m = FrameMonitor()
+        var t = 0L; var errors = 0; var shown = 0
+        m.update(t, 0, 0, 0, 0)
+        repeat(10) { t += 2_000; errors += 5; shown += 90; m.update(t, shown, 0, errors, t) }
+        assertEquals(20_000L, m.troubledMs)
+        t += 2_000; shown += 90; m.update(t, shown, 0, errors, t)
+        assertEquals(0L, m.troubledMs)
+    }
+}

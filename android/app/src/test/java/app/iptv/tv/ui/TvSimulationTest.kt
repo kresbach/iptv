@@ -521,7 +521,7 @@ class TvSimulationTest {
         back()
         right()
         ok() // Einstellungen
-        down(15)
+        down(16)
         ok() // Untertitel
         expect("API-Key")
         shot("76-untertitel")
@@ -629,5 +629,24 @@ class TvSimulationTest {
         expect("Alle Sender")
     }
 
-
+    @Test
+    fun farbtasten() {
+        start()
+        fun press(code: Int) {
+            rule.runOnUiThread {
+                val w = rule.activity.window
+                w.superDispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+                w.superDispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+            }
+            settle(800)
+        }
+        press(android.view.KeyEvent.KEYCODE_PROG_GREEN)
+        check(see("Nachrichten") && see(":00")) { "Grün öffnet nicht das TV-Programm" }
+        press(android.view.KeyEvent.KEYCODE_PROG_RED)
+        expect("Favoriten")
+        expect("Alle Sender")
+        press(android.view.KeyEvent.KEYCODE_PROG_BLUE)
+        expect("Weiterschauen") // Startseite
+        shot("97-farbtasten")
+    }
 }

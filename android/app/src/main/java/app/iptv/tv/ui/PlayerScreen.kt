@@ -189,6 +189,17 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
         if (!screen.archive) Repository.addRecent(ch, screen.showKey ?: Repository.showKeyFor(ch))
     }
 
+    // Ersatzfassungen desselben Senders (HD/FHD/Backup) für Ausfälle und gestörte Streams – im Hintergrund
+    // gesucht, nachdem der Sender schon startet (der Player selbst wird hier nicht angefasst).
+    LaunchedEffect(playingIndex) {
+        val ch = items.getOrNull(playingIndex) ?: return@LaunchedEffect
+        if (ch.kind != ContentKind.LIVE || screen.archive) return@LaunchedEffect
+        val alt = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            app.iptv.tv.data.Alternatives.find(ch, Repository.visible.value.live)
+        }
+        if (engine.currentKey == ch.stableKey) engine.alternatives = alt
+    }
+
     // Sendernummer: 1,5 s nach der letzten Ziffer umschalten.
     LaunchedEffect(digits) {
         if (digits.isEmpty()) return@LaunchedEffect
@@ -389,6 +400,11 @@ fun PlayerScreen(nav: Navigator, screen: Screen.Player) {
                     KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { options = "main"; true }
                     KeyEvent.KEYCODE_INFO -> { showInfo = !showInfo; infoTick++; true }
                     KeyEvent.KEYCODE_CAPTIONS -> { options = "text"; true }
+                    // Farbtasten: Rot = Favorit, Grün = TV-Programm, Gelb = Tonspur, Blau = Untertitel
+                    KeyEvent.KEYCODE_PROG_RED -> { toggleFavorite(channel.stableKey, channel.name); showInfo = true; infoTick++; true }
+                    KeyEvent.KEYCODE_PROG_GREEN -> { nav.push(Screen.EpgGrid); true }
+                    KeyEvent.KEYCODE_PROG_YELLOW -> { options = "audio"; true }
+                    KeyEvent.KEYCODE_PROG_BLUE -> { options = "text"; true }
                     KeyEvent.KEYCODE_LAST_CHANNEL -> {
                         if (isLive && previousIndex in items.indices) { index = previousIndex; showInfo = true; infoTick++ }
                         true

@@ -268,6 +268,8 @@ fun PlayerOptions(
                     val rate = app.iptv.tv.player.DisplayRate.currentRate(app.iptv.tv.player.DisplayRate.findActivity(androidx.compose.ui.platform.LocalContext.current))
                     val lines = listOf(
                         "Player" to engine.backendName + (if (v.decoder.isNotEmpty() && v.decoder != "VLC") " · ${v.decoder}" else ""),
+                        "Quelle" to (engine.alternativeName?.let { "Ersatz: $it" }
+                            ?: if (engine.alternatives.isNotEmpty()) "Original (${engine.alternatives.size} Ersatzfassungen bereit)" else "Original"),
                         "Auflösung" to if (v.width > 0) "${v.width}×${v.height}" else "–",
                         "Bildrate Video" to if (v.fps > 0) "%.3g fps".format(v.fps) else "wird gemessen …",
                         "Bildschirm" to (rate?.let { "%.3g Hz".format(it) } ?: "–") +

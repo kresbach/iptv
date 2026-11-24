@@ -96,6 +96,8 @@ object Prefs {
     var imageCacheMb: Int get() = int("imageCacheMb", 150); set(v) = putInt("imageCacheMb", v)
     /** Bild und Ton von der Hardware synchronisieren lassen (manche Fernseher laufen damit flüssiger). */
     var tunneling: Boolean get() = bool("tunneling", false); set(v) = putBool("tunneling", v)
+    /** Dolby-Ton (AC3/E-AC3) unverändert an Soundbar/AV-Receiver geben (nur sinnvoll mit solchem Gerät). */
+    var audioPassthrough: Boolean get() = bool("audioPassthrough", false); set(v) = putBool("audioPassthrough", v)
 
     /**
      * Deinterlacing für Live TV (1080i-Sender): "off", "bob" (schonend) oder "yadif2x" (beste Qualität).

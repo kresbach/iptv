@@ -109,6 +109,16 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.19 – Live TV robuster
+
+- **Eingefrorenes Bild wird erkannt:** Kommen 6 Sekunden lang keine neuen Bilder, obwohl der Player „läuft“, verbindet die App neu.
+- **Hänger schneller behoben:** Live TV verbindet nach 12 statt 30 Sekunden ohne Daten neu.
+- **Umschalten bleibt nicht hängen:** Höchstens 4 Sekunden Warten, bis die alte Verbindung geschlossen ist.
+- **Ersatzsender:** Andere Fassungen desselben Senders (z. B. „Sky Sport 1 HD“, „FHD“, „Backup“) werden automatisch genutzt, wenn der Sender ausfällt oder der Stream 20 Sekunden lang gestört ist. Die Wiedergabe-Info zeigt unter „Quelle“, welche Fassung läuft.
+- **Dolby-Ton durchreichen** (Einstellungen → Wiedergabe): Ton unverändert an Soundbar/AV-Receiver geben. Nur mit solchem Gerät einschalten.
+- **Senderliste:** Die Zuordnung Sender → Sendungen wird gemerkt, das Scrollen läuft ruhiger.
+- **Farbtasten der Fernbedienung:** Im Player Rot = Favorit, Grün = TV-Programm, Gelb = Tonspur, Blau = Untertitel. Sonst Rot = Favoriten, Grün = TV-Programm, Gelb = Suche, Blau = Startseite.
+
 ## Neu in Version 2.18
 
 - **Profile entfernt.** Es gibt wieder nur einen gemeinsamen Stand mit Favoriten, Verlauf und „Weiterschauen“ (die des bisherigen Hauptprofils bleiben erhalten). Damit entfallen auch das Kinderprofil und die Frage „Wer schaut?“. Für Kinder bleibt die Kindersicherung: Kategorien mit PIN sperren, Erwachseneninhalte werden automatisch gesperrt.

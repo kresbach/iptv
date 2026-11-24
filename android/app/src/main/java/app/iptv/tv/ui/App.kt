@@ -236,6 +236,23 @@ fun AppRoot(onExit: () -> Unit) {
 
     Box(
         Modifier.fillMaxSize().background(AppColors.Background).onPreviewKeyEvent { e ->
+            // Farbtasten (außerhalb des Players): Rot = Favoriten, Grün = TV-Programm, Gelb = Suche, Blau = Startseite
+            if (nav.current !is Screen.Player && dueReminder == null) {
+                val target = when (e.nativeKeyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_PROG_RED -> Screen.Live(FAVORITES)
+                    android.view.KeyEvent.KEYCODE_PROG_GREEN -> Screen.EpgGrid
+                    android.view.KeyEvent.KEYCODE_PROG_YELLOW -> Screen.Search
+                    android.view.KeyEvent.KEYCODE_PROG_BLUE -> Screen.Home
+                    else -> null
+                }
+                if (target != null) {
+                    if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                        nav.home()
+                        if (target != Screen.Home) nav.push(target)
+                    }
+                    return@onPreviewKeyEvent true
+                }
+            }
             val r = dueReminder ?: return@onPreviewKeyEvent false
             val code = e.nativeKeyEvent.keyCode
             val ok = code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER

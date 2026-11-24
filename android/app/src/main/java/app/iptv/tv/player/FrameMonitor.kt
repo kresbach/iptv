@@ -21,12 +21,24 @@ class FrameMonitor(
 
     var shownFps = 0f
         private set
+    /** So lange kommen schon keine neuen Bilder (ms) – nur aussagekräftig, wenn [counting] gilt. */
+    var frozenMs = 0L
+        private set
+    /** Der Zähler „gezeigte Bilder“ ist bei diesem Stream schon einmal gestiegen (er funktioniert). */
+    var counting = false
+        private set
+    /** Wie lange der Stream schon ununterbrochen fehlerhafte Daten liefert (ms). */
+    var troubledMs = 0L
+        private set
     var lostPercent = 0f
         private set
 
     fun reset() {
         lastTime = -1L
         bad = 0
+        frozenMs = 0
+        counting = false
+        troubledMs = 0
         shownFps = 0f
         lostPercent = 0f
     }
@@ -42,6 +54,8 @@ class FrameMonitor(
         val dLost = lost - lastLost
         val dErrors = streamErrors - lastErrors
         lastTime = nowMs; lastShown = shown; lastLost = lost; lastErrors = streamErrors
+        if (dShown > 0) { counting = true; frozenMs = 0 } else if (counting) frozenMs += dt
+        troubledMs = if (dErrors > 0) troubledMs + dt else 0
         val total = dShown + dLost
         if (total < 10) return false // Pause/Nachladen: nichts zu bewerten
         shownFps = dShown * 1000f / dt

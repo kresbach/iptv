@@ -49,6 +49,7 @@ private val pages = listOf(
             "OK lange drücken" to "im Player: Tonspur, Untertitel, Bildformat, Sendung von Anfang an …",
             "OK lange drücken" to "in Listen: als Favorit merken",
             "Zurück" to "eine Ebene zurück",
+            "Farbtasten" to "Rot Favoriten · Grün TV-Programm · Gelb Tonspur · Blau Untertitel",
         ),
     ),
     OnboardingPage(

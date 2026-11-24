@@ -284,12 +284,17 @@ data class Programme(val title: String, val description: String? = null, val sta
 
 @Serializable
 data class EpgGuide(val programmes: Map<String, List<Programme>> = emptyMap(), val fetchedAt: Long = 0) {
-    fun schedule(channel: Channel): List<Programme> {
-        for (key in lookupKeys(channel)) {
-            programmes[key]?.takeIf { it.isNotEmpty() }?.let { return it }
+    /**
+     * Zuordnung Sender → Sendungen einmal je TV-Programm merken: Die Senderliste fragt das beim Scrollen
+     * für jede Zeile ab, ohne Merken würden dabei jedes Mal neue Texte angelegt (Ruckler durch Speicherbereinigung).
+     */
+    @kotlinx.serialization.Transient
+    private val scheduleMemo = java.util.concurrent.ConcurrentHashMap<String, List<Programme>>()
+
+    fun schedule(channel: Channel): List<Programme> =
+        scheduleMemo.getOrPut((channel.tvgId ?: "") + "\u0000" + channel.name) {
+            lookupKeys(channel).firstNotNullOfOrNull { key -> programmes[key]?.takeIf { it.isNotEmpty() } } ?: emptyList()
         }
-        return emptyList()
-    }
 
     // Sendungen sind nach Beginn sortiert → binäre Suche statt alles durchzugehen
     // (mit Archiv stehen bis zu 7 Tage pro Sender in der Liste; die Senderliste fragt das für jede Zeile ab).

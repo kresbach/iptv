@@ -123,6 +123,26 @@ class PlaybackEngine(private val context: Context) {
     private var forceHls = false
     /** VLC wird im Hintergrund freigegeben (kann bei hängendem Netz blockieren); bis dahin nicht neu starten. */
     private var bufferingSince = 0L
+    private var releaseWaitSince = 0L
+
+    /**
+     * Ersatzsender: andere Fassungen desselben Senders (HD/FHD/Backup …). Fällt der Sender aus oder ist der
+     * Stream dauerhaft gestört, wechselt die App automatisch dorthin. 0 = Original.
+     */
+    @Volatile var alternatives: List<Channel> = emptyList()
+    private var altIndex = 0
+    /** Gerade gespielte Ersatzfassung (für Info und Hinweis), sonst null. */
+    val alternativeName: String? get() = if (altIndex > 0) alternatives.getOrNull(altIndex - 1)?.name else null
+
+    /** Nächste Fassung wählen; false = keine vorhanden. */
+    private fun nextAlternative(): Boolean {
+        val ch = channel ?: return false
+        if (!isLive || alternatives.isEmpty() || localFile != null) return false
+        altIndex = (altIndex + 1) % (alternatives.size + 1)
+        currentUrl = if (altIndex == 0) ch.url else alternatives[altIndex - 1].url
+        Log.i(TAG, "Ersatzsender: ${alternativeName ?: ch.name}")
+        return true
+    }
 
     /** Wächter: hängt der Stream ohne Fehlermeldung beim Laden, wird neu verbunden. */
     private val watchdog = object : Runnable {
@@ -133,7 +153,7 @@ class PlaybackEngine(private val context: Context) {
             if (channel != null && st.buffering && !st.failed && (exo != null || vlc != null)) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 if (bufferingSince == 0L) bufferingSince = now
-                else if (now - bufferingSince > STALL_TIMEOUT_MS) {
+                else if (now - bufferingSince > if (isLive) LIVE_STALL_TIMEOUT_MS else STALL_TIMEOUT_MS) {
                     bufferingSince = 0L
                     handleFailure("keine Daten vom Server")
                 }
@@ -150,6 +170,7 @@ class PlaybackEngine(private val context: Context) {
      */
     fun play(channel: Channel, startPositionMs: Long = 0, localFile: java.io.File? = null, subtitle: java.io.File? = null) {
         main.removeCallbacksAndMessages(null)
+        val sameChannel = this.channel?.stableKey == channel.stableKey
         val next = chooseBackend(channel)
         // Beim Zappen zwischen VLC-Sendern die Videofläche behalten (schnelleres, ruhigeres Umschalten).
         releasePlayers(keepVlcSurface = next == Backend.VLC && vlcAvailable && !surfaceReuseBroken)
@@ -158,6 +179,9 @@ class PlaybackEngine(private val context: Context) {
         attempts = 0
         forceHls = false
         bufferingSince = 0L
+        altIndex = 0
+        // Ersatzfassungen gehören zum Sender – bei einem anderen Sender setzt der Aufrufer sie neu
+        if (!sameChannel) alternatives = emptyList()
         videoInfo.value = VideoInfo()
         everPlayed = false
         resumePosition = startPositionMs
@@ -402,6 +426,20 @@ class PlaybackEngine(private val context: Context) {
             mbps = stats.inputBitrate * 8f,
             streamErrors = stats.demuxCorrupted + stats.demuxDiscontinuity,
         )
+        // Eingefrorenes Bild (VLC meldet weiter „läuft“, es kommen aber keine Bilder): neu verbinden.
+        if (isLive && frames.counting && frames.frozenMs >= FREEZE_MS && runCatching { vlc?.videoTracksCount ?: 0 }.getOrDefault(0) > 0) {
+            frames.reset()
+            handleFailure("Bild eingefroren")
+            return
+        }
+        // Dauerhaft gestörter Stream: auf eine andere Fassung des Senders wechseln.
+        if (isLive && frames.troubledMs >= TROUBLE_MS && alternatives.isNotEmpty()) {
+            frames.reset()
+            if (nextAlternative()) {
+                restartSame("Stream gestört – wechsle auf ${alternativeName ?: "Originalsender"} …")
+                return
+            }
+        }
         if (verdict && isLive && deinterlaceActive != null && app.iptv.tv.data.Prefs.deinterlace == "auto") {
             val level = app.iptv.tv.data.Prefs.deinterlaceAutoLevel
             if (level >= DEINTERLACE_LEVELS.lastIndex) return
@@ -484,12 +522,19 @@ class PlaybackEngine(private val context: Context) {
     private fun start() {
         val ch = channel ?: return
         if (backend == Backend.VLC && !vlcAvailable) backend = Backend.EXO
-        // Erst starten, wenn der vorherige VLC-Player die Verbindung wirklich geschlossen hat.
+        // Erst starten, wenn der vorherige VLC-Player die Verbindung wirklich geschlossen hat –
+        // aber nicht endlos: hängt das Schließen (gestörte Leitung), ist die alte Verbindung ohnehin tot.
         if (releasing.get() > 0) {
-            val gen = generation
-            main.postDelayed({ if (gen == generation) start() }, 100)
-            return
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            if (releaseWaitSince == 0L) releaseWaitSince = nowMs
+            if (nowMs - releaseWaitSince < RELEASE_WAIT_MS) {
+                val gen = generation
+                main.postDelayed({ if (gen == generation) start() }, 100)
+                return
+            }
+            Log.w(TAG, "Alte Verbindung schließt nicht – starte trotzdem")
         }
+        releaseWaitSince = 0L
         main.removeCallbacks(watchdog)
         main.postDelayed(watchdog, 2_000)
         bufferingSince = 0L
@@ -533,8 +578,10 @@ class PlaybackEngine(private val context: Context) {
             }
             attempts = 0
         }
+        // Ersatzsender: nach jedem zweiten Fehlschlag die nächste Fassung desselben Senders.
+        val switchedAlt = isLive && attempts % 2 == 0 && nextAlternative()
         // Xtream-Live: nach mehreren Fehlschlägen mit TS das HLS-Format probieren (und umgekehrt).
-        if (isLive && attempts > 0 && attempts % 3 == 0) {
+        if (!switchedAlt && isLive && attempts > 0 && attempts % 3 == 0) {
             (UrlTools.liveHlsVariant(currentUrl) ?: UrlTools.liveTsVariant(currentUrl))?.let { currentUrl = it }
         }
         // Live: am Ende ExoPlayer ↔ VLC tauschen.
@@ -549,7 +596,10 @@ class PlaybackEngine(private val context: Context) {
             )
             return
         }
-        status.value = status.value.copy(buffering = true, message = retryMessage())
+        status.value = status.value.copy(
+            buffering = true,
+            message = if (switchedAlt) "Wechsle auf ${alternativeName ?: "Originalsender"} …" else retryMessage(),
+        )
         val gen = generation
         val delay = (attempts * 1_500L).coerceAtMost(8_000L)
         main.postDelayed({ if (gen == generation) start() }, delay)
@@ -827,6 +877,8 @@ class PlaybackEngine(private val context: Context) {
         vlcLayout = layout
         val player = MediaPlayer(lib)
         vlc = player
+        // Dolby-Ton unverändert an Soundbar/AV-Receiver geben (entlastet den Fernseher)
+        if (app.iptv.tv.data.Prefs.audioPassthrough) runCatching { player.setAudioDigitalOutputEnabled(true) }
         player.attachViews(layout, null, true, false)
         player.videoScale = MediaPlayer.ScaleType.SURFACE_BEST_FIT
         refreshVideoLayout()
@@ -932,6 +984,14 @@ class PlaybackEngine(private val context: Context) {
         @Volatile private var surfaceReuseBroken = false
         private const val TAG = "PlaybackEngine"
         private const val STALL_TIMEOUT_MS = 30_000L
+        /** Live (Fußball!): Hänger nach 12 s beheben statt nach 30 s. */
+        private const val LIVE_STALL_TIMEOUT_MS = 12_000L
+        /** Kommen so lange keine neuen Bilder, gilt das Bild als eingefroren → neu verbinden. */
+        private const val FREEZE_MS = 6_000L
+        /** Liefert der Stream so lange ununterbrochen gestörte Daten, auf einen Ersatzsender wechseln. */
+        private const val TROUBLE_MS = 20_000L
+        /** Höchstens so lange auf das Schließen der alten Verbindung warten. */
+        private const val RELEASE_WAIT_MS = 4_000L
         private val vlcExtensions = setOf("avi", "wmv", "flv", "mpg", "mpeg", "divx", "rmvb", "3gp", "vob", "ogm", "asf", "m2ts", "mts")
     }
 }

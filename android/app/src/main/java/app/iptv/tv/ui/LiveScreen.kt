@@ -95,6 +95,10 @@ fun LiveScreen(nav: Navigator, screen: Screen.Live) {
             preview.preferredBackend = app.iptv.tv.data.Prefs.playerLive
             Repository.playbackActive = true
             preview.play(ch)
+            val alt = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                app.iptv.tv.data.Alternatives.find(ch, Repository.visible.value.live)
+            }
+            if (preview.currentKey == ch.stableKey) preview.alternatives = alt
         }
         val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
         DisposableEffect(lifecycle) {

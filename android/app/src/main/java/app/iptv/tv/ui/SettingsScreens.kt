@@ -177,6 +177,9 @@ private fun SettingsContent(nav: Navigator, memory: ScreenMemory) {
         SettingRow("Tunneling (Bild-Ton-Synchronisierung)", if (Prefs.tunneling) "An" else "Aus",
             "Bei manchen Fernsehern flüssiger, bei manchen Streams Probleme – ausprobieren",
             modifier = Modifier.rememberFocus(memory, "tunnel")) { Prefs.tunneling = !Prefs.tunneling }
+        SettingRow("Dolby-Ton an Soundbar/AV-Receiver durchreichen", if (Prefs.audioPassthrough) "An" else "Aus",
+            "Nur mit Soundbar oder AV-Receiver einschalten: entlastet den Fernseher. Ohne solches Gerät kann der Ton fehlen",
+            modifier = Modifier.rememberFocus(memory, "passthrough")) { Prefs.audioPassthrough = !Prefs.audioPassthrough }
         SettingRow("Untertitel (OpenSubtitles)", if (Subtitles.isConfigured) "eingerichtet" else "nicht eingerichtet",
             "API-Key, Konto und bevorzugte Sprachen", modifier = Modifier.rememberFocus(memory, "subs")) { nav.push(Screen.SubtitleSettings) }
 
