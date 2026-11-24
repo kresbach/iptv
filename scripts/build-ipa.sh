@@ -25,7 +25,11 @@ fi
 BUILD_DIR="$PWD/build"
 DERIVED="$BUILD_DIR/DerivedData"
 
-echo "▶ Baue IPTV (Release, ohne Signatur) …"
+# Versionsnummer aus dem Projekt, Build-Nummer = Anzahl der Commits (steigt mit jeder Änderung).
+VERSION=$(grep -m1 "MARKETING_VERSION" IPTV.xcodeproj/project.pbxproj | sed -E 's/.*= ([^;]+);/\1/')
+BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+
+echo "▶ Baue IPTV $VERSION (Build $BUILD_NUMBER), Release, ohne Signatur …"
 rm -rf "$BUILD_DIR"
 xcodebuild \
   -project IPTV.xcodeproj \
@@ -37,6 +41,7 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY="" \
+  CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   build | grep -E "error:|warning: .*IPTV|BUILD (SUCCEEDED|FAILED)" || true
 
 APP="$DERIVED/Build/Products/Release-iphoneos/IPTV.app"
@@ -52,5 +57,5 @@ cp -R "$APP" "$BUILD_DIR/Payload/"
 (cd "$BUILD_DIR" && zip -qry IPTV.ipa Payload)
 rm -rf "$BUILD_DIR/Payload"
 
-echo "✓ Fertig: $BUILD_DIR/IPTV.ipa ($(du -h "$BUILD_DIR/IPTV.ipa" | cut -f1))"
+echo "✓ Fertig: $BUILD_DIR/IPTV.ipa – Version $VERSION (Build $BUILD_NUMBER), $(du -h "$BUILD_DIR/IPTV.ipa" | cut -f1)"
 echo "  Per AirDrop aufs iPhone schicken und dort mit SideStore öffnen."
