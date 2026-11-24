@@ -63,6 +63,10 @@ struct PlayerScreen: View {
     @State private var showsChannelList = false
     @State private var showsSubtitleSearch = false
     @State private var showsArchive = false
+    @State private var showsStats = false
+    #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
+    @State private var vlcSurface = VLCSurfaceHolder()
+    #endif
     @State private var airPlayHint: String?
 
     /// Nachbar in der Liste, aus der gestartet wurde. Live TV läuft am Ende wieder von vorn.
@@ -283,6 +287,14 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
+            if showsStats, let engine, errorMessage == nil {
+                PlaybackStatsPanel(engine: engine)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, 70)
+                    .padding(.leading)
+                    .allowsHitTesting(false)
+            }
+
             if !typedNumber.isEmpty {
                 channelNumberOverlay
             }
@@ -415,10 +427,19 @@ struct PlayerScreen: View {
                 .id(ObjectIdentifier(apple))
         }
         #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
-        if let vlc = engine as? VLCPlaybackEngine {
-            VLCVideoSurface(engine: vlc, fit: videoFit)
-                .id(ObjectIdentifier(vlc))
+        // Die VLC-Fläche bleibt beim Umschalten stehen (auch kurz ohne Player),
+        // der nächste VLC-Player zeichnet in dieselbe Fläche.
+        if engine is VLCPlaybackEngine || (engine == nil && vlcSurface.hasSurface && errorMessage == nil) {
+            VLCVideoSurface(holder: vlcSurface, engine: engine as? VLCPlaybackEngine, fit: videoFit)
+                .id(vlcSurface.generation)
         }
+        #endif
+    }
+
+    /// Nach einem gescheiterten Start eine neue VLC-Fläche verwenden (Rückfall).
+    private func resetVLCSurface() {
+        #if canImport(VLCKitSPM) || canImport(MobileVLCKit)
+        vlcSurface.reset()
         #endif
     }
 
@@ -648,6 +669,12 @@ struct PlayerScreen: View {
                 .pickerStyle(.inline)
             }
 
+            Section {
+                Toggle(isOn: $showsStats) {
+                    Label("Wiedergabe-Info", systemImage: "waveform.path.ecg")
+                }
+            }
+
             Section("Sleep-Timer") {
                 if let sleepDeadline {
                     Text("Endet um \(sleepDeadline.formatted(date: .omitted, time: .shortened))")
@@ -866,6 +893,7 @@ struct PlayerScreen: View {
                         reconnects += 1
                         engine.stop()
                         self.engine = nil
+                        resetVLCSurface()
                         connectionWaitMessage = "Verbindung unterbrochen – wird wiederhergestellt …"
                         try? await Task.sleep(for: .seconds(reconnects > 3 ? 4 : 1.5))
                         await finishPreviousPlayback()
@@ -908,6 +936,7 @@ struct PlayerScreen: View {
                     let line = "\(candidates[candidateIndex].playerName): \(failure)"
                     if !attemptErrors.contains(line) { attemptErrors.append(line) }
                     engine.stop()
+                    resetVLCSurface()
                     if hasAlternative {
                         self.engine = nil
                         // IPTV-Konten erlauben oft nur eine Verbindung: warten, bis der Server
@@ -1102,6 +1131,84 @@ struct PlayerScreen: View {
         .frame(maxWidth: 460)
         .background(.black.opacity(0.75), in: .rect(cornerRadius: 24))
         .padding()
+    }
+}
+
+/// Messwerte der Wiedergabe: Bildrate, verlorene Bilder, Datenrate, Format und Einschätzung.
+private struct PlaybackStatsPanel: View {
+    let engine: any PlaybackEngine
+    @State private var stats: PlaybackStats?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let stats {
+                let assessment = stats.assessment
+                Text(stats.player).font(.caption.bold())
+                line("Bild", [
+                    stats.resolution.map { "\(Int($0.width))×\(Int($0.height))" },
+                    stats.codec?.uppercased(),
+                ])
+                line("Bilder/s", [stats.displayedFPS.map { $0.formatted(.number.precision(.fractionLength(1))) }])
+                line("Verloren", [
+                    stats.lostFrames.map { "\($0) gesamt" },
+                    stats.recentLostFrames.map { "\($0)/s" },
+                ])
+                line("Datenrate", [stats.bitrateKbps.map { Self.rate($0) }])
+                line("Störungen", [stats.streamErrors.map { "\($0)" }])
+                Label(assessment.text, systemImage: Self.symbol(assessment.level))
+                    .font(.caption2)
+                    .foregroundStyle(Self.color(assessment.level))
+                    .padding(.top, 2)
+            } else {
+                Text("Messe …").font(.caption)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(12)
+        .frame(maxWidth: 280, alignment: .leading)
+        .background(.black.opacity(0.7), in: .rect(cornerRadius: 14))
+        .task(id: ObjectIdentifier(engine)) {
+            stats = nil
+            while !Task.isCancelled {
+                stats = engine.currentStats()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func line(_ title: String, _ values: [String?]) -> some View {
+        let text = values.compactMap { $0 }.joined(separator: " · ")
+        if !text.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title).foregroundStyle(.white.opacity(0.7))
+                Spacer(minLength: 8)
+                Text(text).monospacedDigit()
+            }
+            .font(.caption)
+        }
+    }
+
+    private static func rate(_ kbps: Double) -> String {
+        kbps >= 1000
+            ? "\((kbps / 1000).formatted(.number.precision(.fractionLength(1)))) Mbit/s"
+            : "\(Int(kbps)) kbit/s"
+    }
+
+    private static func symbol(_ level: PlaybackStats.Level) -> String {
+        switch level {
+        case .good: "checkmark.circle.fill"
+        case .warning: "exclamationmark.circle.fill"
+        case .bad: "xmark.octagon.fill"
+        }
+    }
+
+    private static func color(_ level: PlaybackStats.Level) -> Color {
+        switch level {
+        case .good: .green
+        case .warning: .yellow
+        case .bad: .red
+        }
     }
 }
 

@@ -4,6 +4,12 @@ Die Version steht in der App unter *Einstellungen → Info*, z. B. „1.3 (Build
 Die Versionsnummer wird bei jeder Änderungsrunde erhöht, die Build-Nummer zählt automatisch
 die Commits (setzt `scripts/build-ipa.sh`).
 
+## 1.4
+- Wiedergabe-Info im Player-Menü „…“: Auflösung, Format, gezeigte Bilder/s, verlorene Bilder,
+  Datenrate, Störungen und eine Einschätzung mit Tipp (Apple-Player und VLC)
+- Schnelleres Umschalten mit VLC: Die Videofläche bleibt stehen und wird vom nächsten Sender
+  weiterverwendet; nach einem gescheiterten Start wird eine neue Fläche aufgebaut
+
 ## 1.3
 - Player: Live-Puffer (Schnell/Normal/Groß), Halbbilder umwandeln (1080i), bevorzugte Ton- und
   Untertitelsprache, Ton-Versatz (VLC)

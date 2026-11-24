@@ -197,6 +197,50 @@ final class VLCPlaybackEngine: PlaybackEngine {
         player.audio?.volume = isUserMuted ? 0 : Int32(volume * 100)
     }
 
+    @ObservationIgnored private var lastStatsTime: ContinuousClock.Instant?
+    @ObservationIgnored private var lastDisplayed = 0
+    @ObservationIgnored private var lastLost = 0
+
+    func currentStats() -> PlaybackStats {
+        var stats = PlaybackStats(player: "VLC")
+        guard let media = player.media else { return stats }
+        let displayed = Int(media.numberOfDisplayedPictures)
+        let lost = Int(media.numberOfLostPictures)
+        let now = ContinuousClock.now
+        if let last = lastStatsTime {
+            let elapsed = now - last
+            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            if seconds > 0.2, displayed >= lastDisplayed {
+                stats.displayedFPS = Double(displayed - lastDisplayed) / seconds
+            }
+            stats.recentLostFrames = max(lost - lastLost, 0)
+        }
+        lastStatsTime = now
+        lastDisplayed = displayed
+        lastLost = lost
+        stats.lostFrames = lost
+        // libVLC liefert Byte pro Mikrosekunde ×1000; ×8000 ergibt kbit/s.
+        let kbps = Double(media.inputBitrate) * 8000
+        if kbps > 0 { stats.bitrateKbps = kbps }
+        stats.streamErrors = Int(media.numberOfCorruptedDataPackets) + Int(media.numberOfDiscontinuties)
+        let size = player.videoSize
+        if size.width > 0, size.height > 0 { stats.resolution = size }
+        // Videoformat aus den Spurinfos (FourCC, z. B. „h264“, „hevc“).
+        for case let info as [String: Any] in media.tracksInformation ?? [] where (info["type"] as? String) == "video" {
+            if let fourcc = (info["codec"] as? NSNumber)?.uint32Value, fourcc != 0 {
+                stats.codec = Self.fourCCString(fourcc)
+            }
+            break
+        }
+        return stats
+    }
+
+    private static func fourCCString(_ value: UInt32) -> String {
+        let bytes = [value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF]
+        let text = String(bytes.map { Character(UnicodeScalar(UInt8($0))) })
+        return text.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+    }
+
     var supportsAudioDelay: Bool { true }
     private(set) var audioDelay: Double = 0
     @ObservationIgnored private var appliedAudioDelay: Double = 0
@@ -271,6 +315,8 @@ enum VLCPlayerRetirement {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             player.media = nil
+            // Fläche freigeben – sie wird vom nächsten Player weiterverwendet.
+            player.drawable = nil
             retired.removeAll { $0 === player }
         }
     }
@@ -286,22 +332,62 @@ final class VLCDrawableView: UIView {
     }
 }
 
-/// Fläche, in die VLC das Video zeichnet.
-struct VLCVideoSurface: UIViewRepresentable {
-    let engine: VLCPlaybackEngine
-    var fit: VideoFit = .original
+/// Hält die VLC-Videofläche über einen Senderwechsel hinweg, damit beim Umschalten
+/// keine neue Fläche aufgebaut werden muss. Klappt ein Start nicht, wird mit `reset()`
+/// auf eine neue Fläche gewechselt.
+@MainActor
+final class VLCSurfaceHolder {
+    /// Ändert sich bei `reset()`; als `.id` der Fläche verwendet.
+    private(set) var generation = 0
+    private var cached: VLCDrawableView?
+    weak var attachedEngine: VLCPlaybackEngine?
 
-    func makeUIView(context: Context) -> VLCDrawableView {
+    var hasSurface: Bool { cached != nil }
+
+    func view() -> VLCDrawableView {
+        if let cached { return cached }
         let view = VLCDrawableView()
         view.backgroundColor = .black
         // Berührungen gehen an die SwiftUI-Steuerung darüber.
         view.isUserInteractionEnabled = false
-        engine.attach(view)
+        cached = view
+        return view
+    }
+
+    func reset() {
+        cached = nil
+        attachedEngine = nil
+        generation += 1
+    }
+}
+
+/// Fläche, in die VLC das Video zeichnet. Bleibt beim Umschalten bestehen;
+/// der neue Player zeichnet in dieselbe Fläche.
+struct VLCVideoSurface: UIViewRepresentable {
+    let holder: VLCSurfaceHolder
+    /// `nil`, solange zwischen zwei Sendern kein Player läuft.
+    let engine: VLCPlaybackEngine?
+    var fit: VideoFit = .original
+
+    func makeUIView(context: Context) -> VLCDrawableView {
+        let view = holder.view()
+        connect(view)
         return view
     }
 
     func updateUIView(_ view: VLCDrawableView, context: Context) {
-        let engine = engine
+        connect(view)
+    }
+
+    private func connect(_ view: VLCDrawableView) {
+        guard let engine else {
+            view.onLayout = nil
+            return
+        }
+        if holder.attachedEngine !== engine {
+            holder.attachedEngine = engine
+            engine.attach(view)
+        }
         let fit = fit
         view.onLayout = { size in engine.apply(fit: fit, viewSize: size) }
         engine.apply(fit: fit, viewSize: view.bounds.size)
