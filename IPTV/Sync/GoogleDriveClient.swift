@@ -1,9 +1,11 @@
 import Foundation
 
-/// Liest und schreibt eine Datei im versteckten App-Ordner von Google Drive.
+/// Liest und schreibt die Sync-Datei im Ordner „IPTV“ von Google Drive (dieselbe Datei wie die Fernseher-App).
+/// Berechtigung „drive.file“: die App sieht nur Dateien, die sie bzw. die Fernseher-App selbst angelegt hat.
 struct GoogleDriveClient: Sendable {
     let accessToken: String
     static let fileName = "iptv-sync.json"
+    static let folderName = "IPTV"
 
     enum DriveError: LocalizedError {
         case http(Int, String)
@@ -18,23 +20,50 @@ struct GoogleDriveClient: Sendable {
         }
     }
 
-    /// Lädt die Sync-Datei, falls vorhanden.
-    func download() async throws -> (fileID: String, data: Data)? {
+    private struct FileList: Decodable { struct File: Decodable { let id: String }; let files: [File] }
+
+    /// Erste passende Datei (neueste zuerst); `appData` = alter versteckter App-Ordner.
+    private func findID(_ query: String, appData: Bool = false) async throws -> String? {
         var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
-        components.queryItems = [
-            URLQueryItem(name: "spaces", value: "appDataFolder"),
-            URLQueryItem(name: "q", value: "name = '\(Self.fileName)'"),
+        var items = [
+            URLQueryItem(name: "q", value: "\(query) and trashed = false"),
+            URLQueryItem(name: "orderBy", value: "modifiedTime desc"),
             URLQueryItem(name: "fields", value: "files(id)"),
         ]
-        struct FileList: Decodable { struct File: Decodable { let id: String }; let files: [File] }
+        if appData { items.append(URLQueryItem(name: "spaces", value: "appDataFolder")) }
+        components.queryItems = items
         let list = try JSONDecoder().decode(FileList.self, from: try await send(URLRequest(url: components.url!)))
-        guard let fileID = list.files.first?.id else { return nil }
-
-        let fileURL = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileID)?alt=media")!
-        return (fileID, try await send(URLRequest(url: fileURL)))
+        return list.files.first?.id
     }
 
-    /// Schreibt die Sync-Datei (legt sie beim ersten Mal an).
+    /// Lädt die Sync-Datei. `fileID` ist nil, wenn sie noch aus dem alten versteckten App-Ordner stammt –
+    /// dann legt `upload` sie im Ordner „IPTV“ neu an (einmalige Übernahme).
+    func download() async throws -> (fileID: String?, data: Data)? {
+        if let id = try await findID("name = '\(Self.fileName)'") {
+            return (id, try await send(URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files/\(id)?alt=media")!)))
+        }
+        // Alte Sync-Datei (vor der Umstellung) übernehmen; schlägt das fehl, einfach neu beginnen.
+        if let legacy = try? await findID("name = '\(Self.fileName)'", appData: true),
+           let data = try? await send(URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files/\(legacy)?alt=media")!)) {
+            return (nil, data)
+        }
+        return nil
+    }
+
+    /// Ordner „IPTV“ finden oder anlegen.
+    private func folderID() async throws -> String {
+        if let id = try await findID("name = '\(Self.folderName)' and mimeType = 'application/vnd.google-apps.folder'") {
+            return id
+        }
+        var request = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files?fields=id")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"name":"\#(Self.folderName)","mimeType":"application/vnd.google-apps.folder"}"#.utf8)
+        struct Created: Decodable { let id: String }
+        return try JSONDecoder().decode(Created.self, from: try await send(request)).id
+    }
+
+    /// Schreibt die Sync-Datei (legt sie beim ersten Mal im Ordner „IPTV“ an).
     func upload(_ data: Data, existingFileID: String?) async throws {
         if let existingFileID {
             var request = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files/\(existingFileID)?uploadType=media")!)
@@ -45,8 +74,9 @@ struct GoogleDriveClient: Sendable {
             return
         }
 
+        let folder = try await folderID()
         let boundary = "iptv-\(UUID().uuidString)"
-        let metadata = #"{"name":"\#(Self.fileName)","parents":["appDataFolder"]}"#
+        let metadata = #"{"name":"\#(Self.fileName)","parents":["\#(folder)"]}"#
         var body = Data()
         body.append(Data("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n\(metadata)\r\n".utf8))
         body.append(Data("--\(boundary)\r\nContent-Type: application/json\r\n\r\n".utf8))

@@ -55,7 +55,7 @@ struct SyncedSettings: Codable, Sendable {
 }
 
 /// Gleicht Favoriten, Verlauf, Fortschritt, Einstellungen und optional Playlists
-/// über eine Datei im versteckten App-Ordner von Google Drive ab.
+/// über eine Datei im Ordner „IPTV“ von Google Drive ab (dieselbe wie die Fernseher-App).
 @MainActor
 @Observable
 final class SyncService {

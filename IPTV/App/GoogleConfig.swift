@@ -22,6 +22,13 @@ enum GoogleConfig {
 
     static var isConfigured: Bool { clientID.hasSuffix(".apps.googleusercontent.com") }
 
-    /// Nur der versteckte App-Ordner in Drive – kein Zugriff auf andere Dateien.
-    static let scopes = ["openid", "email", "https://www.googleapis.com/auth/drive.appdata"]
+    /// „drive.file“: nur Dateien, die die App (bzw. die Fernseher-App im selben Google-Cloud-Projekt)
+    /// selbst angelegt hat. Der versteckte App-Ordner („drive.appdata“) ist bei der Anmeldung am
+    /// Fernseher nicht erlaubt – deshalb liegt die Sync-Datei im Ordner „IPTV“.
+    /// „drive.appdata“ bleibt nur, um die alte Sync-Datei einmalig von dort zu übernehmen.
+    static let scopes = [
+        "openid", "email",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.appdata",
+    ]
 }

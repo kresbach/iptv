@@ -343,7 +343,7 @@ class CredentialRedactor(playlists: List<Playlist>) {
 
 /**
  * Gleicht Favoriten, Verlauf, Fortschritt, Player-Einstellungen und optional Playlists über
- * eine Datei im versteckten App-Ordner von Google Drive ab (dieselbe Datei wie die iOS-App).
+ * eine Datei im Ordner „IPTV“ von Google Drive ab (dieselbe Datei wie die iOS-App).
  *
  * Anmeldung per „Geräte-Code“ (wie YouTube auf dem Fernseher): Der Fernseher zeigt einen Code,
  * der am Handy unter google.com/device bestätigt wird.
@@ -351,7 +351,15 @@ class CredentialRedactor(playlists: List<Playlist>) {
 object GoogleSync {
     private const val TAG = "GoogleSync"
     private const val FILE_NAME = "iptv-sync.json"
-    private const val SCOPES = "openid email https://www.googleapis.com/auth/drive.appdata"
+    /**
+     * Die Anmeldung per Code (Fernseher) erlaubt den versteckten App-Ordner („drive.appdata“) nicht.
+     * „drive.file“ = nur Dateien, die diese App (bzw. die iPhone-App im selben Google-Cloud-Projekt)
+     * selbst angelegt hat – auf andere Dateien in Drive gibt es keinen Zugriff.
+     */
+    private const val SCOPES = "openid email https://www.googleapis.com/auth/drive.file"
+    /** Ordner in „Meine Ablage“, in dem die Sync-Dateien liegen (gleicher Name wie in der iPhone-App). */
+    private const val FOLDER_NAME = "IPTV"
+    @Volatile private var folderId: String? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client: OkHttpClient by lazy { OkHttpClient.Builder().build() }
@@ -445,6 +453,7 @@ object GoogleSync {
     }
 
     fun signOut() {
+        folderId = null
         Prefs.googleRefreshToken = ""
         Prefs.googleEmail = ""
         Prefs.lastSync = 0
@@ -612,11 +621,31 @@ object GoogleSync {
 
     // endregion
 
+    /** Erste passende Datei, die die App sehen darf (neueste zuerst). */
+    private fun findId(token: String, query: String): String? {
+        val q = URLEncoder.encode("$query and trashed = false", "UTF-8")
+        val list = get("https://www.googleapis.com/drive/v3/files?q=$q&orderBy=modifiedTime%20desc&fields=files(id)", token)
+        return ((json.parseToJsonElement(list) as JsonObject)["files"] as? JsonArray)
+            ?.firstOrNull()?.let { (it as JsonObject).str("id") }
+    }
+
+    /** Ordner „IPTV“ finden oder anlegen. */
+    private fun folder(token: String): String {
+        folderId?.let { return it }
+        val id = findId(token, "name = '$FOLDER_NAME' and mimeType = 'application/vnd.google-apps.folder'") ?: run {
+            val created = send(
+                Request.Builder().url("https://www.googleapis.com/drive/v3/files?fields=id")
+                    .post("{\"name\":\"$FOLDER_NAME\",\"mimeType\":\"application/vnd.google-apps.folder\"}".toRequestBody("application/json".toMediaType()))
+                    .header("Authorization", "Bearer $token").build(),
+            )
+            (json.parseToJsonElement(created) as JsonObject).str("id") ?: throw UserFacingException("Google Drive: Ordner konnte nicht angelegt werden.")
+        }
+        folderId = id
+        return id
+    }
+
     private fun download(token: String, name: String = FILE_NAME): Pair<String, String>? {
-        val q = URLEncoder.encode("name = '$name'", "UTF-8")
-        val list = get("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=$q&fields=files(id)", token)
-        val id = ((json.parseToJsonElement(list) as JsonObject)["files"] as? JsonArray)
-            ?.firstOrNull()?.let { (it as JsonObject).str("id") } ?: return null
+        val id = findId(token, "name = '$name'") ?: return null
         return id to get("https://www.googleapis.com/drive/v3/files/$id?alt=media", token)
     }
 
@@ -627,7 +656,7 @@ object GoogleSync {
         } else {
             val boundary = "iptv-" + java.util.UUID.randomUUID()
             val body = "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
-                "{\"name\":\"$name\",\"parents\":[\"appDataFolder\"]}\r\n" +
+                "{\"name\":\"$name\",\"parents\":[\"${folder(token)}\"]}\r\n" +
                 "--$boundary\r\nContent-Type: application/json\r\n\r\n$data\r\n--$boundary--\r\n"
             Request.Builder().url("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
                 .post(body.toRequestBody("multipart/related; boundary=$boundary".toMediaType()))

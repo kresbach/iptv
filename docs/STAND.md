@@ -19,7 +19,7 @@ Antworten an den Nutzer auf Deutsch, kurz und verständlich (kein Entwickler).
 - Gemeinsame Daten als Singletons (`PlaylistStore.shared`, `UserDataStore.shared`, `SyncService.shared`,
   `DownloadManager.shared`, `CategoryPreferences.shared`, `AppRouter.shared`, `PlaybackCoordinator.shared`);
   Views greifen direkt darauf zu (`var store: PlaylistStore { .shared }`), **nicht** über `@Environment` (führte auf dem Mac zu Abstürzen).
-- Google-Drive-Sync (appDataFolder, OAuth PKCE, Client-ID in `App/GoogleConfig.swift`); Zugangsdaten in Links werden vor dem Upload geschwärzt.
+- Google-Drive-Sync (Ordner „IPTV“, Scope drive.file – appDataFolder nur noch zum einmaligen Übernehmen alter Daten; OAuth PKCE, Client-ID in `App/GoogleConfig.swift`); Zugangsdaten in Links werden vor dem Upload geschwärzt.
 - OpenSubtitles: API-Key/Zugangsdaten im Schlüsselbund, nur mit VLC.
 - Verkleinern von Downloads (MP4/MKV) wurde ausprobiert und **wieder entfernt** – nicht erneut anbieten.
 - ⌘N ist auf dem Mac/iPad „Neues Fenster“ (Playlist hinzufügen = ⇧⌘N).

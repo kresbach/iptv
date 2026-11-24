@@ -74,7 +74,7 @@ Hinweis: `vlckit-spm` ist ein inoffizielles Paket, das die offiziellen VLCKit-Bi
 
 ## Google-Drive-Synchronisierung einrichten
 
-Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und die Player-Einstellungen (optional auch die Playlists) lassen sich über Google Drive zwischen Geräten abgleichen. Gespeichert wird in einem **versteckten App-Ordner** (`appDataFolder`), auf andere Dateien hat die App keinen Zugriff.
+Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und die Player-Einstellungen (optional auch die Playlists) lassen sich über Google Drive zwischen Geräten abgleichen. Gespeichert wird im Ordner **„IPTV“** in „Meine Ablage“ (Berechtigung `drive.file`: die App sieht nur Dateien, die sie oder die Fernseher-App selbst angelegt hat). Der versteckte App-Ordner ist bei der Anmeldung am Fernseher nicht erlaubt; eine alte Sync-Datei von dort übernimmt die iPhone-App einmalig.
 
 Einmalig eine eigene Google-Client-ID anlegen (kostenlos, ca. 5 Minuten):
 

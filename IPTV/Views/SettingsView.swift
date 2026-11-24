@@ -428,7 +428,7 @@ extension SettingsView {
             if let error = sync.lastError {
                 Text(error).foregroundStyle(.red)
             } else {
-                Text("Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und Player-Einstellungen werden in einem versteckten App-Ordner deines Google Drive gespeichert und auf allen Geräten abgeglichen. Die App hat keinen Zugriff auf deine übrigen Dateien.")
+                Text("Favoriten, „Weiterschauen“, „Zuletzt gesehen“ und Player-Einstellungen werden im Ordner „IPTV“ deines Google Drive gespeichert und auf allen Geräten (auch dem Fernseher) abgeglichen. Die App sieht nur die Dateien, die sie selbst angelegt hat.")
             }
         }
     }

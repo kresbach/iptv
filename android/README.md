@@ -109,6 +109,11 @@ für die Spracheingabe.
 - **VLC** (libVLC) für AVI, WMV, FLV, MPG usw. und automatisch als Ersatz, wenn ExoPlayer einen
   Film nicht dekodieren kann. Daher ist die APK rund 58 MB groß (nur ARM-Geräte, wie alle Google-TV-Fernseher).
 
+## Neu in Version 2.20
+
+- **Google-Drive-Anmeldung repariert.** Google meldete „Invalid device flow scope … drive.appdata“: Die Anmeldung per Code am Fernseher erlaubt den versteckten App-Ordner nicht. Fernseher- und iPhone-App speichern die Sync-Datei deshalb jetzt im Ordner **„IPTV“** in deinem Google Drive (Berechtigung `drive.file`: die Apps sehen nur Dateien, die sie selbst angelegt haben). Die iPhone-App übernimmt die alten Daten einmalig aus dem versteckten Ordner. Dafür musst du dich in der iPhone-App einmal ab- und wieder anmelden.
+- Fernseher- und iPhone-App müssen dafür Client-IDs aus **demselben Google-Cloud-Projekt** verwenden (wie in der Anleitung unten beschrieben).
+
 ## Neu in Version 2.19 – Live TV robuster
 
 - **Eingefrorenes Bild wird erkannt:** Kommen 6 Sekunden lang keine neuen Bilder, obwohl der Player „läuft“, verbindet die App neu.
@@ -284,7 +289,7 @@ Videos werden dabei nicht abgespielt – das lässt sich nur auf einem echten Ge
 - **Playlists bearbeiten** (Name, Zugang, eigene TV-Guide-Adresse) und **M3U-Datei** vom Handy hochladen.
 - **Verlauf und Fortschritt löschen** (Einstellungen).
 - **Google-Drive-Sync** mit der iPhone-App (Favoriten, Weiterschauen, Verlauf,
-  Player-Einstellungen, optional Playlists) – dieselbe Datei im versteckten App-Ordner.
+  Player-Einstellungen, optional Playlists) – dieselbe Datei im Ordner „IPTV“ deines Google Drive.
 
 ### Google-Drive-Sync einrichten (einmalig)
 

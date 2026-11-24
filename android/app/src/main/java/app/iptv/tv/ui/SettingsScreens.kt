@@ -448,7 +448,7 @@ fun GoogleDriveScreen(nav: Navigator) {
             ScreenTitle(
                 "Google Drive",
                 "Gleicht Favoriten, Weiterschauen, Verlauf, Player-Einstellungen und optional Playlists mit der iPhone-App ab. " +
-                    "Gespeichert wird in einem versteckten App-Ordner – auf andere Dateien hat die App keinen Zugriff.",
+                    "Gespeichert wird im Ordner „IPTV“ in deinem Google Drive – die App sieht nur die Dateien, die sie selbst angelegt hat.",
             )
             Column(Modifier.widthIn(max = 760.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
