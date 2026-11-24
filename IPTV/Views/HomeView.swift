@@ -30,6 +30,7 @@ struct HomeView: View {
                 }
 
                 ContinueWatchingRow()
+                TrendsShelves()
                 DownloadsShelf()
                 RecentChannelsRow()
                 FavoritesRow()
@@ -197,6 +198,62 @@ private struct ContinueWatchingRow: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+}
+
+/// Trends von Netflix, Prime Video & Co., abgeglichen mit der eigenen Playlist.
+private struct TrendsShelves: View {
+    private var store: PlaylistStore { .shared }
+    private var trends: TrendsStore { .shared }
+    private var prefs: CategoryPreferences { .shared }
+
+    /// Ändert sich, wenn eine andere Playlist aktiv ist oder sie neu geladen wurde.
+    private var identity: String {
+        "\(store.activeID?.uuidString ?? "-")|\(store.content.count(of: .movie))|\(store.content.count(of: .series))"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            ForEach(trends.rows) { row in
+                let items = row.items.filter(isVisible)
+                if !items.isEmpty {
+                    HomeShelf(title: row.title, symbol: row.id == "trending" ? "flame.fill" : "play.tv.fill") {
+                        ForEach(items) { item in
+                            tile(item)
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: identity) {
+            guard !store.content.isEmpty else { return }
+            await trends.update(identity: identity)
+        }
+    }
+
+    private func isVisible(_ item: TrendsStore.Item) -> Bool {
+        switch item {
+        case .movie(let channel, _): prefs.isVisible(channel)
+        case .show(let show, _): prefs.isVisible(show)
+        }
+    }
+
+    @ViewBuilder
+    private func tile(_ item: TrendsStore.Item) -> some View {
+        switch item {
+        case .movie(let channel, let poster):
+            NavigationLink(value: channel) {
+                PosterCard(title: channel.name, subtitle: "Film", imageURL: poster, symbol: ContentKind.movie.symbol, rating: channel.rating)
+                    .frame(width: 120)
+            }
+            .buttonStyle(.plain)
+        case .show(let show, let poster):
+            NavigationLink(value: show) {
+                PosterCard(title: show.title, subtitle: "Serie", imageURL: poster, symbol: ContentKind.series.symbol, rating: show.rating)
+                    .frame(width: 120)
+            }
+            .buttonStyle(.plain)
         }
     }
 }

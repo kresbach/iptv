@@ -6,6 +6,8 @@ struct PlaylistData: Codable, Sendable {
     var channels: [Channel]
     /// Serien aus der Xtream-API. Bei M3U leer; dort werden Serien aus Episoden gebildet.
     var shows: [SeriesShow] = []
+    /// Zeitzone des Xtream-Servers (für Archiv-Links), z. B. „Europe/Berlin“.
+    var serverTimeZone: String?
 }
 
 /// Die aktive Playlist, aufgeteilt in Live TV, Filme und Serien.

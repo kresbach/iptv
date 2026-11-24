@@ -297,6 +297,23 @@ struct EPGScheduleView: View {
             .sorted { $0.key < $1.key }
 
         List {
+            if Catchup.isSupported(channel) {
+                Section {
+                    NavigationLink {
+                        ArchiveListView(channel: channel) { archived in
+                            dismiss()
+                            // Erst das Blatt schließen lassen, dann den Player öffnen.
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(450))
+                                playChannel(archived)
+                            }
+                        }
+                        .appEnvironment()
+                    } label: {
+                        Label("Verpasste Sendungen (\(channel.archiveDays ?? 0) Tage Archiv)", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+            }
             ForEach(days, id: \.key) { day in
                 Section(day.key.formatted(.dateTime.weekday(.wide).day().month(.wide))) {
                     ForEach(day.value) { programme in

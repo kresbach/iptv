@@ -77,7 +77,10 @@ enum M3UParser {
                     url: url,
                     group: group,
                     tvgID: pendingAttributes["tvg-id"].flatMap { $0.isEmpty ? nil : $0 },
-                    logoURL: pendingAttributes["tvg-logo"].flatMap(URL.init(string:))
+                    logoURL: pendingAttributes["tvg-logo"].flatMap(URL.init(string:)),
+                    archiveDays: (pendingAttributes["catchup-days"] ?? pendingAttributes["tvg-rec"] ?? pendingAttributes["timeshift"])
+                        .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+                        .flatMap { $0 > 0 ? min($0, 30) : nil }
                 ))
 
                 pendingName = nil

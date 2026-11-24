@@ -44,14 +44,17 @@ final class VLCPlaybackEngine: PlaybackEngine {
 
     func start(url: URL, isLive: Bool, resumeAt: Double?) {
         let media = VLCMedia(url: url)
-        media.addOptions([
-            // Live: kurzer Puffer für schnellen Start, VOD: größerer Puffer gegen Ruckler.
-            "network-caching": isLive ? 1500 : 3000,
+        var options: [AnyHashable: Any] = [
+            // Live: eingestellter Puffer (Schnell/Normal/Groß), VOD: größerer Puffer gegen Ruckler.
+            "network-caching": isLive ? LiveBuffer.current.vlcCaching : 3000,
             "http-user-agent": HTTPClient.userAgent,
             // Ungenaue Zeitstempel vieler IPTV-Streams nicht „korrigieren“ – das verursacht Ruckler.
             "clock-jitter": 0,
             "clock-synchro": 0,
-        ])
+        ]
+        // Halbbilder (1080i) in Vollbilder umwandeln, sonst wirken Bewegungen zackig.
+        options.merge(DeinterlaceMode.current.vlcOptions) { _, new in new }
+        media.addOptions(options)
         player.media = media
         pendingSeek = resumeAt
         wantsPlayback = true
@@ -119,6 +122,11 @@ final class VLCPlaybackEngine: PlaybackEngine {
 
         set(\.isPlaying, playing)
         set(\.isBuffering, state == .opening || (state == .buffering && !playing))
+        // Ton-Versatz erst setzen, wenn VLC abspielt – vorher wird er ignoriert.
+        if playing, appliedAudioDelay != audioDelay {
+            player.currentAudioPlaybackDelay = Int(audioDelay * 1_000_000)  // Mikrosekunden
+            appliedAudioDelay = audioDelay
+        }
         set(\.time, current.rounded())
         if !hasStartedPlayback, playing { hasStartedPlayback = true }
 
@@ -187,6 +195,14 @@ final class VLCPlaybackEngine: PlaybackEngine {
     func toggleMute() {
         isUserMuted.toggle()
         player.audio?.volume = isUserMuted ? 0 : Int32(volume * 100)
+    }
+
+    var supportsAudioDelay: Bool { true }
+    private(set) var audioDelay: Double = 0
+    @ObservationIgnored private var appliedAudioDelay: Double = 0
+
+    func setAudioDelay(_ seconds: Double) {
+        audioDelay = seconds
     }
 
     var supportsExternalSubtitles: Bool { true }

@@ -28,7 +28,12 @@ struct SettingsView: View {
     @State private var confirmsClearHistory = false
     @AppStorage(ImageCacheSettings.limitKey) private var imageCacheLimitMB = ImageCacheSettings.defaultLimitMB
     @AppStorage(LiveSettings.startsWithFavoritesKey) private var liveStartsWithFavorites = true
+    @AppStorage(LiveBuffer.storageKey) private var liveBuffer: LiveBuffer = .normal
+    @AppStorage(DeinterlaceMode.storageKey) private var deinterlace: DeinterlaceMode = .automatic
+    @AppStorage(TrackLanguages.audioKey) private var audioLanguage = ""
+    @AppStorage(TrackLanguages.subtitleKey) private var subtitleLanguage = ""
     @State private var imageCacheUsed = ImageCacheSettings.usedBytes
+    @State private var tmdbKey = ""
 
     var body: some View {
         List {
@@ -122,11 +127,33 @@ struct SettingsView: View {
                 Toggle(isOn: $liveStartsWithFavorites) {
                     Label("Live TV mit Favoriten öffnen", systemImage: "heart")
                 }
+                Picker(selection: $liveBuffer) {
+                    ForEach(LiveBuffer.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label("Live-Puffer", systemImage: "gauge.with.dots.needle.33percent")
+                }
+                Picker(selection: $deinterlace) {
+                    ForEach(DeinterlaceMode.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label("Halbbilder umwandeln", systemImage: "square.stack.3d.down.right")
+                }
+                Picker(selection: $audioLanguage) {
+                    Text("Automatisch").tag("")
+                    ForEach(TrackLanguages.choices, id: \.code) { Text($0.title).tag($0.code) }
+                } label: {
+                    Label("Tonspur", systemImage: "speaker.wave.2")
+                }
+                Picker(selection: $subtitleLanguage) {
+                    Text("Aus").tag("")
+                    ForEach(TrackLanguages.choices, id: \.code) { Text($0.title).tag($0.code) }
+                } label: {
+                    Label("Untertitel", systemImage: "captions.bubble")
+                }
             } header: {
                 Text("Player")
             } footer: {
                 Text(PlayerEngine.isVLCAvailable
-                     ? "Live TV mit „Apple“: Bild-in-Bild und AirPlay. Live TV mit „Automatisch“: schnellerer Start über VLC, und beim Umschalten wird die Verbindung sofort frei – empfohlen für Konten mit nur einer Verbindung. Filme und Serien: VLC (spielt auch .mkv)."
+                     ? "Live-Puffer: „Schnell“ schaltet zügiger um, „Groß“ hilft bei Aussetzern. Halbbilder umwandeln (nur VLC) macht Bewegungen bei 1080i-Sendern wie Fußball flüssig. Tonspur und Untertitel werden automatisch in der gewählten Sprache eingestellt, sofern vorhanden. Live TV mit „Apple“: Bild-in-Bild und AirPlay. Live TV mit „Automatisch“: schnellerer Start über VLC, und beim Umschalten wird die Verbindung sofort frei – empfohlen für Konten mit nur einer Verbindung. Filme und Serien: VLC (spielt auch .mkv)."
                      : "VLC ist nicht eingebunden. Füge in Xcode das Paket „vlckit-spm“ hinzu, um .ts- und .mkv-Streams abzuspielen (siehe README).")
             }
 
@@ -135,6 +162,8 @@ struct SettingsView: View {
             downloadsSection
 
             subtitleSection
+
+            tmdbSection
 
             parentalSection
 
@@ -241,6 +270,43 @@ extension SettingsView {
             case .remove: prefs.setPIN(nil)
             }
         }
+    }
+
+    /// TMDB für Trends, Empfehlungen und fehlende Trailer.
+    @ViewBuilder
+    var tmdbSection: some View {
+        let trends = TrendsStore.shared
+        Section {
+            SecureField("API-Schlüssel oder Token", text: $tmdbKey)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onChange(of: tmdbKey) { _, value in TMDB.setKey(value) }
+            Button {
+                Task { await trends.refresh(force: true) }
+            } label: {
+                HStack {
+                    Label("Trends aktualisieren", systemImage: "flame")
+                    Spacer()
+                    if trends.isLoading { ProgressView() }
+                }
+            }
+            .disabled(tmdbKey.trimmingCharacters(in: .whitespaces).isEmpty || trends.isLoading)
+            if let fetchedAt = trends.fetchedAt {
+                LabeledContent("Stand") {
+                    Text(fetchedAt, format: .relative(presentation: .named))
+                }
+            }
+        } header: {
+            Text("Trends & Empfehlungen (TMDB)")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                if let error = trends.lastError {
+                    Text(error).foregroundStyle(.red)
+                }
+                Text("Mit einem kostenlosen Schlüssel von themoviedb.org (Einstellungen → API) zeigt die Startseite, was bei Netflix, Prime Video & Co. gerade beliebt ist, die Detailseiten zeigen passende Empfehlungen und Trailer, wenn der Anbieter keinen liefert. Ohne Schlüssel werden Trends aus passend benannten Kategorien deines Anbieters gebildet. Aktualisiert wird alle 12 Stunden.")
+            }
+        }
+        .onAppear { tmdbKey = TMDB.key }
     }
 
     /// Zwischenspeicher für Senderlogos und Cover.

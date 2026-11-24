@@ -58,8 +58,11 @@ struct PlayerScreen: View {
     /// Sleep-Timer: Wiedergabe endet zu diesem Zeitpunkt.
     @State private var sleepDeadline: Date?
     @State private var sleepWarning = false
+    /// Ton-Versatz in Sekunden; bleibt beim Umschalten erhalten.
+    @State private var audioDelay: Double = 0
     @State private var showsChannelList = false
     @State private var showsSubtitleSearch = false
+    @State private var showsArchive = false
     @State private var airPlayHint: String?
 
     /// Nachbar in der Liste, aus der gestartet wurde. Live TV läuft am Ende wieder von vorn.
@@ -173,7 +176,7 @@ struct PlayerScreen: View {
     }
 
     private func goToPreviousChannel() {
-        guard isLive, let previousChannel else { return }
+        guard isLive || channel.isArchive, let previousChannel else { return }
         switchTo(previousChannel)
     }
 
@@ -350,6 +353,16 @@ struct PlayerScreen: View {
             .appEnvironment()
             .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showsArchive) {
+            NavigationStack {
+                ArchiveListView(channel: channel) { archived in
+                    showsArchive = false
+                    switchTo(archived)
+                }
+            }
+            .appEnvironment()
+            .presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showsSubtitleSearch) {
             if let engine {
                 NavigationStack {
@@ -502,14 +515,20 @@ struct PlayerScreen: View {
                 )
             }
 
-            roundButton(
-                userData.isFavorite(channel) ? "heart.fill" : "heart",
-                label: userData.isFavorite(channel) ? "Aus Favoriten entfernen" : "Zu Favoriten",
-                tint: Theme.orange
-            ) { userData.toggleFavorite(channel) }
+            if !channel.isArchive {
+                favoriteButton
+            }
         }
         .padding(.horizontal)
         .padding(.top, 8)
+    }
+
+    private var favoriteButton: some View {
+        roundButton(
+            userData.isFavorite(channel) ? "heart.fill" : "heart",
+            label: userData.isFavorite(channel) ? "Aus Favoriten entfernen" : "Zu Favoriten",
+            tint: Theme.orange
+        ) { userData.toggleFavorite(channel) }
     }
 
     @ViewBuilder
@@ -535,6 +554,19 @@ struct PlayerScreen: View {
                 .background(.black.opacity(0.6), in: .rect(cornerRadius: 14))
                 .padding(.horizontal)
                 .padding(.bottom, 6)
+        }
+        if channel.isArchive, let previousChannel {
+            HStack {
+                Button {
+                    goToPreviousChannel()
+                } label: {
+                    capsuleLabel("Zurück zu \(previousChannel.name) (Live)", systemImage: "dot.radiowaves.left.and.right")
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 6)
         }
         if let engine, !isLive {
             if let next = neighbor(1) {
@@ -636,6 +668,39 @@ struct PlayerScreen: View {
                 }
             }
 
+            if let engine, engine.supportsAudioDelay {
+                Section("Ton") {
+                    Menu("Ton-Versatz: \(Self.delayText(audioDelay))", systemImage: "waveform.badge.plus") {
+                        ForEach([-1.0, -0.5, -0.25, -0.1, 0, 0.1, 0.25, 0.5, 1.0], id: \.self) { value in
+                            Button {
+                                setAudioDelay(value)
+                            } label: {
+                                if value == audioDelay {
+                                    Label(Self.delayText(value), systemImage: "checkmark")
+                                } else {
+                                    Text(Self.delayText(value))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if isLive, Catchup.isSupported(channel) {
+                Section("Archiv") {
+                    if let now = store.epg?.current(for: channel),
+                       let archived = store.archiveChannel(for: channel, programme: now) {
+                        Button("Sendung von Anfang an", systemImage: "backward.end.alt") {
+                            switchTo(archived)
+                        }
+                    }
+                    Button("Verpasste Sendungen …", systemImage: "clock.arrow.circlepath") {
+                        hideTask?.cancel()
+                        showsArchive = true
+                    }
+                }
+            }
+
             if isLive, request.queue.count > 1 {
                 Section("Sender") {
                     Button("Sendernummer eingeben …", systemImage: "number") {
@@ -720,7 +785,8 @@ struct PlayerScreen: View {
     private func runPlayback() async {
         errorMessage = nil
         attemptErrors = []
-        userData.recordPlayback(of: channel)
+        // Archiv-Sendungen nicht in „Zuletzt gesehen“ aufnehmen.
+        if !channel.isArchive { userData.recordPlayback(of: channel) }
         // Heruntergeladene Filme/Episoden von der lokalen Datei abspielen (auch offline).
         let playbackChannel = downloads.localURL(for: channel).map { channel.with(url: $0) } ?? channel
         candidates = engineSetting.candidates(for: playbackChannel)
@@ -751,12 +817,20 @@ struct PlayerScreen: View {
         var reconnects = 0
         var stableSince: ContinuousClock.Instant?
         var appliedSavedSubtitle = false
+        var trackPrefsEngine: ObjectIdentifier?
         var lastTime = -1.0
         var lastTimeChange = ContinuousClock.now
         var sawTimeAdvance = false
         while !Task.isCancelled {
             if let engine {
                 engine.update()
+
+                // Bevorzugte Tonspur/Untertitel einmal je Player wählen, sobald Spuren bekannt sind.
+                if engine.hasStartedPlayback, trackPrefsEngine != ObjectIdentifier(engine),
+                   !engine.audioTracks.isEmpty || !engine.subtitleTracks.isEmpty {
+                    trackPrefsEngine = ObjectIdentifier(engine)
+                    applyPreferredTracks(engine)
+                }
 
                 if engine.hasStartedPlayback, !appliedSavedSubtitle {
                     appliedSavedSubtitle = true
@@ -910,11 +984,38 @@ struct PlayerScreen: View {
             isLive: isLive,
             resumeAt: isLive ? nil : userData.resumePosition(for: channel)
         )
+        if newEngine.supportsAudioDelay { newEngine.setAudioDelay(audioDelay) }
         engine = newEngine
     }
 
+    /// Wählt Tonspur und Untertitel in den bevorzugten Sprachen (Einstellungen → Player).
+    private func applyPreferredTracks(_ engine: any PlaybackEngine) {
+        let audioCode = TrackLanguages.audio
+        if !audioCode.isEmpty, engine.audioTracks.count > 1,
+           let track = engine.audioTracks.first(where: { TrackLanguages.matches($0.name, code: audioCode) }),
+           engine.selectedAudio != track.id {
+            engine.selectAudio(track.id)
+        }
+        let subtitleCode = TrackLanguages.subtitle
+        if !subtitleCode.isEmpty, engine.selectedSubtitle == nil,
+           let track = engine.subtitleTracks.first(where: { TrackLanguages.matches($0.name, code: subtitleCode) }) {
+            engine.selectSubtitle(track.id)
+        }
+    }
+
+    private func setAudioDelay(_ seconds: Double) {
+        audioDelay = seconds
+        engine?.setAudioDelay(seconds)
+    }
+
+    private static func delayText(_ seconds: Double) -> String {
+        if seconds == 0 { return "Aus" }
+        let value = seconds.formatted(.number.precision(.fractionLength(0...2)))
+        return seconds > 0 ? "+\(value) s" : "\(value) s"
+    }
+
     private func saveProgress() {
-        guard !isLive, let engine else { return }
+        guard !isLive, !channel.isArchive, let engine else { return }
         userData.saveProgress(for: channel, position: engine.time, duration: engine.duration)
     }
 

@@ -25,10 +25,10 @@ struct TVGuideView: View {
     private static let channelWidth: CGFloat = 96
     private static let minuteWidth: CGFloat = 4
     private static let hours = 12
+    /// So weit reicht das Raster zurück, wenn Sender ein Archiv haben.
+    private static let archiveHours = 24
     /// So viele Sender zeigt das Raster höchstens (flüssiges Scrollen).
     private static let maxChannels = 150
-
-    private static var totalWidth: CGFloat { CGFloat(hours * 60) * minuteWidth }
 
     /// Beginn des Rasters: die letzte volle halbe Stunde.
     private static func currentWindowStart() -> Date {
@@ -36,10 +36,25 @@ struct TVGuideView: View {
         return Date(timeIntervalSince1970: (Date.now.timeIntervalSince1970 / interval).rounded(.down) * interval)
     }
 
-    private var windowEnd: Date { windowStart.addingTimeInterval(TimeInterval(Self.hours) * 3600) }
+    /// Zeitbereich des Rasters; mit Archiv beginnt es früher.
+    private struct Timeline {
+        let start: Date
+        let hours: Int
 
-    private func offset(for date: Date) -> CGFloat {
-        CGFloat(date.timeIntervalSince(windowStart) / 60) * Self.minuteWidth
+        var end: Date { start.addingTimeInterval(TimeInterval(hours) * 3600) }
+        var totalWidth: CGFloat { CGFloat(hours * 60) * TVGuideView.minuteWidth }
+
+        func offset(for date: Date) -> CGFloat {
+            CGFloat(date.timeIntervalSince(start) / 60) * TVGuideView.minuteWidth
+        }
+    }
+
+    private func timeline(for channels: [Channel]) -> Timeline {
+        let past = channels.contains(where: Catchup.isSupported) ? Self.archiveHours : 0
+        return Timeline(
+            start: windowStart.addingTimeInterval(-TimeInterval(past) * 3600),
+            hours: Self.hours + past
+        )
     }
 
     private var favoriteChannels: [Channel] {
@@ -129,7 +144,8 @@ struct TVGuideView: View {
     // MARK: - Raster
 
     private func grid(channels: [Channel], guide: EPGGuide) -> some View {
-        ScrollView(.vertical) {
+        let timeline = timeline(for: channels)
+        return ScrollView(.vertical) {
             HStack(alignment: .top, spacing: 0) {
                 // Feste Senderspalte
                 LazyVStack(spacing: 0) {
@@ -152,58 +168,88 @@ struct TVGuideView: View {
                 .frame(width: Self.channelWidth)
 
                 // Seitlich scrollbare Zeitachse
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        timeHeader
-                        ForEach(channels) { channel in
-                            programmeRow(channel: channel, channels: channels, guide: guide)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            timeHeader(timeline)
+                            ForEach(channels) { channel in
+                                programmeRow(channel: channel, channels: channels, guide: guide, timeline: timeline)
+                            }
+                        }
+                        .frame(width: timeline.totalWidth, alignment: .leading)
+                        .overlay(alignment: .topLeading) {
+                            TimelineView(.everyMinute) { context in
+                                // Rote Linie: aktuelle Uhrzeit
+                                Rectangle()
+                                    .fill(.red)
+                                    .frame(width: 2)
+                                    .offset(x: max(timeline.offset(for: context.date), 0))
+                            }
+                            .allowsHitTesting(false)
+                        }
+                        .background(alignment: .topLeading) {
+                            // Sprungmarke: Beim Öffnen steht „jetzt“ links (vergangene Sendungen links davon).
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .padding(.leading, max(timeline.offset(for: windowStart), 0))
+                                .id(Self.nowAnchor)
                         }
                     }
-                    .frame(width: Self.totalWidth, alignment: .leading)
-                    .overlay(alignment: .topLeading) {
-                        TimelineView(.everyMinute) { context in
-                            // Rote Linie: aktuelle Uhrzeit
-                            Rectangle()
-                                .fill(.red)
-                                .frame(width: 2)
-                                .offset(x: max(offset(for: context.date), 0))
-                        }
-                        .allowsHitTesting(false)
-                    }
+                    .onAppear { proxy.scrollTo(Self.nowAnchor, anchor: .leading) }
+                    .onChange(of: category) { proxy.scrollTo(Self.nowAnchor, anchor: .leading) }
                 }
             }
         }
     }
 
-    private var timeHeader: some View {
+    private static let nowAnchor = "jetzt"
+
+    private func timeHeader(_ timeline: Timeline) -> some View {
         ZStack(alignment: .topLeading) {
-            ForEach(0..<(Self.hours * 2), id: \.self) { slot in
-                let date = windowStart.addingTimeInterval(TimeInterval(slot) * 1800)
-                Text(date.formatted(date: .omitted, time: .shortened))
+            ForEach(0..<(timeline.hours * 2), id: \.self) { slot in
+                let date = timeline.start.addingTimeInterval(TimeInterval(slot) * 1800)
+                // Um Mitternacht den Wochentag dazuschreiben.
+                let isMidnight = Calendar.current.component(.hour, from: date) == 0
+                    && Calendar.current.component(.minute, from: date) == 0
+                Text(isMidnight
+                     ? date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+                     : date.formatted(date: .omitted, time: .shortened))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .offset(x: offset(for: date) + 4)
+                    .offset(x: timeline.offset(for: date) + 4)
             }
         }
-        .frame(width: Self.totalWidth, height: Self.headerHeight, alignment: .topLeading)
+        .frame(width: timeline.totalWidth, height: Self.headerHeight, alignment: .topLeading)
     }
 
-    private func programmeRow(channel: Channel, channels: [Channel], guide: EPGGuide) -> some View {
-        let programmes = guide.schedule(for: channel).filter { $0.end > windowStart && $0.start < windowEnd }
+    private func programmeRow(channel: Channel, channels: [Channel], guide: EPGGuide, timeline: Timeline) -> some View {
+        let programmes = guide.schedule(for: channel).filter { $0.end > timeline.start && $0.start < timeline.end }
+        let hasArchive = Catchup.isSupported(channel)
+        let now = Date.now
 
         return ZStack(alignment: .topLeading) {
             ForEach(programmes) { programme in
-                let start = max(offset(for: programme.start), 0)
-                let end = min(offset(for: programme.end), Self.totalWidth)
-                let isLive = programme.isLive(at: .now)
+                let start = max(timeline.offset(for: programme.start), 0)
+                let end = min(timeline.offset(for: programme.end), timeline.totalWidth)
+                let isLive = programme.isLive(at: now)
+                let isPast = programme.end <= now
+                let inArchive = hasArchive && isPast && Catchup.isAvailable(channel, programme, now: now)
 
                 Button {
                     selection = Selection(channel: channel, programme: programme)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(programme.title)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(2)
+                        HStack(spacing: 3) {
+                            if inArchive {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.orange)
+                                    .accessibilityLabel("Im Archiv")
+                            }
+                            Text(programme.title)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(2)
+                        }
                         Text(programme.start.formatted(date: .omitted, time: .shortened))
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -215,13 +261,14 @@ struct TVGuideView: View {
                         in: .rect(cornerRadius: 8)
                     )
                     .clipped()
+                    .opacity(isPast && !inArchive ? 0.55 : 1)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .offset(x: start, y: 2)
             }
         }
-        .frame(width: Self.totalWidth, height: Self.rowHeight, alignment: .topLeading)
+        .frame(width: timeline.totalWidth, height: Self.rowHeight, alignment: .topLeading)
     }
 
     // MARK: - Sendungsdetails
@@ -243,6 +290,22 @@ struct TVGuideView: View {
                 if let description = item.programme.description {
                     Text(description)
                         .foregroundStyle(.secondary)
+                }
+                if Catchup.isAvailable(item.channel, item.programme),
+                   let archived = store.archiveChannel(for: item.channel, programme: item.programme) {
+                    Button {
+                        selection = nil
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(450))
+                            playChannel(archived)
+                        }
+                    } label: {
+                        Label(item.programme.isLive(at: .now) ? "Von Anfang an ansehen" : "Aus dem Archiv ansehen",
+                              systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
                 }
                 Button {
                     let channel = item.channel

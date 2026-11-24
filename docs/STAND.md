@@ -37,8 +37,11 @@ Umschalten, nächster Episode, AirPlay, Seitenleiste/Menüs/Tastaturkürzel/Play
 (`UserDataStore.moveFavorites`, `SyncSnapshot.favoriteOrder`), Live TV startet mit Favoriten, Restzeit + nächste Sendung
 in der Senderliste, Erwachsenen-Kategorien automatisch sperren (`CategoryPreferences.autoLocksAdult`),
 Player-Menü „…“ mit Bildformat (`VideoFit`), Sleep-Timer, Sendernummer, letzter Sender, Bildspeicher-Grenze.
+Zweite Runde (ebenfalls ohne Compiler): Live-Puffer/Deinterlacing/Sprachen (`Player/PlaybackSettings.swift`),
+Ton-Versatz (VLC), Archiv (`Services/Catchup.swift`, `Channel.archiveDays`, `PlaylistData.serverTimeZone`,
+EPG behält für Archiv-Sender ältere Sendungen), TMDB (`Services/TMDB.swift`, `Trends.swift`, `Similar.swift`).
 
 ## Offene Ideen
 - Native macOS-App (dauerhaft ohne Konto nutzbar) – am besten in einer Sitzung direkt auf dem Mac bauen.
-- Catch-up/Timeshift, Erinnerungen, Profile, TMDB-Trends/Empfehlungen, Binär-Zwischenspeicher, Chromecast
+- Erinnerungen, neue Folgen, Profile, Binär-Zwischenspeicher, Wiedergabe-Infos, Siri/Widget, Chromecast
   (vollständige Liste der Android-Funktionen, die iOS noch fehlen: siehe Verlauf bzw. android/README.md).
