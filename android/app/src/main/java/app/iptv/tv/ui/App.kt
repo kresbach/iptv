@@ -178,7 +178,8 @@ fun AppRoot(onExit: () -> Unit) {
         if (!restoredState || !loaded) return@LaunchedEffect
         MainActivity.pendingOpen.value = null
         val p = Repository.progress.value[key]
-        val ch = p?.channel ?: Repository.content.value.channel(key)
+        val ch = (p?.channel ?: Repository.content.value.channel(key))
+            ?.takeIf { !app.iptv.tv.data.Profiles.isKids || app.iptv.tv.data.CategoryPrefs.isVisible(it) }
         nav.home()
         if (ch != null) nav.push(Screen.Player(listOf(ch), 0, p?.position ?: 0, p?.showKey))
     }

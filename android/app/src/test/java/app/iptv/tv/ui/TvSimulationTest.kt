@@ -665,4 +665,47 @@ class TvSimulationTest {
         back()
         expect("Alle Sender")
     }
+
+    @Test
+    fun kinderprofilZeigtNurKinderinhalte() {
+        val c = Repository.content.value
+        val kika = Channel("KiKA HD", "http://x/live/u/p/801.ts", "DE | Vollprogramm")
+        val toggo = Channel("Kinderkanal 2", "http://x/live/u/p/802.ts", "DE | Kinder")
+        val adult = Channel("Heiß TV", "http://x/live/u/p/900.ts", "XXX | Adult")
+        val cartoon = Channel("Kleiner Drache", "http://x/movie/u/p/803.mkv", "Kinderfilme", kind = ContentKind.MOVIE)
+        val kidsShow = SeriesShow("Biene Maja", "Zeichentrick Serien", xtreamSeriesId = 99)
+        val content = LibraryContent(PlaylistData(c.data.channels + kika + toggo + adult + cartoon, c.data.shows + kidsShow))
+        Repository.content.value = content
+        Repository.visible.value = content
+        val kids = app.iptv.tv.data.Profiles.add("Lisa", kids = true)
+        Repository.switchProfile(kids.id)
+        try {
+            val P = app.iptv.tv.data.CategoryPrefs
+            val visibleLive = P.filterChannels(content.live)
+            check(visibleLive.map { it.name }.toSet() == setOf("KiKA HD", "Kinderkanal 2")) { "Live im Kinderprofil: ${visibleLive.map { it.name }}" }
+            check(P.filterChannels(content.movies).map { it.name } == listOf("Kleiner Drache")) { "Filme im Kinderprofil: ${P.filterChannels(content.movies).map { it.name }}" }
+            check(P.filterShows(content.shows).map { it.title } == listOf("Biene Maja")) { "Serien im Kinderprofil falsch" }
+            // Eltern geben eine Kategorie frei bzw. entziehen eine erkannte
+            P.setKids(ContentKind.LIVE, "Nachrichten", true)
+            check(P.filterChannels(content.live).any { it.category == "Nachrichten" }) { "Freigabe wirkt nicht" }
+            P.setKids(ContentKind.LIVE, "Nachrichten", false)
+            P.setKids(ContentKind.MOVIE, "Kinderfilme", false)
+            check(P.filterChannels(content.movies).isEmpty()) { "Entzug wirkt nicht" }
+            P.setKids(ContentKind.MOVIE, "Kinderfilme", true)
+            // Oberfläche: Live TV zeigt nur Kindersender
+            Repository.visible.value = LibraryContent(content.data.copy(channels = P.filterChannels(content.data.channels), shows = P.filterShows(content.data.shows)))
+            app.iptv.tv.data.Profiles.chosen = true
+            start()
+            expect("nur freigegebene Kinderinhalte")
+            ok() // Live TV
+            expect("KiKA HD")
+            check(!see("Sender 1 HD") && !see("Heiß TV")) { "Erwachsenen-/Normalsender im Kinderprofil" }
+            shot("96-kinderprofil-live")
+        } finally {
+            Repository.switchProfile(app.iptv.tv.data.Profiles.MAIN)
+            app.iptv.tv.data.Profiles.remove(kids.id, ApplicationProvider.getApplicationContext<android.content.Context>().filesDir)
+        }
+        // Hauptprofil sieht wieder alles
+        check(app.iptv.tv.data.CategoryPrefs.filterChannels(content.live).any { it.name == "Sender 1 HD" })
+    }
 }

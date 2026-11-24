@@ -120,8 +120,9 @@ fun ProfilesScreen(nav: Navigator, memory: ScreenMemory) {
         ) {
             ScreenTitle(
                 "Profile",
-                "Jedes Profil hat eigene Favoriten, eigenen Verlauf und „Weiterschauen“. Im Kinderprofil sind gesperrte " +
-                    "Kategorien und Erwachseneninhalte immer ausgeblendet; zurück ins eigene Profil geht es nur mit der PIN. " +
+                "Jedes Profil hat eigene Favoriten, eigenen Verlauf und „Weiterschauen“. Das Kinderprofil zeigt nur " +
+                    "Kinderinhalte (Kinder-Kategorien und Kindersender wie KiKA, Disney, Toggo; weitere unter „Kinderinhalte festlegen“). " +
+                    "Zurück ins eigene Profil geht es nur mit der PIN. " +
                     "Der Abgleich mit dem iPhone betrifft nur das Profil „${profiles.first().name}“.",
             )
             profiles.forEach { p ->
@@ -156,6 +157,11 @@ fun ProfilesScreen(nav: Navigator, memory: ScreenMemory) {
                         }
                     }
                 }
+            }
+            if (profiles.any { it.kids }) {
+                Spacer(Modifier.height(12.dp))
+                AppButton("Kinderinhalte festlegen", { nav.push(Screen.CategoryEdit(app.iptv.tv.model.ContentKind.LIVE)) },
+                    primary = false, modifier = Modifier.rememberFocus(memory, "kidsContent"))
             }
             Spacer(Modifier.height(20.dp))
             SettingsHeader("Neues Profil")
